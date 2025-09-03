@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVerve - Registration</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            padding: 35px;
+        }
+
+        .logo {
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            color: #2ecc71;
+            margin-bottom: 20px;
+        }
+
+        .plan-name {
+            text-align: center;
+            font-size: 1.8rem;
+            color: #2c3e50;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .phone-input {
+            display: flex;
+        }
+
+        .phone-prefix {
+            padding: 14px;
+            background: #f1f1f1;
+            border: 1px solid #ddd;
+            border-right: none;
+            border-radius: 6px 0 0 6px;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 0 6px 6px 0;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #2ecc71;
+        }
+
+        .password-container {
+            position: relative;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #777;
+        }
+
+        .error-message {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .btn-create {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 25px;
+        }
+
+        .btn-create:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .btn-create:not(:disabled):hover {
+            background-color: #27ae60;
+        }
+
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #555;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            color: #2ecc71;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 25px;
+            }
+            
+            .plan-name {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">CVerve</div>
+        <h1 class="plan-name">Professional Plan Registration</h1>
+        
+        <form id="registrationForm">
+            <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <div class="phone-input">
+                    <span class="phone-prefix">+251</span>
+                    <input type="tel" id="phone" placeholder="Enter your phone number" maxlength="9">
+                </div>
+                <div id="phoneError" class="error-message">Phone number must be exactly 9 digits</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="password-container">
+                    <input type="password" id="password" placeholder="Create a password">
+                    <span class="toggle-password" id="togglePassword">
+                        <i class="far fa-eye"></i>
+                    </span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <div class="password-container">
+                    <input type="password" id="confirmPassword" placeholder="Confirm your password">
+                    <span class="toggle-password" id="toggleConfirmPassword">
+                        <i class="far fa-eye"></i>
+                    </span>
+                </div>
+                <div id="passwordError" class="error-message">Passwords do not match</div>
+            </div>
+            
+            <button type="submit" class="btn-create" id="createButton" disabled>Create Account</button>
+        </form>
+        
+        <a href="index.html" class="back-link">← Back to Plans</a>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const phoneInput = document.getElementById('phone');
+            const passwordInput = document.getElementById('password');
+            const confirmPasswordInput = document.getElementById('confirmPassword');
+            const phoneError = document.getElementById('phoneError');
+            const passwordError = document.getElementById('passwordError');
+            const createButton = document.getElementById('createButton');
+            const togglePassword = document.getElementById('togglePassword');
+            const toggleConfirmPassword = document.getElementById('toggleConfirmPassword');
+            
+            // Toggle password visibility
+            togglePassword.addEventListener('click', function() {
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                this.innerHTML = type === 'password' ? '<i class="far fa-eye"></i>' : '<i class="far fa-eye-slash"></i>';
+            });
+            
+            toggleConfirmPassword.addEventListener('click', function() {
+                const type = confirmPasswordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                confirmPasswordInput.setAttribute('type', type);
+                this.innerHTML = type === 'password' ? '<i class="far fa-eye"></i>' : '<i class="far fa-eye-slash"></i>';
+            });
+            
+            // Phone validation (exactly 9 digits)
+            phoneInput.addEventListener('input', function() {
+                const phoneValue = this.value.replace(/\D/g, '');
+                this.value = phoneValue;
+                
+                if (phoneValue.length !== 9) {
+                    phoneError.style.display = 'block';
+                } else {
+                    phoneError.style.display = 'none';
+                }
+                validateForm();
+            });
+            
+            // Password matching validation
+            confirmPasswordInput.addEventListener('input', function() {
+                if (passwordInput.value !== confirmPasswordInput.value) {
+                    passwordError.style.display = 'block';
+                } else {
+                    passwordError.style.display = 'none';
+                }
+                validateForm();
+            });
+            
+            passwordInput.addEventListener('input', function() {
+                if (passwordInput.value !== confirmPasswordInput.value) {
+                    passwordError.style.display = 'block';
+                } else {
+                    passwordError.style.display = 'none';
+                }
+                validateForm();
+            });
+            
+            // Form validation
+            function validateForm() {
+                const isPhoneValid = phoneInput.value.length === 9;
+                const isPasswordValid = passwordInput.value.length > 0;
+                const isPasswordMatch = passwordInput.value === confirmPasswordInput.value;
+                
+                if (isPhoneValid && isPasswordValid && isPasswordMatch) {
+                    createButton.disabled = false;
+                } else {
+                    createButton.disabled = true;
+                }
+            }
+            
+            // Form submission
+            document.getElementById('registrationForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                alert('Account created successfully for the Basic Plan!');
+                // In a real application, you would send this data to your server
+            });
+        });
+    </script>
+</body>
+</html>
