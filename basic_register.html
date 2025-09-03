@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CVerve - Registration</title>
+    <title>CVerve - Basic Plan Registration</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -14,7 +14,7 @@
         }
 
         body {
-            background-color: #f8f9fa;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             color: #333;
             line-height: 1.6;
             display: flex;
@@ -31,6 +31,18 @@
             border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
             padding: 35px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, #2ecc71 0%, #27ae60 100%);
         }
 
         .logo {
@@ -46,6 +58,13 @@
             font-size: 1.8rem;
             color: #2c3e50;
             margin-bottom: 25px;
+        }
+
+        .plan-description {
+            text-align: center;
+            color: #6c757d;
+            margin-bottom: 30px;
+            font-size: 1rem;
         }
 
         .form-group {
@@ -84,6 +103,7 @@
         input:focus {
             outline: none;
             border-color: #2ecc71;
+            box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.2);
         }
 
         .password-container {
@@ -97,6 +117,11 @@
             transform: translateY(-50%);
             cursor: pointer;
             color: #777;
+            transition: color 0.3s;
+        }
+
+        .toggle-password:hover {
+            color: #2ecc71;
         }
 
         .error-message {
@@ -106,28 +131,52 @@
             display: none;
         }
 
+        .success-message {
+            color: #2ecc71;
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .password-strength {
+            margin-top: 5px;
+            height: 5px;
+            border-radius: 3px;
+            background: #eee;
+            overflow: hidden;
+        }
+
+        .strength-meter {
+            height: 100%;
+            width: 0;
+            transition: width 0.3s, background 0.3s;
+            border-radius: 3px;
+        }
+
         .btn-create {
             display: block;
             width: 100%;
             padding: 14px;
-            background-color: #2ecc71;
+            background-color: #95a5a6;
             color: white;
             border: none;
             border-radius: 6px;
             font-size: 1.1rem;
             font-weight: 600;
-            cursor: pointer;
+            cursor: not-allowed;
             transition: background-color 0.3s;
             margin-top: 25px;
         }
 
-        .btn-create:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
+        .btn-create.enabled {
+            background-color: #2ecc71;
+            cursor: pointer;
         }
 
-        .btn-create:not(:disabled):hover {
+        .btn-create.enabled:hover {
             background-color: #27ae60;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .back-link {
@@ -136,10 +185,27 @@
             margin-top: 20px;
             color: #555;
             text-decoration: none;
+            transition: color 0.3s;
         }
 
         .back-link:hover {
             color: #2ecc71;
+        }
+
+        .terms {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #6c757d;
+            text-align: center;
+        }
+
+        .terms a {
+            color: #2ecc71;
+            text-decoration: none;
+        }
+
+        .terms a:hover {
+            text-decoration: underline;
         }
 
         @media (max-width: 480px) {
@@ -157,13 +223,14 @@
     <div class="container">
         <div class="logo">CVerve</div>
         <h1 class="plan-name">Basic Plan Registration</h1>
+        <p class="plan-description">Create your account to get started with 3 professional CVs</p>
         
         <form id="registrationForm">
             <div class="form-group">
                 <label for="phone">Phone Number</label>
                 <div class="phone-input">
                     <span class="phone-prefix">+251</span>
-                    <input type="tel" id="phone" placeholder="Enter your phone number" maxlength="9">
+                    <input type="tel" id="phone" placeholder="Enter your 9-digit phone number" maxlength="9">
                 </div>
                 <div id="phoneError" class="error-message">Phone number must be exactly 9 digits</div>
             </div>
@@ -171,10 +238,15 @@
             <div class="form-group">
                 <label for="password">Password</label>
                 <div class="password-container">
-                    <input type="password" id="password" placeholder="Create a password">
+                    <input type="password" id="password" placeholder="Create a password (min. 6 characters)">
                     <span class="toggle-password" id="togglePassword">
                         <i class="far fa-eye"></i>
                     </span>
+                </div>
+                <div id="passwordLengthError" class="error-message">Password must be at least 6 characters</div>
+                <div id="passwordLengthSuccess" class="success-message">Password length is good!</div>
+                <div class="password-strength">
+                    <div class="strength-meter" id="strengthMeter"></div>
                 </div>
             </div>
             
@@ -187,10 +259,13 @@
                     </span>
                 </div>
                 <div id="passwordError" class="error-message">Passwords do not match</div>
+                <div id="passwordSuccess" class="success-message">Passwords match!</div>
             </div>
             
-            <button type="submit" class="btn-create" id="createButton" disabled>Create Account</button>
+            <button type="submit" class="btn-create" id="createButton">Create Account</button>
         </form>
+        
+        <p class="terms">By creating an account, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></p>
         
         <a href="index.html" class="back-link">← Back to Plans</a>
     </div>
@@ -202,9 +277,13 @@
             const confirmPasswordInput = document.getElementById('confirmPassword');
             const phoneError = document.getElementById('phoneError');
             const passwordError = document.getElementById('passwordError');
+            const passwordSuccess = document.getElementById('passwordSuccess');
+            const passwordLengthError = document.getElementById('passwordLengthError');
+            const passwordLengthSuccess = document.getElementById('passwordLengthSuccess');
             const createButton = document.getElementById('createButton');
             const togglePassword = document.getElementById('togglePassword');
             const toggleConfirmPassword = document.getElementById('toggleConfirmPassword');
+            const strengthMeter = document.getElementById('strengthMeter');
             
             // Toggle password visibility
             togglePassword.addEventListener('click', function() {
@@ -224,7 +303,7 @@
                 const phoneValue = this.value.replace(/\D/g, '');
                 this.value = phoneValue;
                 
-                if (phoneValue.length !== 9) {
+                if (phoneValue.length !== 9 && phoneValue.length > 0) {
                     phoneError.style.display = 'block';
                 } else {
                     phoneError.style.display = 'none';
@@ -232,43 +311,98 @@
                 validateForm();
             });
             
-            // Password matching validation
+            // Password validation
+            passwordInput.addEventListener('input', function() {
+                // Check password length
+                if (this.value.length > 0 && this.value.length < 6) {
+                    passwordLengthError.style.display = 'block';
+                    passwordLengthSuccess.style.display = 'none';
+                } else if (this.value.length >= 6) {
+                    passwordLengthError.style.display = 'none';
+                    passwordLengthSuccess.style.display = 'block';
+                } else {
+                    passwordLengthError.style.display = 'none';
+                    passwordLengthSuccess.style.display = 'none';
+                }
+                
+                // Check password match
+                if (confirmPasswordInput.value.length > 0) {
+                    if (passwordInput.value !== confirmPasswordInput.value) {
+                        passwordError.style.display = 'block';
+                        passwordSuccess.style.display = 'none';
+                    } else {
+                        passwordError.style.display = 'none';
+                        passwordSuccess.style.display = 'block';
+                    }
+                }
+                
+                // Update password strength meter
+                updatePasswordStrength(this.value);
+                
+                validateForm();
+            });
+            
+            // Confirm password validation
             confirmPasswordInput.addEventListener('input', function() {
                 if (passwordInput.value !== confirmPasswordInput.value) {
                     passwordError.style.display = 'block';
+                    passwordSuccess.style.display = 'none';
                 } else {
                     passwordError.style.display = 'none';
+                    passwordSuccess.style.display = 'block';
                 }
                 validateForm();
             });
             
-            passwordInput.addEventListener('input', function() {
-                if (passwordInput.value !== confirmPasswordInput.value) {
-                    passwordError.style.display = 'block';
+            // Password strength meter
+            function updatePasswordStrength(password) {
+                let strength = 0;
+                
+                if (password.length >= 6) strength += 25;
+                if (password.length >= 8) strength += 25;
+                if (/[A-Z]/.test(password)) strength += 25;
+                if (/[0-9]/.test(password)) strength += 25;
+                
+                strengthMeter.style.width = strength + '%';
+                
+                if (strength < 50) {
+                    strengthMeter.style.background = '#e74c3c';
+                } else if (strength < 75) {
+                    strengthMeter.style.background = '#f39c12';
                 } else {
-                    passwordError.style.display = 'none';
+                    strengthMeter.style.background = '#2ecc71';
                 }
-                validateForm();
-            });
+            }
             
             // Form validation
             function validateForm() {
                 const isPhoneValid = phoneInput.value.length === 9;
-                const isPasswordValid = passwordInput.value.length > 0;
+                const isPasswordValid = passwordInput.value.length >= 6;
                 const isPasswordMatch = passwordInput.value === confirmPasswordInput.value;
                 
                 if (isPhoneValid && isPasswordValid && isPasswordMatch) {
-                    createButton.disabled = false;
+                    createButton.classList.add('enabled');
                 } else {
-                    createButton.disabled = true;
+                    createButton.classList.remove('enabled');
                 }
             }
             
             // Form submission
             document.getElementById('registrationForm').addEventListener('submit', function(e) {
                 e.preventDefault();
-                alert('Account created successfully for the Basic Plan!');
-                // In a real application, you would send this data to your server
+                
+                if (createButton.classList.contains('enabled')) {
+                    // In a real application, you would send this data to your server
+                    alert('Account created successfully for the Basic Plan!');
+                    // Reset form
+                    this.reset();
+                    createButton.classList.remove('enabled');
+                    passwordError.style.display = 'none';
+                    passwordSuccess.style.display = 'none';
+                    passwordLengthError.style.display = 'none';
+                    passwordLengthSuccess.style.display = 'none';
+                    strengthMeter.style.width = '0';
+                }
             });
         });
     </script>
