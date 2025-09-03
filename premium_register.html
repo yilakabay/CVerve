@@ -299,21 +299,15 @@
                 }
             }
             
-            // Form submission
-            document.getElementById('registrationForm').addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                if (createButton.classList.contains('enabled')) {
-                    // In a real application, you would send this data to your server
-                    alert('Account created successfully for the Basic Plan!');
-                    // Reset form
-                    this.reset();
-                    createButton.classList.remove('enabled');
-                    phoneError.style.display = 'none';
-                    passwordError.style.display = 'none';
-                    passwordLengthError.style.display = 'none';
-                }
-            });
+ // Form submission
+document.getElementById('registrationForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    if (createButton.classList.contains('enabled')) {
+        // Redirect to payment page
+        window.location.href = 'premium_payment.html';
+    }
+});
         });
     </script>
 </body>
