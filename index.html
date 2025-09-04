@@ -31,7 +31,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 0;
+            padding: 15px 0; /* Reduced padding */
             border-bottom: 1px solid rgba(0, 0, 0, 0);
         }
 
@@ -60,27 +60,27 @@
         /* Hero section */
         .hero {
             text-align: center;
-            padding: 60px 0;
+            padding: 30px 0 40px 0; /* Reduced padding */
             max-width: 800px;
             margin: 0 auto;
         }
 
         .hero h1 {
             font-size: 2.5rem;
-            margin-bottom: 20px;
+            margin-bottom: 15px; /* Reduced margin */
             color: #2c3e50;
         }
 
         .hero p {
             font-size: 1.2rem;
             color: #555;
-            margin-bottom: 30px;
+            margin-bottom: 25px; /* Reduced margin */
         }
 
         /* Pricing section */
         .pricing-heading {
             text-align: center;
-            margin: 40px 0;
+            margin: 20px 0 30px 0; /* Reduced margin */
             color: #2c3e50;
             font-size: 2.2rem;
         }
@@ -90,7 +90,7 @@
             flex-wrap: wrap;
             justify-content: center;
             gap: 30px;
-            margin-bottom: 60px;
+            margin-bottom: 50px; /* Reduced margin */
         }
 
         .pricing-card {
@@ -211,15 +211,21 @@
 
         @media (max-width: 480px) {
             .hero {
-                padding: 40px 0;
+                padding: 20px 0 30px 0; /* Adjusted for mobile */
             }
 
             .hero h1 {
                 font-size: 1.8rem;
+                margin-bottom: 10px; /* Reduced for mobile */
+            }
+
+            .hero p {
+                margin-bottom: 20px; /* Reduced for mobile */
             }
 
             .pricing-heading {
                 font-size: 1.8rem;
+                margin: 15px 0 25px 0; /* Reduced for mobile */
             }
         }
     </style>
