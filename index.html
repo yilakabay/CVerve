@@ -38,7 +38,7 @@
         .logo {
             font-size: 28px;
             font-weight: 700;
-            color: #2ecc71;
+            color: #00008B; /* Changed to requested dark blue */
         }
 
         .nav-links {
@@ -54,7 +54,7 @@
         }
 
         .nav-links a:hover {
-            color: #2ecc71;
+            color: #00008B; /* Changed to match new logo color */
         }
 
         /* Hero section */
@@ -110,10 +110,21 @@
         }
 
         .price {
-            color: #2ecc71;
             font-size: 2rem;
             font-weight: 700;
             margin: 15px 0;
+        }
+
+        .basic-plan .price {
+            color: #2ecc71; /* Keep Basic Plan green */
+        }
+
+        .professional-plan .price {
+            color: #3498db; /* Changed to requested blue */
+        }
+
+        .premium-plan .price {
+            color: #9b59b6; /* Changed to requested purple */
         }
 
         .plan-name {
@@ -133,8 +144,19 @@
             align-items: flex-start;
         }
 
+        .basic-plan .features i {
+            color: #2ecc71; /* Keep Basic Plan green */
+        }
+
+        .professional-plan .features i {
+            color: #3498db; /* Changed to requested blue */
+        }
+
+        .premium-plan .features i {
+            color: #9b59b6; /* Changed to requested purple */
+        }
+
         .features i {
-            color: #2ecc71;
             margin-right: 10px;
             margin-top: 4px;
         }
@@ -143,7 +165,6 @@
             display: block;
             width: 100%;
             padding: 14px;
-            background-color: #2ecc71;
             color: white;
             border: none;
             border-radius: 6px;
@@ -154,8 +175,28 @@
             margin-top: 25px;
         }
 
-        .btn-register:hover {
-            background-color: #27ae60;
+        .basic-plan .btn-register {
+            background-color: #2ecc71; /* Keep Basic Plan green */
+        }
+
+        .basic-plan .btn-register:hover {
+            background-color: #27ae60; /* Keep Basic Plan hover effect */
+        }
+
+        .professional-plan .btn-register {
+            background-color: #3498db; /* Changed to requested blue */
+        }
+
+        .professional-plan .btn-register:hover {
+            background-color: #2980b9; /* Darker blue for hover */
+        }
+
+        .premium-plan .btn-register {
+            background-color: #9b59b6; /* Changed to requested purple */
+        }
+
+        .premium-plan .btn-register:hover {
+            background-color: #8e44ad; /* Darker purple for hover */
         }
 
         .login-prompt {
@@ -166,7 +207,7 @@
         }
 
         .login-link {
-            color: #2ecc71;
+            color: #00008B; /* Changed to match new logo color */
             text-decoration: none;
             font-weight: 600;
         }
@@ -255,7 +296,7 @@
         <h2 class="pricing-heading">Choose a Plan</h2>
         <div class="pricing-cards">
             <!-- Basic Plan -->
-            <div class="pricing-card">
+            <div class="pricing-card basic-plan">
                 <h3 class="plan-name">Basic Plan</h3>
                 <div class="price">ETB 75 / One Month</div>
                 <ul class="features">
@@ -267,7 +308,7 @@
             </div>
 
             <!-- Professional Plan -->
-            <div class="pricing-card">
+            <div class="pricing-card professional-plan">
                 <h3 class="plan-name">Professional Plan</h3>
                 <div class="price">ETB 285 / One Month</div>
                 <ul class="features">
@@ -280,7 +321,7 @@
             </div>
 
             <!-- Premium Plan -->
-            <div class="pricing-card">
+            <div class="pricing-card premium-plan">
                 <h3 class="plan-name">Premium Plan</h3>
                 <div class="price">ETB 330 / One Month</div>
                 <ul class="features">
