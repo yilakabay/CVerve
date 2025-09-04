@@ -184,9 +184,10 @@
                 <label for="phone">Phone Number</label>
                 <div class="phone-input">
                     <span class="phone-prefix">+251</span>
-                    <input type="tel" id="phone" maxlength="9">
+                    <!-- Removed maxlength restriction to allow any number of digits -->
+                    <input type="tel" id="phone">
                 </div>
-                <div id="phoneError" class="error-message">Phone number must be exactly 9 digits</div>
+                <div id="phoneError" class="error-message">Phone number must be exactly 10 digits</div>
             </div>
             
             <div class="form-group">
@@ -242,12 +243,13 @@
                 this.innerHTML = type === 'password' ? '<i class="far fa-eye"></i>' : '<i class="far fa-eye-slash"></i>';
             });
             
-            // Phone validation (exactly 9 digits)
+            // Phone validation (exactly 10 digits)
             phoneInput.addEventListener('input', function() {
                 const phoneValue = this.value.replace(/\D/g, '');
                 this.value = phoneValue;
                 
-                if (phoneValue.length !== 9 && phoneValue.length > 0) {
+                // Updated validation to check for exactly 10 digits
+                if (phoneValue.length !== 10 && phoneValue.length > 0) {
                     phoneError.style.display = 'block';
                 } else {
                     phoneError.style.display = 'none';
@@ -288,7 +290,8 @@
             
             // Form validation
             function validateForm() {
-                const isPhoneValid = phoneInput.value.length === 9;
+                // Updated to check for exactly 10 digits
+                const isPhoneValid = phoneInput.value.length === 10;
                 const isPasswordValid = passwordInput.value.length >= 6;
                 const isPasswordMatch = passwordInput.value === confirmPasswordInput.value;
                 
@@ -299,15 +302,15 @@
                 }
             }
             
- // Form submission
-document.getElementById('registrationForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    if (createButton.classList.contains('enabled')) {
-        // Redirect to payment page
-        window.location.href = 'basic_payment.html';
-    }
-});
+            // Form submission
+            document.getElementById('registrationForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                if (createButton.classList.contains('enabled')) {
+                    // Redirect to payment page
+                    window.location.href = 'basic_payment.html';
+                }
+            });
         });
     </script>
 </body>
