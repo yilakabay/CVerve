@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CVerve - Premium Plan Payment</title>
+    <title>CVerve - Enterprise Plan Payment</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -42,7 +42,7 @@
             left: 0;
             width: 100%;
             height: 5px;
-            background: linear-gradient(90deg, #2ecc71 0%, #27ae60 100%);
+            background: #9b59b6; /* Changed to #9b59b6 */
         }
 
         .logo {
@@ -95,27 +95,37 @@
             margin-bottom: 25px;
             line-height: 1.6;
             color: #555;
+            text-align: center;
         }
 
-        .telegram-link {
-            color: #2ecc71;
-            text-decoration: underline;
-            font-weight: 600;
+        .instructions p {
+            margin-bottom: 20px;
+            text-align: left;
         }
 
-        .btn-submit {
-            display: block;
-            width: 100%;
-            padding: 14px;
-            background-color: #95a5a6;
+        .telegram-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #9b59b6; /* Changed to #9b59b6 */
             color: white;
-            border: none;
+            padding: 12px 20px;
             border-radius: 6px;
-            font-size: 1.1rem;
+            text-decoration: none;
             font-weight: 600;
-            cursor: not-allowed;
-            margin-top: 25px;
-            opacity: 0.7;
+            transition: all 0.3s;
+            margin: 0 auto;
+        }
+
+        .telegram-button i {
+            margin-left: 8px;
+            font-size: 0.9em;
+        }
+
+        .telegram-button:hover {
+            background-color: #8e44ad;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .back-link {
@@ -128,7 +138,7 @@
         }
 
         .back-link:hover {
-            color: #2ecc71;
+            color: #9b59b6; /* Changed to #9b59b6 */
         }
 
         @media (max-width: 480px) {
@@ -154,7 +164,7 @@
 <body>
     <div class="container">
         <div class="logo">CVerve</div>
-        <h1 class="plan-name">Premium Plan Payment Instructions</h1>
+        <h1 class="plan-name">Enterprise Plan Payment Instructions</h1>
         
         <div class="payment-details">
             <div class="payment-row">
@@ -171,15 +181,16 @@
             </div>
             <div class="payment-row">
                 <div class="payment-label">Amount:</div>
-                <div class="payment-value">ETB 330</div>
+                <div class="payment-value">ETB 550</div>
             </div>
         </div>
         
         <div class="instructions">
-            <p>After you pay please send us the screenshot of your payment along with your phone number on telegram bot @CVervebot or <a href="https://t.me/CVervebot" class="telegram-link" target="_blank">click here</a> to get the bot.</p>
+            <p>After you pay please send us the screenshot of your payment along with your phone number on telegram bot click the button below to get the bot.</p>
+            <a href="https://t.me/CVervebot" target="_blank" class="telegram-button">
+                Go to the Bot <i class="fas fa-external-link-alt"></i>
+            </a>
         </div>
-        
-        <button class="btn-submit" disabled>Submit Payment Proof</button>
         
         <a href="index.html" class="back-link">← Back to Plans</a>
     </div>
