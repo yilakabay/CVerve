@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CVerve - Basic Plan Registration</title>
+    <title>CVerve - Premium Plan Registration</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -42,14 +42,14 @@
             left: 0;
             width: 100%;
             height: 5px;
-            background: linear-gradient(90deg, #2ecc71 0%, #27ae60 100%);
+            background: linear-gradient(90deg, #9b59b6 0%, #8e44ad 100%);
         }
 
         .logo {
             text-align: center;
             font-size: 28px;
             font-weight: 700;
-            color: #2ecc71;
+            color: #9b59b6;
             margin-bottom: 20px;
         }
 
@@ -95,8 +95,8 @@
 
         input:focus {
             outline: none;
-            border-color: #2ecc71;
-            box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.2);
+            border-color: #9b59b6;
+            box-shadow: 0 0 0 2px rgba(155, 89, 182, 0.2);
         }
 
         .password-container {
@@ -114,7 +114,7 @@
         }
 
         .toggle-password:hover {
-            color: #2ecc71;
+            color: #9b59b6;
         }
 
         .error-message {
@@ -140,12 +140,12 @@
         }
 
         .btn-create.enabled {
-            background-color: #2ecc71;
+            background-color: #9b59b6;
             cursor: pointer;
         }
 
         .btn-create.enabled:hover {
-            background-color: #27ae60;
+            background-color: #8e44ad;
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
@@ -160,7 +160,7 @@
         }
 
         .back-link:hover {
-            color: #2ecc71;
+            color: #9b59b6;
         }
 
         @media (max-width: 480px) {
@@ -184,7 +184,8 @@
                 <label for="phone">Phone Number</label>
                 <div class="phone-input">
                     <span class="phone-prefix">+251</span>
-                    <input type="tel" id="phone" maxlength="9">
+                    <!-- Removed maxlength restriction to allow any number of digits -->
+                    <input type="tel" id="phone" placeholder="Enter your phone number">
                 </div>
                 <div id="phoneError" class="error-message">Phone number must be exactly 9 digits</div>
             </div>
@@ -192,7 +193,7 @@
             <div class="form-group">
                 <label for="password">Password</label>
                 <div class="password-container">
-                    <input type="password" id="password">
+                    <input type="password" id="password" placeholder="Enter at least 6 characters">
                     <span class="toggle-password" id="togglePassword">
                         <i class="far fa-eye"></i>
                     </span>
@@ -203,7 +204,7 @@
             <div class="form-group">
                 <label for="confirmPassword">Confirm Password</label>
                 <div class="password-container">
-                    <input type="password" id="confirmPassword">
+                    <input type="password" id="confirmPassword" placeholder="Confirm your password">
                     <span class="toggle-password" id="toggleConfirmPassword">
                         <i class="far fa-eye"></i>
                     </span>
@@ -247,6 +248,7 @@
                 const phoneValue = this.value.replace(/\D/g, '');
                 this.value = phoneValue;
                 
+                // Show error if not exactly 9 digits
                 if (phoneValue.length !== 9 && phoneValue.length > 0) {
                     phoneError.style.display = 'block';
                 } else {
@@ -299,15 +301,15 @@
                 }
             }
             
- // Form submission
-document.getElementById('registrationForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    if (createButton.classList.contains('enabled')) {
-        // Redirect to payment page
-        window.location.href = 'premium_payment.html';
-    }
-});
+            // Form submission
+            document.getElementById('registrationForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                if (createButton.classList.contains('enabled')) {
+                    // Redirect to payment page
+                    window.location.href = 'premium_payment.html';
+                }
+            });
         });
     </script>
 </body>
