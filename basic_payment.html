@@ -97,10 +97,27 @@
             color: #555;
         }
 
-        .telegram-link {
-            color: #2ecc71;
-            text-decoration: underline;
+        .telegram-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #2ecc71;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            text-decoration: none;
             font-weight: 600;
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+
+        .telegram-button i {
+            margin-left: 8px;
+            font-size: 0.9em;
+        }
+
+        .telegram-button:hover {
+            background-color: #27ae60;
         }
 
         .btn-submit {
@@ -176,7 +193,10 @@
         </div>
         
         <div class="instructions">
-            <p>After you pay please send us the screenshot of your payment along with your phone number on telegram bot @CVervebot or <a href="https://t.me/CVervebot" class="telegram-link" target="_blank">click here</a> to get the bot.</p>
+            <p>After you pay please send us the screenshot of your payment along with your phone number on telegram bot click the button below to get the bot.</p>
+            <a href="https://t.me/CVervebot" target="_blank" class="telegram-button">
+                Go to the Bot <i class="fas fa-external-link-alt"></i>
+            </a>
         </div>
         
         <button class="btn-submit" disabled>Submit Payment Proof</button>
