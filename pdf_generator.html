@@ -18,10 +18,13 @@
             line-height: 1.6;
             padding: 20px;
             min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .container {
+            width: 100%;
             max-width: 1200px;
-            margin: 0 auto;
             background: white;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
@@ -135,6 +138,7 @@
         }
         .preview-content {
             line-height: 1.8;
+            white-space: pre-line;
         }
         .actions {
             display: flex;
@@ -157,6 +161,21 @@
         .instructions li {
             margin-bottom: 8px;
         }
+        .status-message {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            text-align: center;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
         @media (max-width: 768px) {
             .content {
                 flex-direction: column;
@@ -164,25 +183,6 @@
             .actions {
                 flex-direction: column;
             }
-        }
-        .success-message {
-            background: #d4edda;
-            color: #155724;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-            text-align: center;
-        }
-        .error-message {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-            text-align: center;
-        }
-        .hidden {
-            display: none;
         }
     </style>
 </head>
@@ -203,13 +203,7 @@
             </ol>
         </div>
         
-        <div id="successMessage" class="success-message hidden">
-            PDF generated successfully! Click the download button to save it.
-        </div>
-        
-        <div id="errorMessage" class="error-message hidden">
-            Error generating PDF. Please try again.
-        </div>
+        <div id="statusMessage" class="status-message"></div>
         
         <div class="content">
             <div class="input-section">
@@ -279,10 +273,9 @@
             const previewTitle = document.getElementById('previewTitle');
             const previewAuthor = document.getElementById('previewAuthor');
             const previewContent = document.getElementById('previewContent');
-            const successMessage = document.getElementById('successMessage');
-            const errorMessage = document.getElementById('errorMessage');
+            const statusMessage = document.getElementById('statusMessage');
             
-            let pdfBlob = null;
+            let pdfGenerated = false;
             
             // Update preview as user types
             titleInput.addEventListener('input', updatePreview);
@@ -301,32 +294,42 @@
                 previewContent.style.fontSize = fontSizeSelect.value;
             }
             
+            // Show status message
+            function showStatus(message, isSuccess) {
+                statusMessage.textContent = message;
+                statusMessage.className = isSuccess ? 'status-message success' : 'status-message error';
+                statusMessage.style.display = 'block';
+                
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
+            }
+            
             // Generate PDF
             generateBtn.addEventListener('click', function() {
                 // Update preview with latest content
                 updatePreview();
                 
-                // Hide any previous messages
-                successMessage.classList.add('hidden');
-                errorMessage.classList.add('hidden');
-                
                 try {
-                    // Create a temporary element for PDF generation
-                    const tempElement = document.createElement('div');
-                    tempElement.innerHTML = `
-                        <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; padding: 20px;">
-                            <h1 style="text-align: center;">${titleInput.value || 'Untitled Document'}</h1>
-                            <p style="text-align: center;">By: ${authorInput.value || 'Unknown Author'}</p>
-                            <div style="white-space: pre-line; margin-top: 20px;">
-                                ${contentInput.value || 'No content provided.'}
-                            </div>
+                    // Create a dedicated element for PDF generation
+                    const pdfElement = document.createElement('div');
+                    pdfElement.style.padding = '20px';
+                    pdfElement.innerHTML = `
+                        <h1 style="text-align: center; margin-bottom: 20px; font-family: ${fontFamilySelect.value}">
+                            ${titleInput.value || 'Untitled Document'}
+                        </h1>
+                        <p style="text-align: center; margin-bottom: 30px; font-family: ${fontFamilySelect.value}">
+                            Author: ${authorInput.value || 'Unknown'}
+                        </p>
+                        <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; line-height: 1.6;">
+                            ${contentInput.value.replace(/\n/g, '<br>') || 'No content provided.'}
                         </div>
                     `;
                     
                     // Generate the PDF
                     const opt = {
                         margin: 10,
-                        filename: 'document.pdf',
+                        filename: 'my-document.pdf',
                         image: { type: 'jpeg', quality: 0.98 },
                         html2canvas: { 
                             scale: 2,
@@ -336,44 +339,30 @@
                         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                     };
                     
-                    // Generate PDF as blob
-                    html2pdf().set(opt).from(tempElement).output('blob').then(function(blob) {
-                        pdfBlob = blob;
-                        downloadBtn.disabled = false;
-                        successMessage.classList.remove('hidden');
-                        
-                        // Hide success message after 5 seconds
-                        setTimeout(function() {
-                            successMessage.classList.add('hidden');
-                        }, 5000);
-                    }).catch(function(error) {
+                    // Generate PDF directly without using a blob
+                    html2pdf().set(opt).from(pdfElement).save().then(() => {
+                        pdfGenerated = true;
+                        showStatus('PDF generated successfully! Check your downloads folder.', true);
+                    }).catch(error => {
                         console.error('PDF generation error:', error);
-                        errorMessage.textContent = 'Error generating PDF: ' + error.message;
-                        errorMessage.classList.remove('hidden');
+                        showStatus('Error generating PDF: ' + error.message, false);
                     });
                     
                 } catch (error) {
                     console.error('Error in PDF generation:', error);
-                    errorMessage.textContent = 'Error generating PDF: ' + error.message;
-                    errorMessage.classList.remove('hidden');
+                    showStatus('Error generating PDF: ' + error.message, false);
                 }
             });
             
-            // Download PDF
+            // Alternative download method
             downloadBtn.addEventListener('click', function() {
-                if (pdfBlob) {
-                    const url = URL.createObjectURL(pdfBlob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'my-document.pdf';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url);
-                } else {
-                    errorMessage.textContent = 'Please generate the PDF first before downloading.';
-                    errorMessage.classList.remove('hidden');
+                if (!pdfGenerated) {
+                    showStatus('Please generate the PDF first.', false);
+                    return;
                 }
+                
+                // This will simply regenerate and download the PDF
+                generateBtn.click();
             });
             
             // Initialize preview
