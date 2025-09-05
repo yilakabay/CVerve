@@ -172,7 +172,6 @@
             border-radius: 5px;
             margin: 15px 0;
             text-align: center;
-            display: none;
         }
         .error-message {
             background: #f8d7da;
@@ -181,13 +180,9 @@
             border-radius: 5px;
             margin: 15px 0;
             text-align: center;
-            display: none;
         }
-        #pdfContent {
-            padding: 20px;
-            background: white;
-            color: black;
-            font-family: Arial, sans-serif;
+        .hidden {
+            display: none;
         }
     </style>
 </head>
@@ -208,11 +203,11 @@
             </ol>
         </div>
         
-        <div class="success-message" id="successMessage">
+        <div id="successMessage" class="success-message hidden">
             PDF generated successfully! Click the download button to save it.
         </div>
         
-        <div class="error-message" id="errorMessage">
+        <div id="errorMessage" class="error-message hidden">
             Error generating PDF. Please try again.
         </div>
         
@@ -272,9 +267,6 @@
         </div>
     </div>
 
-    <!-- Hidden container for PDF content -->
-    <div id="pdfContent" style="display: none;"></div>
-
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const titleInput = document.getElementById('title');
@@ -289,9 +281,8 @@
             const previewContent = document.getElementById('previewContent');
             const successMessage = document.getElementById('successMessage');
             const errorMessage = document.getElementById('errorMessage');
-            const pdfContent = document.getElementById('pdfContent');
             
-            let generatedPdf = null;
+            let pdfBlob = null;
             
             // Update preview as user types
             titleInput.addEventListener('input', updatePreview);
@@ -315,70 +306,73 @@
                 // Update preview with latest content
                 updatePreview();
                 
-                // Prepare the PDF content
-                pdfContent.innerHTML = `
-                    <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; padding: 20mm;">
-                        <h1 style="text-align: center; margin-bottom: 20px;">${titleInput.value || 'Untitled Document'}</h1>
-                        <p style="text-align: center; margin-bottom: 30px;">By: ${authorInput.value || 'Unknown Author'}</p>
-                        <div style="line-height: 1.6;">
-                            ${contentInput.value.replace(/\n/g, '<br>') || 'No content provided.'}
-                        </div>
-                    </div>
-                `;
-                
-                // Generate the PDF
-                const opt = {
-                    margin: 10,
-                    filename: 'document.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { 
-                        scale: 2,
-                        useCORS: true,
-                        backgroundColor: '#FFFFFF',
-                        logging: true
-                    },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-                
                 // Hide any previous messages
-                successMessage.style.display = 'none';
-                errorMessage.style.display = 'none';
+                successMessage.classList.add('hidden');
+                errorMessage.classList.add('hidden');
                 
                 try {
-                    // Generate and store the PDF
-                    html2pdf().set(opt).from(pdfContent).outputPdf('datauristring').then(function(pdfString) {
-                        generatedPdf = pdfString;
+                    // Create a temporary element for PDF generation
+                    const tempElement = document.createElement('div');
+                    tempElement.innerHTML = `
+                        <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; padding: 20px;">
+                            <h1 style="text-align: center;">${titleInput.value || 'Untitled Document'}</h1>
+                            <p style="text-align: center;">By: ${authorInput.value || 'Unknown Author'}</p>
+                            <div style="white-space: pre-line; margin-top: 20px;">
+                                ${contentInput.value || 'No content provided.'}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Generate the PDF
+                    const opt = {
+                        margin: 10,
+                        filename: 'document.pdf',
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { 
+                            scale: 2,
+                            useCORS: true,
+                            backgroundColor: '#FFFFFF'
+                        },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+                    
+                    // Generate PDF as blob
+                    html2pdf().set(opt).from(tempElement).output('blob').then(function(blob) {
+                        pdfBlob = blob;
                         downloadBtn.disabled = false;
-                        successMessage.style.display = 'block';
+                        successMessage.classList.remove('hidden');
                         
                         // Hide success message after 5 seconds
                         setTimeout(function() {
-                            successMessage.style.display = 'none';
+                            successMessage.classList.add('hidden');
                         }, 5000);
                     }).catch(function(error) {
                         console.error('PDF generation error:', error);
                         errorMessage.textContent = 'Error generating PDF: ' + error.message;
-                        errorMessage.style.display = 'block';
+                        errorMessage.classList.remove('hidden');
                     });
+                    
                 } catch (error) {
                     console.error('Error in PDF generation:', error);
                     errorMessage.textContent = 'Error generating PDF: ' + error.message;
-                    errorMessage.style.display = 'block';
+                    errorMessage.classList.remove('hidden');
                 }
             });
             
             // Download PDF
             downloadBtn.addEventListener('click', function() {
-                if (generatedPdf) {
+                if (pdfBlob) {
+                    const url = URL.createObjectURL(pdfBlob);
                     const link = document.createElement('a');
-                    link.href = generatedPdf;
+                    link.href = url;
                     link.download = 'my-document.pdf';
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
                 } else {
                     errorMessage.textContent = 'Please generate the PDF first before downloading.';
-                    errorMessage.style.display = 'block';
+                    errorMessage.classList.remove('hidden');
                 }
             });
             
