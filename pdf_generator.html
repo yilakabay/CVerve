@@ -6,154 +6,240 @@
     <title>HTML to PDF Converter</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f7f9;
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
             color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
         }
         .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+        }
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        .content {
             display: flex;
             flex-wrap: wrap;
-            gap: 20px;
+            padding: 20px;
         }
         .input-section {
             flex: 1;
             min-width: 300px;
-            background: white;
             padding: 25px;
+            background: #f8f9fa;
             border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin: 10px;
         }
         .preview-section {
             flex: 1;
             min-width: 300px;
-            background: white;
             padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin: 10px;
         }
-        h1 {
+        h2 {
             color: #2c3e50;
-            text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
         }
         .form-group {
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
         label {
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
             font-weight: 600;
+            color: #2c3e50;
         }
         input, textarea, select {
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
             font-family: inherit;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus, textarea:focus, select:focus {
+            border-color: #3498db;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
         }
         textarea {
-            min-height: 100px;
+            min-height: 120px;
             resize: vertical;
         }
         button {
-            background-color: #3498db;
+            background: #3498db;
             color: white;
             border: none;
-            padding: 12px 20px;
-            border-radius: 5px;
+            padding: 14px 25px;
+            border-radius: 8px;
             cursor: pointer;
             font-size: 16px;
+            font-weight: 600;
             margin-top: 10px;
             width: 100%;
-            transition: background-color 0.3s;
+            transition: background 0.3s, transform 0.2s;
         }
         button:hover {
-            background-color: #2980b9;
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .download-btn {
+            background: #27ae60;
+        }
+        .download-btn:hover {
+            background: #219653;
         }
         #pdfPreview {
-            border: 1px solid #ddd;
-            padding: 20px;
+            border: 2px dashed #ddd;
+            padding: 25px;
             min-height: 400px;
             background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
         }
         .preview-header {
             text-align: center;
             border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
+            padding-bottom: 15px;
             margin-bottom: 20px;
         }
         .preview-content {
-            line-height: 1.6;
+            line-height: 1.8;
         }
         .actions {
             display: flex;
-            gap: 10px;
-            margin-top: 20px;
+            gap: 15px;
         }
-        .download-btn {
-            background-color: #27ae60;
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
         }
-        .download-btn:hover {
-            background-color: #219653;
+        .instructions h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        .instructions ol {
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin-bottom: 8px;
         }
         @media (max-width: 768px) {
-            .container {
+            .content {
+                flex-direction: column;
+            }
+            .actions {
                 flex-direction: column;
             }
         }
     </style>
 </head>
 <body>
-    <h1>HTML to PDF Converter</h1>
-    
     <div class="container">
-        <div class="input-section">
-            <h2>Enter Details</h2>
-            <div class="form-group">
-                <label for="title">Title</label>
-                <input type="text" id="title" placeholder="Document title">
-            </div>
-            <div class="form-group">
-                <label for="name">Name</label>
-                <input type="text" id="name" placeholder="Your name">
-            </div>
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" placeholder="Your email">
-            </div>
-            <div class="form-group">
-                <label for="content">Content</label>
-                <textarea id="content" placeholder="Enter your content here..."></textarea>
-            </div>
-            <div class="form-group">
-                <label for="template">Template Style</label>
-                <select id="template">
-                    <option value="professional">Professional</option>
-                    <option value="casual">Casual</option>
-                    <option value="minimal">Minimal</option>
-                </select>
-            </div>
-            <button id="generateBtn">Generate PDF Preview</button>
+        <header>
+            <h1>HTML to PDF Converter</h1>
+            <p class="subtitle">Convert your form data to PDF instantly</p>
+        </header>
+        
+        <div class="instructions">
+            <h3>How to Use:</h3>
+            <ol>
+                <li>Fill in the form fields on the left</li>
+                <li>Click "Generate PDF Preview" to see your content</li>
+                <li>Click "Download PDF" to save your document</li>
+            </ol>
         </div>
         
-        <div class="preview-section">
-            <h2>PDF Preview</h2>
-            <div id="pdfPreview">
-                <p>Your PDF preview will appear here after generating.</p>
+        <div class="content">
+            <div class="input-section">
+                <h2>Enter Details</h2>
+                <div class="form-group">
+                    <label for="title">Document Title</label>
+                    <input type="text" id="title" placeholder="e.g., My Report" value="Sample Document">
+                </div>
+                <div class="form-group">
+                    <label for="name">Your Name</label>
+                    <input type="text" id="name" placeholder="e.g., John Doe" value="John Doe">
+                </div>
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" placeholder="e.g., john@example.com" value="john@example.com">
+                </div>
+                <div class="form-group">
+                    <label for="content">Document Content</label>
+                    <textarea id="content" placeholder="Enter your content here...">This is a sample document generated by the HTML to PDF converter. You can replace this text with your own content. The PDF download functionality is working correctly.</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="template">Template Style</label>
+                    <select id="template">
+                        <option value="professional">Professional</option>
+                        <option value="casual">Casual</option>
+                        <option value="minimal">Minimal</option>
+                    </select>
+                </div>
+                <button id="generateBtn">Generate PDF Preview</button>
             </div>
-            <div class="actions">
-                <button id="downloadBtn" class="download-btn">Download PDF</button>
+            
+            <div class="preview-section">
+                <h2>PDF Preview</h2>
+                <div id="pdfPreview">
+                    <p class="preview-placeholder">Your PDF preview will appear here after generating.</p>
+                </div>
+                <div class="actions">
+                    <button id="downloadBtn" class="download-btn">Download PDF</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Generate preview when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            generatePreview();
+        });
+
+        // Set up event listeners
         document.getElementById('generateBtn').addEventListener('click', generatePreview);
         document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+        
+        // Add event listeners to input fields for real-time preview updates
+        const inputFields = ['title', 'name', 'email', 'content', 'template'];
+        inputFields.forEach(field => {
+            document.getElementById(field).addEventListener('input', generatePreview);
+        });
         
         function generatePreview() {
             const title = document.getElementById('title').value || 'Untitled Document';
@@ -174,7 +260,7 @@
                     <div class="preview-content">
                         ${name ? `<p><strong>Name:</strong> ${name}</p>` : ''}
                         ${email ? `<p><strong>Email:</strong> ${email}</p>` : ''}
-                        <div style="margin-top: 20px;">${content.replace(/\n/g, '<br>')}</div>
+                        <div style="margin-top: 20px;">${formatContent(content)}</div>
                     </div>
                     <div style="margin-top: 30px; font-size: 12px; color: #95a5a6; text-align: center;">
                         <hr>
@@ -188,7 +274,7 @@
                         <p style="color: #3498db;"><em>Created by ${name || 'Unknown'} on ${new Date().toLocaleDateString()}</em></p>
                     </div>
                     <div style="line-height: 1.8; font-size: 16px;">
-                        <div>${content.replace(/\n/g, '<br>')}</div>
+                        <div>${formatContent(content)}</div>
                     </div>
                     ${email ? `<div style="margin-top: 30px;"><strong>Contact:</strong> ${email}</div>` : ''}
                 `;
@@ -200,7 +286,7 @@
                     <div style="line-height: 1.6;">
                         ${name ? `<p><strong>FROM:</strong> ${name}</p>` : ''}
                         ${email ? `<p><strong>EMAIL:</strong> ${email}</p>` : ''}
-                        <div style="margin-top: 40px;">${content.replace(/\n/g, '<br>')}</div>
+                        <div style="margin-top: 40px;">${formatContent(content)}</div>
                     </div>
                     <div style="margin-top: 50px; font-size: 11px; color: #bdc3c7; text-align: right;">
                         <p>Generated on ${new Date().toLocaleDateString()}</p>
@@ -211,7 +297,15 @@
             document.getElementById('pdfPreview').innerHTML = htmlContent;
         }
         
+        function formatContent(content) {
+            // Convert line breaks to HTML tags
+            return content.replace(/\n/g, '<br>');
+        }
+        
         function downloadPDF() {
+            // First make sure the preview is up to date
+            generatePreview();
+            
             const element = document.getElementById('pdfPreview');
             
             // Set PDF options
@@ -225,6 +319,14 @@
             
             // Generate and download PDF
             html2pdf().set(options).from(element).save();
+            
+            // Provide user feedback
+            const originalText = document.getElementById('downloadBtn').textContent;
+            document.getElementById('downloadBtn').textContent = 'Downloading...';
+            
+            setTimeout(() => {
+                document.getElementById('downloadBtn').textContent = originalText;
+            }, 1500);
         }
     </script>
 </body>
