@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML to PDF Converter</title>
+    <title>Resume Builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
@@ -54,6 +54,8 @@
             background: #f8f9fa;
             border-radius: 10px;
             margin: 10px;
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .preview-section {
             flex: 1;
@@ -67,22 +69,26 @@
             padding-bottom: 10px;
             border-bottom: 2px solid #3498db;
         }
+        h3 {
+            color: #2c3e50;
+            margin: 15px 0 10px;
+        }
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             font-weight: 600;
             color: #2c3e50;
         }
         input, textarea, select {
             width: 100%;
-            padding: 12px 15px;
+            padding: 10px 12px;
             border: 2px solid #ddd;
-            border-radius: 8px;
+            border-radius: 6px;
             font-family: inherit;
-            font-size: 16px;
+            font-size: 14px;
             transition: border-color 0.3s;
         }
         input:focus, textarea:focus, select:focus {
@@ -91,19 +97,19 @@
             box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
         }
         textarea {
-            min-height: 120px;
+            min-height: 80px;
             resize: vertical;
         }
         button {
             background: #3498db;
             color: white;
             border: none;
-            padding: 14px 25px;
-            border-radius: 8px;
+            padding: 12px 20px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
-            margin-top: 10px;
+            margin-top: 8px;
             width: 100%;
             transition: background 0.3s, transform 0.2s;
         }
@@ -120,13 +126,20 @@
         .download-btn:hover {
             background: #219653;
         }
-        #pdfPreview {
+        .secondary-btn {
+            background: #95a5a6;
+        }
+        .secondary-btn:hover {
+            background: #7f8c8d;
+        }
+        #resumePreview {
             border: 2px dashed #ddd;
             padding: 25px;
             min-height: 400px;
             background: white;
             border-radius: 8px;
             margin-bottom: 20px;
+            position: relative;
         }
         .preview-header {
             text-align: center;
@@ -136,7 +149,6 @@
         }
         .preview-content {
             line-height: 1.8;
-            white-space: pre-line;
         }
         .actions {
             display: flex;
@@ -176,6 +188,68 @@
         .hidden {
             display: none;
         }
+        .dynamic-field {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .remove-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .remove-btn:hover {
+            background: #c0392b;
+        }
+        .photo-container {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            overflow: hidden;
+            margin: 0 auto 20px;
+            border: 3px solid #3498db;
+            position: relative;
+        }
+        .photo-placeholder {
+            width: 100%;
+            height: 100%;
+            background: #eee;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #777;
+            cursor: pointer;
+        }
+        #photoPreview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .crop-controls {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .resume-section {
+            margin-bottom: 15px;
+        }
+        .resume-item {
+            margin-bottom: 10px;
+        }
         @media (max-width: 768px) {
             .content {
                 flex-direction: column;
@@ -189,17 +263,18 @@
 <body>
     <div class="container">
         <header>
-            <h1>HTML to PDF Converter</h1>
-            <p class="subtitle">Convert your form data to PDF instantly</p>
+            <h1>Resume Builder</h1>
+            <p class="subtitle">Create a professional resume based on your template</p>
         </header>
 
         <div class="instructions">
-            <h3>How to use this converter</h3>
+            <h3>How to use this builder</h3>
             <ol>
-                <li>Fill in the form fields on the left</li>
-                <li>Click "Generate PDF" to create your PDF</li>
+                <li>Fill in all the form fields on the left</li>
+                <li>Upload and adjust your photo in the circle</li>
+                <li>Click "Generate Resume" to create your resume</li>
                 <li>Review the preview on the right</li>
-                <li>Click "Download PDF" to save your document</li>
+                <li>Click "Download PDF" to save your resume</li>
             </ol>
         </div>
         
@@ -207,50 +282,319 @@
         
         <div class="content">
             <div class="input-section">
-                <h2>Enter PDF Content</h2>
-                <form id="pdfForm">
+                <h2>Resume Details</h2>
+                <form id="resumeForm">
+                    <!-- Photo Upload -->
                     <div class="form-group">
-                        <label for="title">Title</label>
-                        <input type="text" id="title" placeholder="Enter title">
+                        <label>Photo</label>
+                        <div class="photo-container">
+                            <div class="photo-placeholder" id="photoPlaceholder">
+                                Click to upload
+                            </div>
+                            <img id="photoPreview" class="hidden" src="" alt="Profile Photo">
+                        </div>
+                        <input type="file" id="photoUpload" accept="image/*" class="hidden">
+                        <div id="cropControls" class="crop-controls hidden">
+                            <label for="photoZoom">Zoom</label>
+                            <input type="range" id="photoZoom" min="100" max="200" value="100">
+                            <label for="photoPosition">Position</label>
+                            <input type="range" id="photoPosition" min="0" max="100" value="0">
+                            <button type="button" id="confirmPhoto">Confirm Photo</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Name -->
+                    <div class="form-group">
+                        <label for="fullName">Full Name</label>
+                        <input type="text" id="fullName" placeholder="Enter your full name">
+                    </div>
+                    
+                    <!-- Contact Information -->
+                    <h3>Contact Information</h3>
+                    <div class="form-group">
+                        <label for="phone">Phone</label>
+                        <input type="text" id="phone" placeholder="Enter your phone number">
                     </div>
                     <div class="form-group">
-                        <label for="author">Author</label>
-                        <input type="text" id="author" placeholder="Enter author name">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" placeholder="Enter your email">
                     </div>
                     <div class="form-group">
-                        <label for="content">Content</label>
-                        <textarea id="content" placeholder="Enter your content here..."></textarea>
+                        <label for="location">Location</label>
+                        <input type="text" id="location" placeholder="Enter your location">
+                    </div>
+                    
+                    <!-- Education -->
+                    <h3>Education</h3>
+                    <div id="educationFields">
+                        <div class="dynamic-field" data-type="higher-education">
+                            <h4>Higher Education</h4>
+                            <div class="form-group">
+                                <label>Institution Name</label>
+                                <input type="text" name="institution" placeholder="Institution name">
+                            </div>
+                            <div class="form-group">
+                                <label>Department</label>
+                                <input type="text" name="department" placeholder="Department">
+                            </div>
+                            <div class="form-group">
+                                <label>Degree Type</label>
+                                <select name="degreeType">
+                                    <option value="Diploma">Diploma</option>
+                                    <option value="BA">BA</option>
+                                    <option value="BSC">BSC</option>
+                                    <option value="MA">MA</option>
+                                    <option value="MSC">MSC</option>
+                                    <option value="PhD">PhD</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Graduation Date (Ethiopian Calendar)</label>
+                                <input type="text" name="gradDate" placeholder="e.g. June 2017 E.C.">
+                            </div>
+                            <div class="form-group">
+                                <label>CGPA</label>
+                                <input type="text" name="cgpa" placeholder="e.g. 3.71">
+                            </div>
+                            <div class="form-group">
+                                <label>Exit Exam Score</label>
+                                <input type="text" name="exitExam" placeholder="e.g. 71%">
+                            </div>
+                            <div class="form-group">
+                                <label>Key Courses (comma separated)</label>
+                                <input type="text" name="keyCourses" placeholder="e.g. Management, Marketing, Finance">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" id="addEducation" class="secondary-btn">Add Another Education</button>
+                    
+                    <!-- Secondary Education -->
+                    <h3>Secondary Education</h3>
+                    <div class="form-group">
+                        <label for="prepSchool">Preparatory School</label>
+                        <input type="text" id="prepSchool" placeholder="School name">
                     </div>
                     <div class="form-group">
-                        <label for="fontFamily">Font Style</label>
-                        <select id="fontFamily">
-                            <option value="helvetica">Helvetica</option>
-                            <option value="times">Times Roman</option>
-                            <option value="courier">Courier</option>
-                        </select>
+                        <label for="prepYear">Preparatory Year (Ethiopian Calendar)</label>
+                        <input type="text" id="prepYear" placeholder="e.g. 2013 E.C.">
                     </div>
                     <div class="form-group">
-                        <label for="fontSize">Font Size</label>
-                        <select id="fontSize">
-                            <option value="10">Small (10pt)</option>
-                            <option value="12" selected>Medium (12pt)</option>
-                            <option value="14">Large (14pt)</option>
-                            <option value="16">X-Large (16pt)</option>
-                        </select>
+                        <label for="highSchool">High School</label>
+                        <input type="text" id="highSchool" placeholder="School name">
                     </div>
-                    <button type="button" id="generateBtn">Generate PDF</button>
+                    <div class="form-group">
+                        <label for="highSchoolYears">High School Years (Ethiopian Calendar)</label>
+                        <input type="text" id="highSchoolYears" placeholder="e.g. 2010-2012 E.C.">
+                    </div>
+                    
+                    <!-- Skills -->
+                    <h3>Skills</h3>
+                    <div id="skillsFields">
+                        <div class="form-group">
+                            <input type="text" name="skill" placeholder="Skill name">
+                        </div>
+                    </div>
+                    <button type="button" id="addSkill" class="secondary-btn">Add Another Skill</button>
+                    
+                    <!-- Languages -->
+                    <h3>Languages</h3>
+                    <div id="languagesFields">
+                        <div class="dynamic-field" data-type="language">
+                            <div class="form-group">
+                                <label>Language</label>
+                                <input type="text" name="language" placeholder="Language">
+                            </div>
+                            <div class="form-group">
+                                <label>Proficiency Level</label>
+                                <select name="proficiency">
+                                    <option value="Native">Native</option>
+                                    <option value="Proficient">Proficient</option>
+                                    <option value="Fluent">Fluent</option>
+                                    <option value="Intermediate">Intermediate</option>
+                                    <option value="Basic">Basic</option>
+                                </select>
+                            </div>
+                            <button type="button" class="remove-btn">×</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addLanguage" class="secondary-btn">Add Another Language</button>
+                    
+                    <!-- Hobbies -->
+                    <h3>Hobbies</h3>
+                    <div class="form-group">
+                        <textarea id="hobbies" placeholder="Enter your hobbies (comma separated)"></textarea>
+                    </div>
+                    
+                    <!-- Research -->
+                    <h3>Research</h3>
+                    <div class="form-group">
+                        <label for="researchTitle">Title</label>
+                        <input type="text" id="researchTitle" placeholder="Research title">
+                    </div>
+                    <div class="form-group">
+                        <label for="researchCase">Case Study</label>
+                        <input type="text" id="researchCase" placeholder="Case study details">
+                    </div>
+                    
+                    <!-- Certificates -->
+                    <h3>Certificates</h3>
+                    <div id="certificatesFields">
+                        <div class="dynamic-field" data-type="certificate">
+                            <div class="form-group">
+                                <label>Certificate Name</label>
+                                <input type="text" name="certName" placeholder="Certificate name">
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" name="certDesc" placeholder="Certificate description">
+                            </div>
+                            <div class="form-group">
+                                <label>Issuer</label>
+                                <input type="text" name="certIssuer" placeholder="Issuing organization">
+                            </div>
+                            <div class="form-group">
+                                <label>Issued Date (Ethiopian Calendar)</label>
+                                <input type="text" name="certDate" placeholder="e.g. June 2017 E.C.">
+                            </div>
+                            <button type="button" class="remove-btn">×</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addCertificate" class="secondary-btn">Add Another Certificate</button>
+                    
+                    <!-- Experience -->
+                    <h3>Experience</h3>
+                    <div id="experienceFields">
+                        <div class="dynamic-field" data-type="experience">
+                            <div class="form-group">
+                                <label>Experience Type</label>
+                                <select name="expType">
+                                    <option value="Full-time">Full-time</option>
+                                    <option value="Part-time">Part-time</option>
+                                    <option value="Internship">Internship</option>
+                                    <option value="Paid Internship" selected>Paid Internship</option>
+                                    <option value="Volunteer">Volunteer</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Organization Name</label>
+                                <input type="text" name="orgName" placeholder="Organization name">
+                            </div>
+                            <div class="form-group">
+                                <label>Position</label>
+                                <input type="text" name="position" placeholder="Your position">
+                            </div>
+                            <div class="form-group">
+                                <label>Start Date (Ethiopian Calendar)</label>
+                                <input type="text" name="startDate" placeholder="e.g. July 2016 E.C.">
+                            </div>
+                            <div class="form-group">
+                                <label>End Date (Ethiopian Calendar)</label>
+                                <input type="text" name="endDate" placeholder="e.g. September 2017 E.C.">
+                            </div>
+                            <button type="button" class="remove-btn">×</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addExperience" class="secondary-btn">Add Another Experience</button>
+                    
+                    <!-- References -->
+                    <h3>References</h3>
+                    <div id="referencesFields">
+                        <div class="dynamic-field" data-type="reference">
+                            <div class="form-group">
+                                <label>Name</label>
+                                <input type="text" name="refName" placeholder="Reference name">
+                            </div>
+                            <div class="form-group">
+                                <label>Position</label>
+                                <input type="text" name="refPosition" placeholder="Reference position">
+                            </div>
+                            <div class="form-group">
+                                <label>Organization</label>
+                                <input type="text" name="refOrg" placeholder="Organization">
+                            </div>
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" name="refEmail" placeholder="Reference email">
+                            </div>
+                            <div class="form-group">
+                                <label>Phone</label>
+                                <input type="text" name="refPhone" placeholder="Reference phone">
+                            </div>
+                            <button type="button" class="remove-btn">×</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addReference" class="secondary-btn">Add Another Reference</button>
+                    
+                    <button type="button" id="generateBtn">Generate Resume</button>
                 </form>
             </div>
             
             <div class="preview-section">
-                <h2>PDF Preview</h2>
-                <div id="pdfPreview">
+                <h2>Resume Preview</h2>
+                <div id="resumePreview">
                     <div class="preview-header">
-                        <h3 id="previewTitle">Title will appear here</h3>
-                        <p id="previewAuthor">Author name will appear here</p>
+                        <div class="photo-container">
+                            <img id="previewPhoto" src="" alt="Profile Photo" class="hidden">
+                            <div id="previewPhotoPlaceholder" class="photo-placeholder">No photo</div>
+                        </div>
+                        <h1 id="previewName">Your Name</h1>
                     </div>
                     <div class="preview-content">
-                        <p id="previewContent">Your content will appear here. Start typing in the form to see a live preview.</p>
+                        <!-- Contact Information -->
+                        <div class="resume-section">
+                            <h2>Contact Information</h2>
+                            <p id="previewPhone">Phone: </p>
+                            <p id="previewEmail">Email: </p>
+                            <p id="previewLocation">Location: </p>
+                        </div>
+                        
+                        <!-- Education -->
+                        <div class="resume-section">
+                            <h2>Education</h2>
+                            <div id="previewEducation"></div>
+                        </div>
+                        
+                        <!-- Skills -->
+                        <div class="resume-section">
+                            <h2>Skills</h2>
+                            <div id="previewSkills"></div>
+                        </div>
+                        
+                        <!-- Languages -->
+                        <div class="resume-section">
+                            <h2>Languages</h2>
+                            <div id="previewLanguages"></div>
+                        </div>
+                        
+                        <!-- Hobbies -->
+                        <div class="resume-section">
+                            <h2>Hobbies</h2>
+                            <div id="previewHobbies"></div>
+                        </div>
+                        
+                        <!-- Research -->
+                        <div class="resume-section">
+                            <h2>Research</h2>
+                            <div id="previewResearch"></div>
+                        </div>
+                        
+                        <!-- Certificates -->
+                        <div class="resume-section">
+                            <h2>Certificates</h2>
+                            <div id="previewCertificates"></div>
+                        </div>
+                        
+                        <!-- Experience -->
+                        <div class="resume-section">
+                            <h2>Experience</h2>
+                            <div id="previewExperience"></div>
+                        </div>
+                        
+                        <!-- References -->
+                        <div class="resume-section">
+                            <h2>References</h2>
+                            <div id="previewReferences"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="actions">
@@ -261,36 +605,242 @@
     </div>
 
     <script>
-        // Initialize jsPDF
-        const { jsPDF } = window.jspdf;
-        
         document.addEventListener('DOMContentLoaded', function() {
-            const titleInput = document.getElementById('title');
-            const authorInput = document.getElementById('author');
-            const contentInput = document.getElementById('content');
-            const fontFamilySelect = document.getElementById('fontFamily');
-            const fontSizeSelect = document.getElementById('fontSize');
+            // Initialize jsPDF
+            const { jsPDF } = window.jspdf;
+            
+            // Photo handling
+            const photoUpload = document.getElementById('photoUpload');
+            const photoPlaceholder = document.getElementById('photoPlaceholder');
+            const photoPreview = document.getElementById('photoPreview');
+            const cropControls = document.getElementById('cropControls');
+            const photoZoom = document.getElementById('photoZoom');
+            const photoPosition = document.getElementById('photoPosition');
+            const confirmPhoto = document.getElementById('confirmPhoto');
+            const previewPhoto = document.getElementById('previewPhoto');
+            const previewPhotoPlaceholder = document.getElementById('previewPhotoPlaceholder');
+            
+            let currentPhotoUrl = null;
+            
+            photoPlaceholder.addEventListener('click', function() {
+                photoUpload.click();
+            });
+            
+            photoUpload.addEventListener('change', function(e) {
+                if (e.target.files && e.target.files[0]) {
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        currentPhotoUrl = e.target.result;
+                        photoPreview.src = currentPhotoUrl;
+                        photoPreview.classList.remove('hidden');
+                        photoPlaceholder.classList.add('hidden');
+                        cropControls.classList.remove('hidden');
+                    }
+                    
+                    reader.readAsDataURL(e.target.files[0]);
+                }
+            });
+            
+            confirmPhoto.addEventListener('click', function() {
+                // Apply crop/zoom settings to preview
+                const zoomValue = photoZoom.value / 100;
+                const positionValue = photoPosition.value;
+                
+                photoPreview.style.transform = `scale(${zoomValue}) translateX(${positionValue}%)`;
+                previewPhoto.src = currentPhotoUrl;
+                previewPhoto.style.transform = `scale(${zoomValue}) translateX(${positionValue}%)`;
+                previewPhoto.classList.remove('hidden');
+                previewPhotoPlaceholder.classList.add('hidden');
+                
+                cropControls.classList.add('hidden');
+            });
+            
+            // Dynamic field management
+            function setupDynamicFields(addButtonId, containerId, templateId) {
+                const addButton = document.getElementById(addButtonId);
+                const container = document.getElementById(containerId);
+                
+                addButton.addEventListener('click', function() {
+                    const firstField = container.querySelector('.dynamic-field');
+                    if (firstField) {
+                        const newField = firstField.cloneNode(true);
+                        // Clear input values
+                        newField.querySelectorAll('input, select').forEach(input => {
+                            input.value = '';
+                        });
+                        // Add remove button functionality
+                        const removeBtn = newField.querySelector('.remove-btn');
+                        if (removeBtn) {
+                            removeBtn.addEventListener('click', function() {
+                                newField.remove();
+                            });
+                        }
+                        container.appendChild(newField);
+                    }
+                });
+                
+                // Add initial remove button functionality
+                container.querySelectorAll('.remove-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        // Don't remove the first field
+                        if (container.querySelectorAll('.dynamic-field').length > 1) {
+                            btn.closest('.dynamic-field').remove();
+                        }
+                    });
+                });
+            }
+            
+            // Skills are handled differently (simple text inputs)
+            document.getElementById('addSkill').addEventListener('click', function() {
+                const skillsContainer = document.getElementById('skillsFields');
+                const newInput = document.createElement('div');
+                newInput.className = 'form-group';
+                newInput.innerHTML = '<input type="text" name="skill" placeholder="Skill name">';
+                skillsContainer.appendChild(newInput);
+            });
+            
+            // Setup dynamic fields
+            setupDynamicFields('addLanguage', 'languagesFields', 'languageTemplate');
+            setupDynamicFields('addCertificate', 'certificatesFields', 'certificateTemplate');
+            setupDynamicFields('addExperience', 'experienceFields', 'experienceTemplate');
+            setupDynamicFields('addReference', 'referencesFields', 'referenceTemplate');
+            
+            // Education is handled separately as it has a different structure
+            document.getElementById('addEducation').addEventListener('click', function() {
+                const educationContainer = document.getElementById('educationFields');
+                const firstField = educationContainer.querySelector('.dynamic-field');
+                if (firstField) {
+                    const newField = firstField.cloneNode(true);
+                    // Clear input values
+                    newField.querySelectorAll('input, select').forEach(input => {
+                        input.value = '';
+                    });
+                    educationContainer.appendChild(newField);
+                }
+            });
+            
+            // Generate and Download PDF
             const generateBtn = document.getElementById('generateBtn');
             const downloadBtn = document.getElementById('downloadBtn');
-            const previewTitle = document.getElementById('previewTitle');
-            const previewAuthor = document.getElementById('previewAuthor');
-            const previewContent = document.getElementById('previewContent');
             const statusMessage = document.getElementById('statusMessage');
             
             let pdfData = null;
             
             // Update preview as user types
-            titleInput.addEventListener('input', updatePreview);
-            authorInput.addEventListener('input', updatePreview);
-            contentInput.addEventListener('input', updatePreview);
-            fontFamilySelect.addEventListener('change', updatePreview);
-            fontSizeSelect.addEventListener('change', updatePreview);
-            
             function updatePreview() {
-                previewTitle.textContent = titleInput.value || 'Title will appear here';
-                previewAuthor.textContent = authorInput.value || 'Author name will appear here';
-                previewContent.textContent = contentInput.value || 'Your content will appear here. Start typing in the form to see a live preview.';
+                // Name
+                const fullName = document.getElementById('fullName').value || 'Your Name';
+                document.getElementById('previewName').textContent = fullName;
+                
+                // Contact Information
+                document.getElementById('previewPhone').textContent = 'Phone: ' + (document.getElementById('phone').value || '');
+                document.getElementById('previewEmail').textContent = 'Email: ' + (document.getElementById('email').value || '');
+                document.getElementById('previewLocation').textContent = 'Location: ' + (document.getElementById('location').value || '');
+                
+                // Education
+                const educationHTML = Array.from(document.querySelectorAll('#educationFields .dynamic-field')).map(edu => {
+                    return `
+                        <div class="resume-item">
+                            <strong>${edu.querySelector('[name="institution"]').value || 'Institution'}</strong> 
+                            (${edu.querySelector('[name="gradDate"]').value || ''})<br>
+                            ${edu.querySelector('[name="degreeType"]').value || ''} in ${edu.querySelector('[name="department"]').value || ''}<br>
+                            CGPA: ${edu.querySelector('[name="cgpa"]').value || ''}, 
+                            Exit Exam: ${edu.querySelector('[name="exitExam"]').value || ''}<br>
+                            Key Courses: ${edu.querySelector('[name="keyCourses"]').value || ''}
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('previewEducation').innerHTML = educationHTML || 'Education information will appear here';
+                
+                // Secondary Education
+                const prepSchool = document.getElementById('prepSchool').value;
+                const prepYear = document.getElementById('prepYear').value;
+                const highSchool = document.getElementById('highSchool').value;
+                const highSchoolYears = document.getElementById('highSchoolYears').value;
+                
+                if (prepSchool || prepYear || highSchool || highSchoolYears) {
+                    document.getElementById('previewEducation').innerHTML += `
+                        <div class="resume-item">
+                            <strong>Secondary Education</strong><br>
+                            ${prepSchool ? `Preparatory School: ${prepSchool} (${prepYear})<br>` : ''}
+                            ${highSchool ? `High School: ${highSchool} (${highSchoolYears})` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Skills
+                const skills = Array.from(document.querySelectorAll('#skillsFields input')).map(input => input.value).filter(Boolean);
+                document.getElementById('previewSkills').textContent = skills.join(', ') || 'Skills will appear here';
+                
+                // Languages
+                const languagesHTML = Array.from(document.querySelectorAll('#languagesFields .dynamic-field')).map(lang => {
+                    const language = lang.querySelector('[name="language"]').value;
+                    const proficiency = lang.querySelector('[name="proficiency"]').value;
+                    return language ? `${language} (${proficiency})` : '';
+                }).filter(Boolean).join(', ');
+                document.getElementById('previewLanguages').textContent = languagesHTML || 'Languages will appear here';
+                
+                // Hobbies
+                document.getElementById('previewHobbies').textContent = document.getElementById('hobbies').value || 'Hobbies will appear here';
+                
+                // Research
+                const researchTitle = document.getElementById('researchTitle').value;
+                const researchCase = document.getElementById('researchCase').value;
+                if (researchTitle || researchCase) {
+                    document.getElementById('previewResearch').innerHTML = `
+                        <div class="resume-item">
+                            <strong>${researchTitle}</strong><br>
+                            ${researchCase}
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('previewResearch').textContent = 'Research information will appear here';
+                }
+                
+                // Certificates
+                const certificatesHTML = Array.from(document.querySelectorAll('#certificatesFields .dynamic-field')).map(cert => {
+                    return `
+                        <div class="resume-item">
+                            <strong>${cert.querySelector('[name="certName"]').value || ''}</strong> 
+                            (${cert.querySelector('[name="certDate"]').value || ''})<br>
+                            ${cert.querySelector('[name="certDesc"]').value || ''}<br>
+                            Issuer: ${cert.querySelector('[name="certIssuer"]').value || ''}
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('previewCertificates').innerHTML = certificatesHTML || 'Certificates will appear here';
+                
+                // Experience
+                const experienceHTML = Array.from(document.querySelectorAll('#experienceFields .dynamic-field')).map(exp => {
+                    return `
+                        <div class="resume-item">
+                            <strong>${exp.querySelector('[name="orgName"]').value || ''}</strong> 
+                            (${exp.querySelector('[name="startDate"]').value || ''} - ${exp.querySelector('[name="endDate"]').value || ''})<br>
+                            ${exp.querySelector('[name="position"]').value || ''} (${exp.querySelector('[name="expType"]').value || ''})
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('previewExperience').innerHTML = experienceHTML || 'Experience will appear here';
+                
+                // References
+                const referencesHTML = Array.from(document.querySelectorAll('#referencesFields .dynamic-field')).map(ref => {
+                    return `
+                        <div class="resume-item">
+                            <strong>${ref.querySelector('[name="refName"]').value || ''}</strong><br>
+                            ${ref.querySelector('[name="refPosition"]').value || ''} at ${ref.querySelector('[name="refOrg"]').value || ''}<br>
+                            Email: ${ref.querySelector('[name="refEmail"]').value || ''}<br>
+                            Phone: ${ref.querySelector('[name="refPhone"]').value || ''}
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('previewReferences').innerHTML = referencesHTML || 'References will appear here';
             }
+            
+            // Set up live preview updates
+            document.querySelectorAll('input, select, textarea').forEach(input => {
+                input.addEventListener('input', updatePreview);
+            });
             
             // Show status message
             function showStatus(message, isSuccess) {
@@ -309,43 +859,21 @@
                 updatePreview();
                 
                 try {
-                    // Create PDF with jsPDF (not html2pdf.js)
-                    const doc = new jsPDF();
-                    
-                    // Set font
-                    const fontSize = parseInt(fontSizeSelect.value);
-                    const fontFamily = fontFamilySelect.value;
-                    doc.setFont(fontFamily);
-                    doc.setFontSize(fontSize);
-                    
-                    // Add title
-                    const title = titleInput.value || 'Untitled Document';
-                    doc.setFontSize(fontSize + 6);
-                    doc.setFont(undefined, 'bold');
-                    const titleWidth = doc.getTextWidth(title);
-                    const pageWidth = doc.internal.pageSize.getWidth();
-                    doc.text(title, (pageWidth - titleWidth) / 2, 20);
-                    
-                    // Add author
-                    doc.setFontSize(fontSize);
-                    doc.setFont(undefined, 'normal');
-                    const author = authorInput.value || 'Unknown Author';
-                    const authorText = `By: ${author}`;
-                    const authorWidth = doc.getTextWidth(authorText);
-                    doc.text(authorText, (pageWidth - authorWidth) / 2, 30);
-                    
-                    // Add content
-                    const content = contentInput.value || 'No content provided.';
-                    const lines = doc.splitTextToSize(content, 180);
-                    doc.text(lines, 15, 50);
-                    
-                    // Store PDF data
-                    pdfData = doc.output('blob');
-                    
-                    // Enable download button
-                    downloadBtn.disabled = false;
-                    showStatus('PDF generated successfully! Click "Download PDF" to save it.', true);
-                    
+                    // Use html2canvas to capture the resume preview
+                    html2canvas(document.getElementById('resumePreview')).then(canvas => {
+                        const imgData = canvas.toDataURL('image/png');
+                        const pdf = new jsPDF('p', 'mm', 'a4');
+                        const imgProps = pdf.getImageProperties(imgData);
+                        const pdfWidth = pdf.internal.pageSize.getWidth();
+                        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                        
+                        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                        pdfData = pdf.output('blob');
+                        
+                        // Enable download button
+                        downloadBtn.disabled = false;
+                        showStatus('Resume generated successfully! Click "Download PDF" to save it.', true);
+                    });
                 } catch (error) {
                     console.error('Error in PDF generation:', error);
                     showStatus('Error generating PDF: ' + error.message, false);
@@ -355,7 +883,7 @@
             // Download PDF
             downloadBtn.addEventListener('click', function() {
                 if (!pdfData) {
-                    showStatus('Please generate the PDF first.', false);
+                    showStatus('Please generate the resume first.', false);
                     return;
                 }
                 
@@ -364,13 +892,13 @@
                     const url = URL.createObjectURL(pdfData);
                     const link = document.createElement('a');
                     link.href = url;
-                    link.download = 'document.pdf';
+                    link.download = 'resume.pdf';
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
                     URL.revokeObjectURL(url);
                     
-                    showStatus('PDF downloaded successfully!', true);
+                    showStatus('Resume downloaded successfully!', true);
                 } catch (error) {
                     console.error('Error downloading PDF:', error);
                     showStatus('Error downloading PDF: ' + error.message, false);
