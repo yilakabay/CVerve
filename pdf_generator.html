@@ -18,13 +18,10 @@
             line-height: 1.6;
             padding: 20px;
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
         }
         .container {
-            width: 100%;
             max-width: 1200px;
+            margin: 0 auto;
             background: white;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
@@ -166,7 +163,6 @@
             border-radius: 5px;
             margin: 15px 0;
             text-align: center;
-            display: none;
         }
         .success {
             background: #d4edda;
@@ -175,6 +171,9 @@
         .error {
             background: #f8d7da;
             color: #721c24;
+        }
+        .hidden {
+            display: none;
         }
         @media (max-width: 768px) {
             .content {
@@ -203,7 +202,7 @@
             </ol>
         </div>
         
-        <div id="statusMessage" class="status-message"></div>
+        <div id="statusMessage" class="status-message hidden"></div>
         
         <div class="content">
             <div class="input-section">
@@ -298,10 +297,10 @@
             function showStatus(message, isSuccess) {
                 statusMessage.textContent = message;
                 statusMessage.className = isSuccess ? 'status-message success' : 'status-message error';
-                statusMessage.style.display = 'block';
+                statusMessage.classList.remove('hidden');
                 
                 setTimeout(() => {
-                    statusMessage.style.display = 'none';
+                    statusMessage.classList.add('hidden');
                 }, 5000);
             }
             
@@ -314,15 +313,18 @@
                     // Create a dedicated element for PDF generation
                     const pdfElement = document.createElement('div');
                     pdfElement.style.padding = '20px';
+                    pdfElement.style.fontFamily = fontFamilySelect.value;
+                    pdfElement.style.fontSize = fontSizeSelect.value;
+                    
                     pdfElement.innerHTML = `
-                        <h1 style="text-align: center; margin-bottom: 20px; font-family: ${fontFamilySelect.value}">
+                        <h1 style="text-align: center; margin-bottom: 20px;">
                             ${titleInput.value || 'Untitled Document'}
                         </h1>
-                        <p style="text-align: center; margin-bottom: 30px; font-family: ${fontFamilySelect.value}">
+                        <p style="text-align: center; margin-bottom: 30px;">
                             Author: ${authorInput.value || 'Unknown'}
                         </p>
-                        <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; line-height: 1.6;">
-                            ${contentInput.value.replace(/\n/g, '<br>') || 'No content provided.'}
+                        <div style="line-height: 1.6; white-space: pre-line;">
+                            ${contentInput.value || 'No content provided.'}
                         </div>
                     `;
                     
@@ -339,10 +341,11 @@
                         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                     };
                     
-                    // Generate PDF directly without using a blob
-                    html2pdf().set(opt).from(pdfElement).save().then(() => {
+                    // Generate PDF and enable download button
+                    html2pdf().set(opt).from(pdfElement).outputPdf('datauristring').then(() => {
                         pdfGenerated = true;
-                        showStatus('PDF generated successfully! Check your downloads folder.', true);
+                        downloadBtn.disabled = false;
+                        showStatus('PDF generated successfully! Click "Download PDF" to save it.', true);
                     }).catch(error => {
                         console.error('PDF generation error:', error);
                         showStatus('Error generating PDF: ' + error.message, false);
@@ -354,15 +357,45 @@
                 }
             });
             
-            // Alternative download method
+            // Download PDF
             downloadBtn.addEventListener('click', function() {
                 if (!pdfGenerated) {
                     showStatus('Please generate the PDF first.', false);
                     return;
                 }
                 
-                // This will simply regenerate and download the PDF
-                generateBtn.click();
+                // Create a dedicated element for PDF generation
+                const pdfElement = document.createElement('div');
+                pdfElement.style.padding = '20px';
+                pdfElement.style.fontFamily = fontFamilySelect.value;
+                pdfElement.style.fontSize = fontSizeSelect.value;
+                
+                pdfElement.innerHTML = `
+                    <h1 style="text-align: center; margin-bottom: 20px;">
+                        ${titleInput.value || 'Untitled Document'}
+                    </h1>
+                    <p style="text-align: center; margin-bottom: 30px;">
+                        Author: ${authorInput.value || 'Unknown'}
+                    </p>
+                    <div style="line-height: 1.6; white-space: pre-line;">
+                        ${contentInput.value || 'No content provided.'}
+                    </div>
+                `;
+                
+                // Generate and download the PDF
+                const opt = {
+                    margin: 10,
+                    filename: 'my-document.pdf',
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { 
+                        scale: 2,
+                        useCORS: true,
+                        backgroundColor: '#FFFFFF'
+                    },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+                
+                html2pdf().set(opt).from(pdfElement).save();
             });
             
             // Initialize preview
