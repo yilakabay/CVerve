@@ -183,6 +183,12 @@
             text-align: center;
             display: none;
         }
+        #pdfContent {
+            padding: 20px;
+            background: white;
+            color: black;
+            font-family: Arial, sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -266,6 +272,9 @@
         </div>
     </div>
 
+    <!-- Hidden container for PDF content -->
+    <div id="pdfContent" style="display: none;"></div>
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const titleInput = document.getElementById('title');
@@ -280,6 +289,7 @@
             const previewContent = document.getElementById('previewContent');
             const successMessage = document.getElementById('successMessage');
             const errorMessage = document.getElementById('errorMessage');
+            const pdfContent = document.getElementById('pdfContent');
             
             let generatedPdf = null;
             
@@ -305,8 +315,18 @@
                 // Update preview with latest content
                 updatePreview();
                 
+                // Prepare the PDF content
+                pdfContent.innerHTML = `
+                    <div style="font-family: ${fontFamilySelect.value}; font-size: ${fontSizeSelect.value}; padding: 20mm;">
+                        <h1 style="text-align: center; margin-bottom: 20px;">${titleInput.value || 'Untitled Document'}</h1>
+                        <p style="text-align: center; margin-bottom: 30px;">By: ${authorInput.value || 'Unknown Author'}</p>
+                        <div style="line-height: 1.6;">
+                            ${contentInput.value.replace(/\n/g, '<br>') || 'No content provided.'}
+                        </div>
+                    </div>
+                `;
+                
                 // Generate the PDF
-                const element = document.getElementById('pdfPreview');
                 const opt = {
                     margin: 10,
                     filename: 'document.pdf',
@@ -326,7 +346,7 @@
                 
                 try {
                     // Generate and store the PDF
-                    html2pdf().set(opt).from(element).outputPdf('datauristring').then(function(pdfString) {
+                    html2pdf().set(opt).from(pdfContent).outputPdf('datauristring').then(function(pdfString) {
                         generatedPdf = pdfString;
                         downloadBtn.disabled = false;
                         successMessage.style.display = 'block';
@@ -337,10 +357,12 @@
                         }, 5000);
                     }).catch(function(error) {
                         console.error('PDF generation error:', error);
+                        errorMessage.textContent = 'Error generating PDF: ' + error.message;
                         errorMessage.style.display = 'block';
                     });
                 } catch (error) {
                     console.error('Error in PDF generation:', error);
+                    errorMessage.textContent = 'Error generating PDF: ' + error.message;
                     errorMessage.style.display = 'block';
                 }
             });
@@ -354,6 +376,9 @@
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
+                } else {
+                    errorMessage.textContent = 'Please generate the PDF first before downloading.';
+                    errorMessage.style.display = 'block';
                 }
             });
             
