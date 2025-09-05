@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HTML to PDF Converter</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -223,19 +224,18 @@
                     <div class="form-group">
                         <label for="fontFamily">Font Style</label>
                         <select id="fontFamily">
-                            <option value="Arial, sans-serif">Arial</option>
-                            <option value="'Times New Roman', serif">Times New Roman</option>
-                            <option value="'Courier New', monospace">Courier New</option>
-                            <option value="Georgia, serif">Georgia</option>
+                            <option value="helvetica">Helvetica</option>
+                            <option value="times">Times Roman</option>
+                            <option value="courier">Courier</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label for="fontSize">Font Size</label>
                         <select id="fontSize">
-                            <option value="12px">Small (12px)</option>
-                            <option value="14px" selected>Medium (14px)</option>
-                            <option value="16px">Large (16px)</option>
-                            <option value="18px">X-Large (18px)</option>
+                            <option value="10">Small (10pt)</option>
+                            <option value="12" selected>Medium (12pt)</option>
+                            <option value="14">Large (14pt)</option>
+                            <option value="16">X-Large (16pt)</option>
                         </select>
                     </div>
                     <button type="button" id="generateBtn">Generate PDF</button>
@@ -261,6 +261,9 @@
     </div>
 
     <script>
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        
         document.addEventListener('DOMContentLoaded', function() {
             const titleInput = document.getElementById('title');
             const authorInput = document.getElementById('author');
@@ -274,7 +277,7 @@
             const previewContent = document.getElementById('previewContent');
             const statusMessage = document.getElementById('statusMessage');
             
-            let pdfGenerated = false;
+            let pdfData = null;
             
             // Update preview as user types
             titleInput.addEventListener('input', updatePreview);
@@ -287,10 +290,6 @@
                 previewTitle.textContent = titleInput.value || 'Title will appear here';
                 previewAuthor.textContent = authorInput.value || 'Author name will appear here';
                 previewContent.textContent = contentInput.value || 'Your content will appear here. Start typing in the form to see a live preview.';
-                
-                // Apply selected styles
-                previewContent.style.fontFamily = fontFamilySelect.value;
-                previewContent.style.fontSize = fontSizeSelect.value;
             }
             
             // Show status message
@@ -310,46 +309,42 @@
                 updatePreview();
                 
                 try {
-                    // Create a dedicated element for PDF generation
-                    const pdfElement = document.createElement('div');
-                    pdfElement.style.padding = '20px';
-                    pdfElement.style.fontFamily = fontFamilySelect.value;
-                    pdfElement.style.fontSize = fontSizeSelect.value;
+                    // Create PDF with jsPDF (not html2pdf.js)
+                    const doc = new jsPDF();
                     
-                    pdfElement.innerHTML = `
-                        <h1 style="text-align: center; margin-bottom: 20px;">
-                            ${titleInput.value || 'Untitled Document'}
-                        </h1>
-                        <p style="text-align: center; margin-bottom: 30px;">
-                            Author: ${authorInput.value || 'Unknown'}
-                        </p>
-                        <div style="line-height: 1.6; white-space: pre-line;">
-                            ${contentInput.value || 'No content provided.'}
-                        </div>
-                    `;
+                    // Set font
+                    const fontSize = parseInt(fontSizeSelect.value);
+                    const fontFamily = fontFamilySelect.value;
+                    doc.setFont(fontFamily);
+                    doc.setFontSize(fontSize);
                     
-                    // Generate the PDF
-                    const opt = {
-                        margin: 10,
-                        filename: 'my-document.pdf',
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { 
-                            scale: 2,
-                            useCORS: true,
-                            backgroundColor: '#FFFFFF'
-                        },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                    };
+                    // Add title
+                    const title = titleInput.value || 'Untitled Document';
+                    doc.setFontSize(fontSize + 6);
+                    doc.setFont(undefined, 'bold');
+                    const titleWidth = doc.getTextWidth(title);
+                    const pageWidth = doc.internal.pageSize.getWidth();
+                    doc.text(title, (pageWidth - titleWidth) / 2, 20);
                     
-                    // Generate PDF and enable download button
-                    html2pdf().set(opt).from(pdfElement).outputPdf('datauristring').then(() => {
-                        pdfGenerated = true;
-                        downloadBtn.disabled = false;
-                        showStatus('PDF generated successfully! Click "Download PDF" to save it.', true);
-                    }).catch(error => {
-                        console.error('PDF generation error:', error);
-                        showStatus('Error generating PDF: ' + error.message, false);
-                    });
+                    // Add author
+                    doc.setFontSize(fontSize);
+                    doc.setFont(undefined, 'normal');
+                    const author = authorInput.value || 'Unknown Author';
+                    const authorText = `By: ${author}`;
+                    const authorWidth = doc.getTextWidth(authorText);
+                    doc.text(authorText, (pageWidth - authorWidth) / 2, 30);
+                    
+                    // Add content
+                    const content = contentInput.value || 'No content provided.';
+                    const lines = doc.splitTextToSize(content, 180);
+                    doc.text(lines, 15, 50);
+                    
+                    // Store PDF data
+                    pdfData = doc.output('blob');
+                    
+                    // Enable download button
+                    downloadBtn.disabled = false;
+                    showStatus('PDF generated successfully! Click "Download PDF" to save it.', true);
                     
                 } catch (error) {
                     console.error('Error in PDF generation:', error);
@@ -359,43 +354,27 @@
             
             // Download PDF
             downloadBtn.addEventListener('click', function() {
-                if (!pdfGenerated) {
+                if (!pdfData) {
                     showStatus('Please generate the PDF first.', false);
                     return;
                 }
                 
-                // Create a dedicated element for PDF generation
-                const pdfElement = document.createElement('div');
-                pdfElement.style.padding = '20px';
-                pdfElement.style.fontFamily = fontFamilySelect.value;
-                pdfElement.style.fontSize = fontSizeSelect.value;
-                
-                pdfElement.innerHTML = `
-                    <h1 style="text-align: center; margin-bottom: 20px;">
-                        ${titleInput.value || 'Untitled Document'}
-                    </h1>
-                    <p style="text-align: center; margin-bottom: 30px;">
-                        Author: ${authorInput.value || 'Unknown'}
-                    </p>
-                    <div style="line-height: 1.6; white-space: pre-line;">
-                        ${contentInput.value || 'No content provided.'}
-                    </div>
-                `;
-                
-                // Generate and download the PDF
-                const opt = {
-                    margin: 10,
-                    filename: 'my-document.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { 
-                        scale: 2,
-                        useCORS: true,
-                        backgroundColor: '#FFFFFF'
-                    },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-                
-                html2pdf().set(opt).from(pdfElement).save();
+                try {
+                    // Create download link
+                    const url = URL.createObjectURL(pdfData);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = 'document.pdf';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    
+                    showStatus('PDF downloaded successfully!', true);
+                } catch (error) {
+                    console.error('Error downloading PDF:', error);
+                    showStatus('Error downloading PDF: ' + error.message, false);
+                }
             });
             
             // Initialize preview
