@@ -165,6 +165,15 @@
                 flex-direction: column;
             }
         }
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            text-align: center;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -173,7 +182,7 @@
             <h1>HTML to PDF Converter</h1>
             <p class="subtitle">Convert your form data to PDF instantly</p>
         </header>
-        
+
         <div class="instructions">
             <h3>How to use this converter</h3>
             <ol>
@@ -182,6 +191,10 @@
                 <li>Review the preview on the right</li>
                 <li>Click "Download PDF" to save your document</li>
             </ol>
+        </div>
+        
+        <div class="success-message" id="successMessage">
+            PDF generated successfully! Click the download button to save it.
         </div>
         
         <div class="content">
@@ -193,8 +206,12 @@
                         <input type="text" id="title" placeholder="Enter title">
                     </div>
                     <div class="form-group">
+                        <label for="author">Author</label>
+                        <input type="text" id="author" placeholder="Enter author name">
+                    </div>
+                    <div class="form-group">
                         <label for="content">Content</label>
-                        <textarea id="content" placeholder="Enter content"></textarea>
+                        <textarea id="content" placeholder="Enter your content here..."></textarea>
                     </div>
                     <div class="form-group">
                         <label for="fontFamily">Font Style</label>
@@ -223,9 +240,10 @@
                 <div id="pdfPreview">
                     <div class="preview-header">
                         <h3 id="previewTitle">Title will appear here</h3>
+                        <p id="previewAuthor">Author name will appear here</p>
                     </div>
                     <div class="preview-content">
-                        <p id="previewContent">Content will appear here.</p>
+                        <p id="previewContent">Your content will appear here. Start typing in the form to see a live preview.</p>
                     </div>
                 </div>
                 <div class="actions">
@@ -238,25 +256,30 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const titleInput = document.getElementById('title');
+            const authorInput = document.getElementById('author');
             const contentInput = document.getElementById('content');
             const fontFamilySelect = document.getElementById('fontFamily');
             const fontSizeSelect = document.getElementById('fontSize');
             const generateBtn = document.getElementById('generateBtn');
             const downloadBtn = document.getElementById('downloadBtn');
             const previewTitle = document.getElementById('previewTitle');
+            const previewAuthor = document.getElementById('previewAuthor');
             const previewContent = document.getElementById('previewContent');
+            const successMessage = document.getElementById('successMessage');
             
             let generatedPdf = null;
             
             // Update preview as user types
             titleInput.addEventListener('input', updatePreview);
+            authorInput.addEventListener('input', updatePreview);
             contentInput.addEventListener('input', updatePreview);
             fontFamilySelect.addEventListener('change', updatePreview);
             fontSizeSelect.addEventListener('change', updatePreview);
             
             function updatePreview() {
                 previewTitle.textContent = titleInput.value || 'Title will appear here';
-                previewContent.textContent = contentInput.value || 'Content will appear here.';
+                previewAuthor.textContent = authorInput.value || 'Author name will appear here';
+                previewContent.textContent = contentInput.value || 'Your content will appear here. Start typing in the form to see a live preview.';
                 
                 // Apply selected styles
                 previewContent.style.fontFamily = fontFamilySelect.value;
@@ -274,7 +297,11 @@
                     margin: 10,
                     filename: 'document.pdf',
                     image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2 },
+                    html2canvas: { 
+                        scale: 2,
+                        useCORS: true,
+                        backgroundColor: '#FFFFFF'
+                    },
                     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                 };
                 
@@ -282,7 +309,12 @@
                 html2pdf().set(opt).from(element).outputPdf('datauristring').then(function(pdfString) {
                     generatedPdf = pdfString;
                     downloadBtn.disabled = false;
-                    alert('PDF generated successfully! Click "Download PDF" to save it.');
+                    successMessage.style.display = 'block';
+                    
+                    // Hide success message after 5 seconds
+                    setTimeout(function() {
+                        successMessage.style.display = 'none';
+                    }, 5000);
                 });
             });
             
