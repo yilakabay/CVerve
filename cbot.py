@@ -1,201 +1,148 @@
 import os
-import logging
-import re
 import random
 import string
+import re
 import requests
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from PIL import Image
-import pytesseract
-from io import BytesIO
-from bs4 import BeautifulSoup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Get token from environment variable
+TOKEN = os.environ.get('8499138063:AAF7yahB4QCaSrpzmZBQqmi_ifYAqtT6m94')
 
-# Get the bot token from environment variable
-TOKEN = os.environ.get('BOT_TOKEN')
-
-# Store processed transaction IDs to prevent reuse
-processed_transactions = set()
-
-def start(update: Update, context: CallbackContext):
-    """Send a message when the command /start is issued."""
-    update.message.reply_text(
-        'Welcome to CVerve Payment Verifier Bot! '
-        'Send me a screenshot of your CBE transaction receipt to verify your payment.'
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        'Welcome to CBE Payment Verifier Bot! '
+        'Send me a screenshot of your CBE transaction receipt.'
     )
 
-def help_command(update: Update, context: CallbackContext):
-    """Send a message when the command /help is issued."""
-    update.message.reply_text(
-        'This bot verifies CBE payment receipts. '
-        'Send a screenshot of your transaction receipt with a visible URL. '
-        'The bot will check if the payment is valid and grant access accordingly.'
-    )
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await update.message.reply_text("Processing your screenshot...")
+        
+        # Get the photo file
+        photo_file = await update.message.photo[-1].get_file()
+        
+        # Download the photo
+        photo_bytes = await photo_file.download_as_bytearray()
+        
+        # For Railway deployment, we'll use text recognition from user input
+        await update.message.reply_text(
+            "Please type the text from your receipt so I can verify it.\n\n"
+            "Include:\n"
+            "- Receiver name (YILAK ABAY ABEBE)\n"
+            "- Account number (ending with 7639)\n"
+            "- Amount transferred (at least ETB 75.00)\n"
+            "- Any URLs in the receipt"
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"An error occurred: {str(e)}")
 
-def extract_text_from_image(image):
-    """Extract text from an image using OCR"""
-    return pytesseract.image_to_string(image)
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        text = update.message.text
+        
+        # Check if this is a valid CBE transaction
+        if not is_valid_cbe_transaction(text):
+            await update.message.reply_text("This doesn't appear to be a valid CBE transaction receipt.")
+            return
+            
+        # Extract URL from the text
+        url = extract_url(text)
+        if not url:
+            await update.message.reply_text("Could not find a valid URL in the receipt.")
+            return
+            
+        # Verify the transaction details from the URL
+        if not verify_transaction_from_url(url):
+            await update.message.reply_text("Transaction verification failed. The receipt may not be valid.")
+            return
+            
+        # Extract amount and check if it's at least 75 ETB
+        amount = extract_amount(text)
+        if amount < 75:
+            await update.message.reply_text("Access not granted. Minimum transfer amount is ETB 75.00.")
+            return
+            
+        # Generate 6-digit alphanumeric code
+        code = generate_code()
+        
+        await update.message.reply_text(f"✅ Access granted! Your verification code is: {code}")
+        
+    except Exception as e:
+        await update.message.reply_text(f"An error occurred: {str(e)}")
+
+def is_valid_cbe_transaction(text):
+    # Check for CBE indicators
+    cbe_indicators = ["CBE", "Commercial Bank of Ethiopia", "Thank you for Banking with CBE"]
+    return any(indicator.upper() in text.upper() for indicator in cbe_indicators)
 
 def extract_url(text):
-    """Extract URL from text using regex"""
-    url_pattern = re.compile(r'https?://\S+')
-    match = url_pattern.search(text)
-    return match.group() if match else None
+    # Simple URL extraction
+    url_pattern = r'https?://[^\s]+'
+    urls = re.findall(url_pattern, text)
+    return urls[0] if urls else None
 
-def fetch_receipt_content(url):
-    """Fetch content from the receipt URL"""
+def verify_transaction_from_url(url):
     try:
+        # Fetch the content from the URL
         response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException as e:
-        logger.error(f"Error fetching URL content: {e}")
-        return None
+        
+        if response.status_code != 200:
+            return False
+            
+        # Check for required elements in the response
+        content = response.text
+        
+        # Check for receiver name
+        if "YILAK ABAY ABEBE" not in content.upper():
+            return False
+            
+        # Check for account number ending with 7639
+        if not re.search(r'\*{2,}7639', content):
+            return False
+            
+        # Check for CBE branding (approximation of live stamp)
+        if "Commercial Bank of Ethiopia" not in content:
+            return False
+            
+        return True
+        
+    except Exception:
+        return False
 
-def parse_receipt_content(html_content):
-    """Parse receipt content from HTML"""
-    soup = BeautifulSoup(html_content, 'html.parser')
+def extract_amount(text):
+    # Try to find amount in the text
+    amount_patterns = [
+        r'ETB\s*(\d+\.\d{2})',
+        r'Transferred Amount\s*(\d+\.\d{2})',
+        r'Amount\s*(\d+\.\d{2})'
+    ]
     
-    # Extract receiver name
-    receiver_element = soup.find('td', text=re.compile(r'Receiver', re.IGNORECASE))
-    receiver = receiver_element.find_next('td').get_text().strip() if receiver_element else None
+    for pattern in amount_patterns:
+        matches = re.search(pattern, text, re.IGNORECASE)
+        if matches:
+            return float(matches.group(1))
     
-    # Extract transferred amount
-    amount_element = soup.find('td', text=re.compile(r'Transferred Amount', re.IGNORECASE))
-    amount_text = amount_element.find_next('td').get_text().strip() if amount_element else None
-    amount = float(amount_text.split()[0]) if amount_text else None
-    
-    # Extract account number
-    account_element = soup.find('td', text=re.compile(r'Account', re.IGNORECASE))
-    account = account_element.find_next('td').get_text().strip() if account_element else None
-    
-    # Extract reference number
-    reference_element = soup.find('td', text=re.compile(r'Reference No\. \(VAT Invoice No\)', re.IGNORECASE))
-    reference = reference_element.find_next('td').get_text().strip() if reference_element else None
-    
-    return {
-        'receiver': receiver,
-        'amount': amount,
-        'account': account,
-        'reference': reference
-    }
+    return 0.0
 
-def generate_alphanumeric_code(length=6):
-    """Generate a random alphanumeric code"""
+def generate_code():
+    """Generate a 6-digit alphanumeric code"""
     characters = string.ascii_uppercase + string.digits
-    return ''.join(random.choice(characters) for _ in range(length))
-
-def process_screenshot(update: Update, context: CallbackContext):
-    """Process the screenshot sent by the user"""
-    user = update.message.from_user
-    photo_file = update.message.photo[-1].get_file()
-    
-    # Download the image
-    image_data = BytesIO()
-    photo_file.download(out=image_data)
-    image_data.seek(0)
-    
-    # Open and process the image
-    image = Image.open(image_data)
-    
-    # Extract text from image using OCR
-    extracted_text = extract_text_from_image(image)
-    
-    # Check if it's a CBE debit receipt
-    if "Commercial Bank of Ethiopia" not in extracted_text or "Total amount debited from customers account" not in extracted_text:
-        update.message.reply_text("Access not granted: Not a valid CBE debit receipt.")
-        return
-    
-    # Extract URL from the text
-    url = extract_url(extracted_text)
-    if not url:
-        update.message.reply_text("Access not granted: No valid URL found in the receipt.")
-        return
-    
-    # Check if this transaction has been processed before
-    transaction_id = url.split('=')[-1] if '=' in url else url
-    if transaction_id in processed_transactions:
-        update.message.reply_text("Access not granted: This receipt has already been used.")
-        return
-    
-    # Fetch receipt content from the URL
-    html_content = fetch_receipt_content(url)
-    if not html_content:
-        update.message.reply_text("Access not granted: Could not fetch receipt content.")
-        return
-    
-    # Parse receipt content
-    receipt_data = parse_receipt_content(html_content)
-    
-    # Check if all required data is present
-    if not all([receipt_data.get('receiver'), receipt_data.get('amount'), 
-                receipt_data.get('account'), receipt_data.get('reference')]):
-        update.message.reply_text("Access not granted: Could not extract all required information from receipt.")
-        return
-    
-    # Check receiver name
-    if receipt_data['receiver'] != "YILAK ABAY ABEBE":
-        update.message.reply_text("Access not granted: Receiver name does not match.")
-        return
-    
-    # Check account ends with 7639
-    if not receipt_data['account'].endswith('7639'):
-        update.message.reply_text("Access not granted: Account does not end with 7639.")
-        return
-    
-    # Check reference number starts with FT
-    if not receipt_data['reference'].startswith('FT'):
-        update.message.reply_text("Access not granted: Reference number does not start with FT.")
-        return
-    
-    # Check if reference number is in URL
-    if receipt_data['reference'] not in url:
-        update.message.reply_text("Access not granted: Reference number not found in URL.")
-        return
-    
-    # Check amount and grant access
-    amount = receipt_data['amount']
-    if 75 <= amount < 145:
-        code = generate_alphanumeric_code()
-        update.message.reply_text(f"{code} - Basic Level is granted.")
-    elif 145 <= amount < 198:
-        code = generate_alphanumeric_code()
-        update.message.reply_text(f"{code} - Professional Level is granted.")
-    elif amount >= 198:
-        code = generate_alphanumeric_code()
-        update.message.reply_text(f"{code} - Premium Level is granted.")
-    else:
-        update.message.reply_text("Access not granted: Amount is outside valid ranges.")
-        return
-    
-    # Mark transaction as processed
-    processed_transactions.add(transaction_id)
+    return ''.join(random.choice(characters) for _ in range(6))
 
 def main():
-    """Start the bot."""
-    # Set up the Updater
-    updater = Updater(TOKEN, use_context=True)
-
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
-
-    # Register command handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-
-    # Register message handler for photos
-    dispatcher.add_handler(MessageHandler(Filters.photo, process_screenshot))
-
-    # Start the Bot
-    updater.start_polling()
-    updater.idle()
+    # Create the Application
+    application = Application.builder().token(TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # Start the bot
+    print("Bot is running...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
