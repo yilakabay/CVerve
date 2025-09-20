@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVerve</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // --- Firebase Setup ---
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('userIdDisplay').textContent = "User ID: " + userId;
+                } else {
+                    userId = null;
+                }
+                isAuthReady = true;
+                initApp();
+            });
+
+            if (initialAuthToken) {
+                signInWithCustomToken(auth, initialAuthToken).catch((error) => {
+                    console.error("Error signing in with custom token:", error);
+                    signInAnonymously(auth);
+                });
+            } else {
+                signInAnonymously(auth);
+            }
+        } else {
+            console.error("Firebase config is not available. Firestore will not function.");
+            document.getElementById('errorMessage').textContent = 'Error: Firebase config is missing. App may not work as expected.';
+            isAuthReady = true;
+            initApp();
+        }
+
+        // --- Core Application Logic ---
+        window.initApp = async () => {
+            if (!isAuthReady || !userId || !db) {
+                setTimeout(initApp, 100);
+                return;
+            }
+            console.log("App initialized. User ID:", userId);
+            setupListeners();
+        };
+
+        function setupListeners() {
+            // Balance and Payment Listener
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'profile');
+            onSnapshot(userDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const balance = docSnap.data().balance;
+                    document.getElementById('balanceDisplay').textContent = balance.toFixed(2);
+                } else {
+                    // Create a new user profile with a balance of 0
+                    setDoc(userDocRef, { balance: 0.00 });
+                }
+            }, (error) => {
+                console.error("Error fetching user balance:", error);
+            });
+        }
+
+        async function updateBalance(amount) {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'profile');
+            const docSnap = await getDoc(userDocRef);
+            if (docSnap.exists()) {
+                const currentBalance = docSnap.data().balance;
+                const newBalance = currentBalance + amount;
+                await updateDoc(userDocRef, { balance: newBalance });
+                return true;
+            }
+            return false;
+        }
+
+        function showMessage(type, message) {
+            const messageBox = document.getElementById('messageBox');
+            const messageText = document.getElementById('messageText');
+            messageBox.className = `fixed inset-x-0 bottom-4 mx-auto p-4 rounded-lg shadow-lg z-50 max-w-sm ${type === 'success' ? 'bg-emerald-500' : 'bg-red-500'} text-white text-center font-bold transition-all duration-300 transform scale-0`;
+            messageText.textContent = message;
+            setTimeout(() => {
+                messageBox.classList.add('scale-100');
+            }, 10);
+            setTimeout(() => {
+                messageBox.classList.remove('scale-100');
+            }, 3000);
+        }
+
+        // --- Tab Switching Logic ---
+        window.switchTab = (tabName) => {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('border-b-2', 'border-indigo-500');
+            });
+            document.getElementById(`${tabName}-content`).classList.remove('hidden');
+            document.getElementById(`${tabName}-button`).classList.add('border-b-2', 'border-indigo-500');
+        };
+
+        // --- PDF Merger Logic ---
+        let mergedPdf = null;
+        document.getElementById('mergePdfBtn').addEventListener('click', async () => {
+            const files = document.getElementById('pdfInput').files;
+            if (files.length < 2) {
+                showMessage('error', 'Please select at least two PDF files to merge.');
+                return;
+            }
+
+            const docSnap = await getDoc(doc(db, 'artifacts', appId, 'users', userId, 'data', 'profile'));
+            const balance = docSnap.exists() ? docSnap.data().balance : 0;
+            const cost = 0.95;
+
+            if (balance < cost) {
+                showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
+                return;
+            }
+
+            try {
+                const { PDFDocument } = window.PDFLib;
+                const mergedDoc = await PDFDocument.create();
+
+                for (const file of files) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdfDoc = await PDFDocument.load(arrayBuffer);
+                    const copiedPages = await mergedDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
+                    copiedPages.forEach(page => mergedDoc.addPage(page));
+                }
+
+                mergedPdf = await mergedDoc.save();
+                document.getElementById('downloadPdfBtn').classList.remove('hidden');
+                showMessage('success', 'PDFs merged successfully!');
+                await updateBalance(-cost);
+            } catch (error) {
+                console.error('Error merging PDFs:', error);
+                showMessage('error', 'Failed to merge PDFs. Please try again.');
+            }
+        });
+
+        document.getElementById('downloadPdfBtn').addEventListener('click', () => {
+            if (mergedPdf) {
+                const blob = new Blob([mergedPdf], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'merged_document.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        });
+
+        // --- Application Letter Logic ---
+        window.generateLetter = async () => {
+            const fullName = document.getElementById('fullName').value;
+            const phone = document.getElementById('phone').value;
+            const email = document.getElementById('email').value;
+            const address = document.getElementById('address').value;
+            const appDate = document.getElementById('appDate').value;
+            const cvFile = document.getElementById('cvFile').files[0];
+            const jdFile = document.getElementById('jdFile').files[0];
+
+            if (!fullName || !phone || !email || !address || !appDate || !cvFile || !jdFile) {
+                showMessage('error', 'Please fill all fields and upload both files.');
+                return;
+            }
+
+            const docSnap = await getDoc(doc(db, 'artifacts', appId, 'users', userId, 'data', 'profile'));
+            const balance = docSnap.exists() ? docSnap.data().balance : 0;
+            const cost = 1.95;
+
+            if (balance < cost) {
+                showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
+                return;
+            }
+
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+
+            try {
+                const cvData = await fileToBase64(cvFile);
+                const jdData = await fileToBase64(jdFile);
+
+                const prompt = `
+                    Instructions for the application letter:
+                    - Format the contact information at the top in this order: Name, Phone, Email, Address, Date (each on separate lines).
+                    - The application letter must be medium sized (about 4/5 of a page).
+                    - It must not be exaggerated or over-promising.
+                    - Focus on humble requests rather than demands.
+                    - Emphasize education, field of study, position, and soft skills.
+                    - If experience is internship, don't focus on experience as it's just training.
+                    - If the user's grade is less than 3.00/4.00, do not mention the CGPA. But if it is greater than or equal to 3.00/4.00, mention it on the application.
+                    - Do not say "I have attached my CV or credentials" at the end.
+                    - The application letter must be standard and formal.
+                    - Extract the job title and company name from the job description.
+                    - Extract the company address from the job description if available.
+                    - Do not use placeholders like [Your Name], [Date], [Company Name], etc. Use the actual information provided.
+                    - If the company address is not mentioned in the job description, omit it from the letter.
+                    - The letter should be addressed to the hiring manager with the company name.
+                    - Make the application letter demonstrate that the user understands the vacancy as well as the responsibilities and the goal of the company.
+                    - Format the letter properly with sender information at the top, date, recipient information, and proper closing.
+                    - Use the exact information provided by the user without any placeholders.
+
+                    User's Full Name: ${fullName}
+                    User's Phone: ${phone}
+                    User's Email: ${email}
+                    User's Address: ${address}
+                    Date of Application: ${appDate}
+                    
+                    The following files are the user's CV and the job description. Please write a professional application letter based on the above instructions and the content of these documents.
+                `;
+
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: cvFile.type, data: cvData } },
+                            { inlineData: { mimeType: jdFile.type, data: jdData } }
+                        ]
+                    }],
+                };
+
+                const apiKey = typeof __api_key !== 'undefined' ? __api_key : ''; // Using provided API key
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('API Error:', errorData);
+                    showMessage('error', `API Error: ${response.statusText}`);
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                    return;
+                }
+
+                const result = await response.json();
+                const letterText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (letterText) {
+                    document.getElementById('applicationLetter').value = letterText;
+                    document.getElementById('downloadLetterBtn').classList.remove('hidden');
+                    showMessage('success', 'Application letter generated successfully!');
+                    await updateBalance(-cost);
+                } else {
+                    showMessage('error', 'Could not generate letter. Please try again.');
+                }
+
+            } catch (error) {
+                console.error('Error generating letter:', error);
+                showMessage('error', 'An unexpected error occurred.');
+            } finally {
+                document.getElementById('loadingIndicator').classList.add('hidden');
+            }
+        };
+
+        async function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        window.downloadLetterAsPdf = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const letterContent = document.getElementById('applicationLetter').value;
+            const lines = doc.splitTextToSize(letterContent, 180);
+
+            doc.setFont('Times-Roman');
+            doc.setFontSize(12);
+            doc.text(lines, 10, 10);
+            doc.save('application_letter.pdf');
+        };
+
+        // --- Payment Logic ---
+        window.showTopUpForm = () => {
+            document.getElementById('topUpForm').classList.remove('hidden');
+        };
+
+        window.confirmPayment = async () => {
+            const screenshotFile = document.getElementById('paymentScreenshot').files[0];
+            if (!screenshotFile) {
+                showMessage('error', 'Please upload a screenshot.');
+                return;
+            }
+
+            document.getElementById('loadingIndicatorPayment').classList.remove('hidden');
+
+            try {
+                const screenshotData = await fileToBase64(screenshotFile);
+                const prompt = `
+                    Analyze the following payment screenshot from CBE and extract the following information. If any information is not present, respond with 'Not found'.
+                    1. Name of the payment receiver.
+                    2. Amount of money transferred.
+                    3. The payment ID, which starts with "FT".
+                    
+                    Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
+                `;
+
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: screenshotFile.type, data: screenshotData } }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "receiver_name": { "type": "STRING" },
+                                "amount": { "type": "NUMBER" },
+                                "payment_id": { "type": "STRING" }
+                            },
+                        }
+                    }
+                };
+                
+                const apiKey = typeof __api_key !== 'undefined' ? __api_key : '';
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('API Error:', errorData);
+                    showMessage('error', `API Error: ${response.statusText}`);
+                    document.getElementById('loadingIndicatorPayment').classList.add('hidden');
+                    return;
+                }
+
+                const result = await response.json();
+                const extractedData = JSON.parse(result?.candidates?.[0]?.content?.parts?.[0]?.text);
+
+                const { receiver_name, amount, payment_id } = extractedData;
+                
+                const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
+                if (!validNames.includes(receiver_name) || amount < 30 || !payment_id || !payment_id.startsWith('FT')) {
+                    showMessage('error', 'Payment failed: Invalid details from screenshot.');
+                    document.getElementById('loadingIndicatorPayment').classList.add('hidden');
+                    return;
+                }
+                
+                // Check if payment ID has been used before
+                const usedPaymentsRef = doc(db, 'artifacts', appId, 'public', 'data', 'used_payment_ids', payment_id);
+                const docSnap = await getDoc(usedPaymentsRef);
+                if (docSnap.exists()) {
+                    showMessage('error', 'Payment failed: This payment ID has already been used.');
+                    document.getElementById('loadingIndicatorPayment').classList.add('hidden');
+                    return;
+                }
+                
+                await setDoc(usedPaymentsRef, { userId: userId, amount: amount, timestamp: new Date() });
+                await updateBalance(amount);
+                showMessage('success', 'Payment confirmed! Your balance has been updated.');
+                document.getElementById('topUpForm').classList.add('hidden');
+
+            } catch (error) {
+                console.error('Error confirming payment:', error);
+                showMessage('error', 'An unexpected error occurred during payment confirmation.');
+            } finally {
+                document.getElementById('loadingIndicatorPayment').classList.add('hidden');
+            }
+        };
+
+    </script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-[Inter]">
+
+    <!-- Message Box -->
+    <div id="messageBox" class="hidden">
+        <p id="messageText"></p>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
+        
+        <!-- Header -->
+        <h1 class="text-3xl font-bold text-center text-indigo-600 mb-2">CVerve</h1>
+        <p class="text-sm text-center text-gray-500 mb-6" id="userIdDisplay">User ID: Loading...</p>
+        
+        <!-- Tab Navigation -->
+        <div class="flex border-b border-gray-200 mb-4">
+            <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
+            <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
+            <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Payment</button>
+        </div>
+
+        <!-- Tab Content Containers -->
+        <div id="merger-content" class="tab-content">
+            <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
+                <div class="space-y-4">
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
+                        <input type="file" id="pdfInput" multiple accept="application/pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                    </label>
+                    <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Merge PDFs</button>
+                    <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download Merged PDF</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="letter-content" class="tab-content hidden">
+            <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                <h2 class="text-xl font-semibold mb-4 text-center">Application Letter Writer</h2>
+                <div class="space-y-4">
+                    <input type="text" id="fullName" placeholder="Full Name" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="tel" id="phone" placeholder="Phone Number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="email" id="email" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700">Upload Your CV (Image, PDF, Word)</span>
+                        <input type="file" id="cvFile" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                    </label>
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700">Upload Job Description (Image, PDF, Word)</span>
+                        <input type="file" id="jdFile" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                    </label>
+                    <button onclick="generateLetter()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
+                    <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
+                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                    <button id="downloadLetterBtn" onclick="downloadLetterAsPdf()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download as PDF</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="payment-content" class="tab-content hidden">
+            <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                <h2 class="text-xl font-semibold mb-4 text-center">Payment & Balance</h2>
+                <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-lg shadow">
+                    <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
+                    <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors duration-200 shadow-md">Top Up</button>
+                </div>
+                
+                <div id="topUpForm" class="hidden space-y-4">
+                    <div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
+                        <h3 class="font-bold mb-2">Payment Instructions:</h3>
+                        <p>✔️ Payment Method: Bank Transfer</p>
+                        <p>✔️ Bank: Commercial Bank of Ethiopia</p>
+                        <p>✔️ Account Number: 1000577617639</p>
+                        <p>✔️ Account Name: YILAK ABAY ABEBE</p>
+                        <p>✔️ Amount: Minimum 30 ETB</p>
+                        <p class="mt-2">After you pay please send the screenshot of the text you received from CBE below.</p>
+                    </div>
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700">Upload your payment screenshot</span>
+                        <input type="file" id="paymentScreenshot" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                    </label>
+                    <button onclick="confirmPayment()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Confirm Payment</button>
+                    <div id="loadingIndicatorPayment" class="hidden text-center text-sm font-medium text-gray-500">Confirming payment...</div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+
+</body>
+</html>
