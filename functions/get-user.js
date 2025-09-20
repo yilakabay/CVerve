@@ -19,22 +19,30 @@ exports.handler = async (event, context) => {
     const db = client.db('cverve');
     const collection = db.collection('users');
     
-    const user = await collection.findOne({ userId });
-    
-    if (user) {
+    // Check if user already exists
+    const existingUser = await collection.findOne({ userId });
+    if (existingUser) {
       return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          userId: user.userId, 
-          balance: user.balance 
-        })
-      };
-    } else {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ error: 'User not found' })
+        statusCode: 409,
+        body: JSON.stringify({ error: 'User already exists' })
       };
     }
+    
+    // Create new user with 5.00 ETB initial balance
+    const result = await collection.insertOne({
+      userId,
+      balance: 5.00, // Set initial balance to 5.00 ETB
+      createdAt: new Date()
+    });
+    
+    return {
+      statusCode: 201,
+      body: JSON.stringify({ 
+        success: true, 
+        userId,
+        balance: 5.00
+      })
+    };
   } catch (error) {
     console.error('Database error:', error);
     return {
