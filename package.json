@@ -1,0 +1,9 @@
+{
+  "name": "cverve-backend",
+  "version": "1.0.0",
+  "description": "Backend functions for CVerve application",
+  "dependencies": {
+    "mongodb": "^5.7.0",
+    "axios": "^1.6.0"
+  }
+}
