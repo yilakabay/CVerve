@@ -412,7 +412,7 @@
             try {
                 const screenshotData = await fileToBase64(screenshotFile);
 
-                const response = await fetch('/.netlify/functions/process-payment-background', {
+                const response = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
