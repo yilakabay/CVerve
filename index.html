@@ -279,11 +279,11 @@
             const email = document.getElementById('email').value;
             const address = document.getElementById('address').value;
             const appDate = document.getElementById('appDate').value;
-            const cvFile = document.getElementById('cvFile').files[0];
-            const jdFile = document.getElementById('jdFile').files[0];
+            const cvFiles = document.getElementById('cvFile').files;
+            const jdFiles = document.getElementById('jdFile').files;
 
-            if (!fullName || !phone || !email || !address || !appDate || !cvFile || !jdFile) {
-                showMessage('error', 'Please fill all fields and upload both files.');
+            if (!fullName || !phone || !email || !address || !appDate || cvFiles.length === 0 || jdFiles.length === 0) {
+                showMessage('error', 'Please fill all fields and upload at least one file for both CV and Job Description.');
                 return;
             }
 
@@ -297,8 +297,27 @@
             document.getElementById('loadingIndicator').classList.remove('hidden');
 
             try {
-                const cvData = await fileToBase64(cvFile);
-                const jdData = await fileToBase64(jdFile);
+                // Process CV files
+                const cvFilesData = [];
+                for (let i = 0; i < cvFiles.length; i++) {
+                    const file = cvFiles[i];
+                    const base64Data = await fileToBase64(file);
+                    cvFilesData.push({
+                        data: base64Data,
+                        type: file.type
+                    });
+                }
+
+                // Process JD files
+                const jdFilesData = [];
+                for (let i = 0; i < jdFiles.length; i++) {
+                    const file = jdFiles[i];
+                    const base64Data = await fileToBase64(file);
+                    jdFilesData.push({
+                        data: base64Data,
+                        type: file.type
+                    });
+                }
 
                 const response = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST',
@@ -309,10 +328,8 @@
                         email: email,
                         address: address,
                         appDate: appDate,
-                        cvData: cvData,
-                        jdData: jdData,
-                        cvFileType: cvFile.type,
-                        jdFileType: jdFile.type
+                        cvFiles: cvFilesData,
+                        jdFiles: jdFilesData
                     })
                 });
                 
@@ -581,12 +598,12 @@
                         <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload Your CV (Image, PDF, Word)</span>
-                            <input type="file" id="cvFile" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                            <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
+                            <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
                         <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload Job Description (Image, PDF, Word)</span>
-                            <input type="file" id="jdFile" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                            <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
+                            <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
                         <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
                         <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
