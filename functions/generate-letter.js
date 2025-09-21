@@ -1,4 +1,5 @@
 const axios = require('axios');
+const FormData = require('form-data');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -6,26 +7,52 @@ exports.handler = async (event, context) => {
   }
 
   const { prompt, cvData, jdData, cvFileType, jdFileType } = JSON.parse(event.body);
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
-    const payload = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: cvFileType, data: cvData } },
-          { inlineData: { mimeType: jdFileType, data: jdData } }
-        ]
-      }],
-    };
+    // Create form data for multipart request
+    const formData = new FormData();
+    
+    // Add files to form data
+    const cvBuffer = Buffer.from(cvData, 'base64');
+    const jdBuffer = Buffer.from(jdData, 'base64');
+    
+    formData.append('file', cvBuffer, {
+      filename: 'cv.' + cvFileType.split('/')[1],
+      contentType: cvFileType
+    });
+    
+    formData.append('file', jdBuffer, {
+      filename: 'jd.' + jdFileType.split('/')[1],
+      contentType: jdFileType
+    });
 
+    // Add the JSON payload
+    const payload = {
+      model: "deepseek-reasoner",
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    };
+    
+    formData.append('payload', JSON.stringify(payload));
+
+    // Make request to DeepSeek API
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      payload,
-      { headers: { 'Content-Type': 'application/json' } }
+      'https://api.deepseek.com/v1/chat/completions',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          ...formData.getHeaders()
+        }
+      }
     );
 
-    const letterText = response.data.candidates[0].content.parts[0].text;
+    const letterText = response.data.choices[0].message.content;
 
     return {
       statusCode: 200,
