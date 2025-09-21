@@ -1,4 +1,4 @@
-const axios = require('axios');
+const OpenAI = require('openai');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -9,16 +9,19 @@ exports.handler = async (event, context) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
-    const payload = {
-      model: "deepseek-vl",
+    // Initialize OpenAI client with DeepSeek endpoint
+    const openai = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.deepseek.com'
+    });
+
+    const response = await openai.chat.completions.create({
+      model: "deepseek-vl-chat",
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: prompt
-            },
+            { type: "text", text: prompt },
             {
               type: "image_url",
               image_url: {
@@ -35,27 +38,16 @@ exports.handler = async (event, context) => {
         }
       ],
       max_tokens: 2048
-    };
+    });
 
-    const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      payload,
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    const letterText = response.data.choices[0].message.content;
+    const letterText = response.choices[0].message.content;
 
     return {
       statusCode: 200,
       body: JSON.stringify({ letterText })
     };
   } catch (error) {
-    console.error('Letter generation error:', error.response?.data || error.message);
+    console.error('Letter generation error:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Failed to generate letter' })
