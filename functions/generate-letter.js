@@ -30,18 +30,48 @@ async function extractTextFromFile(base64Data, mimeType) {
   }
 }
 
+// Function to process multiple files
+async function processMultipleFiles(files) {
+  let combinedText = '';
+  for (const file of files) {
+    try {
+      const text = await extractTextFromFile(file.data, file.type);
+      combinedText += text + '\n\n';
+    } catch (error) {
+      console.error(`Error processing file: ${error.message}`);
+      throw new Error(`Failed to process one or more files: ${error.message}`);
+    }
+  }
+  return combinedText;
+}
+
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { fullName, phone, email, address, appDate, cvData, jdData, cvFileType, jdFileType } = JSON.parse(event.body);
+  const { fullName, phone, email, address, appDate, cvFiles, jdFiles } = JSON.parse(event.body);
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
+    // Validate input
+    if (!cvFiles || cvFiles.length === 0) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'At least one CV file is required' })
+      };
+    }
+
+    if (!jdFiles || jdFiles.length === 0) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'At least one Job Description file is required' })
+      };
+    }
+
     // Extract text from CV and JD files
-    const cvText = await extractTextFromFile(cvData, cvFileType);
-    const jdText = await extractTextFromFile(jdData, jdFileType);
+    const cvText = await processMultipleFiles(cvFiles);
+    const jdText = await processMultipleFiles(jdFiles);
 
     const prompt = `
       Instructions for the application letter:
@@ -69,10 +99,10 @@ exports.handler = async (event, context) => {
       User's Address: ${address}
       Date of Application: ${appDate}
       
-      CV Content:
+      CV Content (from all uploaded files):
       ${cvText}
       
-      Job Description Content:
+      Job Description Content (from all uploaded files):
       ${jdText}
       
       Please write a professional application letter based on the above instructions.
