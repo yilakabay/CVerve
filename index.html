@@ -383,31 +383,22 @@
             
             // Calculate the maximum width for text (page width minus margins)
             const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 20;
+            const margin = 15; // Reduced margins to use more horizontal space
             const maxWidth = pageWidth - (margin * 2);
             
             // Split the text into lines that fit within the maxWidth
             const lines = doc.splitTextToSize(letterContent, maxWidth);
             
-            // Calculate line height
-            const lineHeight = doc.getTextDimensions('M').h * 1.15;
-            
             // Start position for text
-            let y = margin;
+            let y = 20;
             
             // Add each line to the PDF
             for (let i = 0; i < lines.length; i++) {
-                // Check if we need to add a new page
-                if (y > doc.internal.pageSize.getHeight() - margin) {
-                    doc.addPage();
-                    y = margin;
-                }
-                
-                // Add text line
+                // Add text line with full width
                 doc.text(lines[i], margin, y);
                 
                 // Move to next line
-                y += lineHeight;
+                y += 7;
             }
             
             // Save the PDF
@@ -626,7 +617,7 @@
                         <input type="tel" id="phone" placeholder="Phone Number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="email" id="email" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="date" id 'appDate' class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                             <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
