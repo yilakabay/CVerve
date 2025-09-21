@@ -4,7 +4,6 @@
   "description": "Backend functions for CVerve application",
   "dependencies": {
     "mongodb": "^5.7.0",
-    "axios": "^1.6.0",
-    "form-data": "^4.0.0"
+    "openai": "^4.20.1"
   }
 }
