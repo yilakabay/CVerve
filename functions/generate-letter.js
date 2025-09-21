@@ -47,14 +47,23 @@ async function processMultipleFiles(files) {
 
 // Function to extract key information from job description
 function extractJobInfo(jdText) {
-  // Simple extraction of company name and position
-  const companyMatch = jdText.match(/(Company|Bank|Organization)[:\s]*([^\n\r]+)/i);
-  const positionMatch = jdText.match(/(Position|Role|Title)[:\s]*([^\n\r]+)/i);
+  // Try to extract company name
+  let company = "the company";
+  const companyRegex = /(?:company|bank|organization|employer)[:\s]*([^\n\r]+)/i;
+  const companyMatch = jdText.match(companyRegex);
+  if (companyMatch && companyMatch[1]) {
+    company = companyMatch[1].trim();
+  }
   
-  return {
-    company: companyMatch ? companyMatch[2].trim() : "the company",
-    position: positionMatch ? positionMatch[2].trim() : "the position"
-  };
+  // Try to extract position title
+  let position = "the position";
+  const positionRegex = /(?:position|role|title|vacancy)[:\s]*([^\n\r]+)/i;
+  const positionMatch = jdText.match(positionRegex);
+  if (positionMatch && positionMatch[1]) {
+    position = positionMatch[1].trim();
+  }
+  
+  return { company, position };
 }
 
 exports.handler = async (event, context) => {
@@ -85,12 +94,16 @@ exports.handler = async (event, context) => {
     const cvText = await processMultipleFiles(cvFiles);
     const jdText = await processMultipleFiles(jdFiles);
     
+    // Log extracted text for debugging (will appear in Netlify function logs)
+    console.log("CV Text Length:", cvText.length);
+    console.log("JD Text Length:", jdText.length);
+    console.log("JD Text Sample:", jdText.substring(0, 200));
+    
     // Extract key information from job description
     const jobInfo = extractJobInfo(jdText);
+    console.log("Extracted Job Info:", jobInfo);
 
     const prompt = `
-      TASK: Generate a job application letter for the specific position described below.
-
       JOB DESCRIPTION:
       ${jdText}
 
@@ -104,24 +117,19 @@ exports.handler = async (event, context) => {
       - Address: ${address}
       - Date: ${appDate}
 
-      JOB INFORMATION (extracted from description):
-      - Company: ${jobInfo.company}
-      - Position: ${jobInfo.position}
-
       INSTRUCTIONS:
-      1. Write a professional application letter specifically for the position described above
-      2. Address it to the hiring manager at the company mentioned in the job description
-      3. Use the exact company name and position title from the job description
-      4. Highlight how the applicant's qualifications match the specific job requirements
-      5. Do not use placeholders like [Company Name] or [Position Title]
-      6. Format the contact information at the top: Name, Phone, Email, Address, Date
-      7. Keep the letter to about 4/5 of a page
-      8. Use a formal, professional tone
-      9. Do not mention attaching a CV or documents
-      10. Only mention GPA if it's 3.00/4.00 or higher
-
-      IMPORTANT: The letter must be specifically tailored to the job description provided.
-      Do not generate a generic letter - it must reference specific details from the job description.
+      Write a professional application letter for the position described in the JOB DESCRIPTION section.
+      
+      IMPORTANT: 
+      1. Use the exact company name and position title from the JOB DESCRIPTION
+      2. Do NOT use placeholders like [Company Name] or [Position Title]
+      3. Reference specific requirements from the job description
+      4. Highlight how the applicant's qualifications match the job requirements
+      5. Format the contact information at the top: Name, Phone, Email, Address, Date
+      6. Address the letter to the appropriate recipient (Hiring Manager if no specific name)
+      7. Keep the letter professional and about 4/5 of a page
+      8. Do not mention attaching a CV or documents
+      9. Only mention GPA if it's 3.00/4.00 or higher
 
       Now generate the application letter:
     `;
@@ -133,7 +141,7 @@ exports.handler = async (event, context) => {
         messages: [
           { 
             role: 'system', 
-            content: 'You are a professional resume writer who creates tailored application letters for specific job positions. Always use the exact details from the job description without placeholders.' 
+            content: 'You are a professional resume writer. Always use exact details from the job description without placeholders. If the job description mentions a specific company and position, use those exact names.' 
           },
           { role: 'user', content: prompt }
         ],
@@ -158,7 +166,7 @@ exports.handler = async (event, context) => {
     console.error('Letter generation error:', error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to generate letter. Please try again with different files.' })
+      body: JSON.stringify({ error: 'Failed to generate letter. Please check that your files contain text and try again.' })
     };
   }
 };
