@@ -364,7 +364,7 @@
         }
 
         async function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve, reject) {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result.split(',')[1]);
                 reader.onerror = error => reject(error);
@@ -376,11 +376,33 @@
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             const letterContent = document.getElementById('applicationLetter').value;
-            const lines = doc.splitTextToSize(letterContent, 180);
+            
+            // Set page dimensions and margins
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 20;
+            const maxWidth = pageWidth - (margin * 2);
+            
+            // Split text into lines with full page width
+            const lines = doc.splitTextToSize(letterContent, maxWidth);
 
             doc.setFont('Times-Roman');
             doc.setFontSize(12);
-            doc.text(lines, 10, 10);
+            
+            // Add text with proper margins
+            let yPosition = margin;
+            const lineHeight = 7;
+            
+            for (let i = 0; i < lines.length; i++) {
+                // Check if we need to add a new page
+                if (yPosition > doc.internal.pageSize.getHeight() - margin) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                doc.text(lines[i], margin, yPosition);
+                yPosition += lineHeight;
+            }
+            
             doc.save('application_letter.pdf');
         };
 
@@ -520,12 +542,12 @@
                     <span id="generatedUserId" class="font-mono text-sm"></span>
                     <button id="copyUserIdBtn" onclick="copyGeneratedUserId()" class="bg-indigo-100 text-indigo-700 p-2 rounded-full hover:bg-indigo-200 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V极 a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a极 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                     </button>
                 </div>
                 
-                <button onclick="showSaveConfirmation()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors duration-200 shadow-md">
+                <button onclick="showSaveConfirmation()极" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors duration-200 shadow-md">
                     Continue
                 </button>
             </div>
@@ -553,7 +575,7 @@
             
             <!-- Header with User ID -->
             <div class="flex items-center justify-between mb-2">
-                <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
+                <h1 class="text-3极xl font-bold text-indigo-600">CVerve</h1>
                 <div class="flex items-center">
                     <span class="text-sm text-gray-500 mr-2" id="dashboardUserId"></span>
                     <button onclick="copyToClipboard(userId)" class="text-indigo-600 hover:text-indigo-800">
@@ -569,18 +591,18 @@
             <!-- Tab Navigation -->
             <div class="flex border-b border-gray-200 mb-4">
                 <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
-                <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
+                <button id="letter-button" onclick极="switchTab('letter')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
                 <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Payment</button>
             </div>
 
             <!-- Tab Content Containers -->
             <div id="merger-content" class="tab-content">
                 <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
-                    <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
+                    <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h极2>
                     <div class="space-y-4">
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
-                            <input type="file" id="pdfInput" multiple accept="application/pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                            <input type="file" id="pdfInput" multiple accept="application/pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:极bg-indigo-100 transition duration-150">
                         </label>
                         <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Merge PDFs</button>
                         <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download Merged PDF</button>
@@ -599,11 +621,11 @@
                         <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
-                            <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                            <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semib极old file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
-                            <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                            <input type="file" id="jd极File" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
                         <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
                         <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
@@ -621,8 +643,8 @@
                         <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors duration-200 shadow-md">Top Up</button>
                     </div>
                     
-                    <div id="topUpForm" class="hidden space-y-4">
-                        <div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
+                    <div id="topUpForm" class="hidden space-y极-4">
+                        <极div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
                             <h3 class="font-bold mb-2">Payment Instructions:</h3>
                             <p>✔️ Payment Method: Bank Transfer</p>
                             <p>✔️ Bank: Commercial Bank of Ethiopia</p>
