@@ -1,5 +1,6 @@
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
+const FormData = require('form-data');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -17,10 +18,10 @@ exports.handler = async (event, context) => {
 
   const uri = process.env.MONGODB_URI;
   const client = new MongoClient(uri);
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
-    // Call Gemini API to extract payment details
+    // Prepare prompt for payment verification
     const prompt = `
       Analyze the following payment screenshot from CBE and extract the following information. If any information is not present, respond with 'Not found'.
       1. Name of the payment receiver.
@@ -30,33 +31,61 @@ exports.handler = async (event, context) => {
       Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
     `;
 
+    // Create form data for multipart request
+    const formData = new FormData();
+    
+    // Add screenshot to form data
+    const screenshotBuffer = Buffer.from(screenshotData, 'base64');
+    
+    formData.append('file', screenshotBuffer, {
+      filename: 'payment.' + screenshotType.split('/')[1],
+      contentType: screenshotType
+    });
+
+    // Add the JSON payload
     const payload = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: screenshotType, data: screenshotData } }
-        ]
-      }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            "receiver_name": { "type": "STRING" },
-            "amount": { "type": "NUMBER" },
-            "payment_id": { "type": "STRING" }
-          },
+      model: "deepseek-reasoner",
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    };
+    
+    formData.append('payload', JSON.stringify(payload));
+
+    // Make request to DeepSeek API
+    const response = await axios.post(
+      'https://api.deepseek.com/v1/chat/completions',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          ...formData.getHeaders()
         }
       }
-    };
-
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      payload,
-      { headers: { 'Content-Type': 'application/json' } }
     );
 
-    const extractedData = JSON.parse(response.data.candidates[0].content.parts[0].text);
+    const aiResponse = response.data.choices[0].message.content;
+    
+    // Parse the JSON response from the AI
+    let extractedData;
+    try {
+      extractedData = JSON.parse(aiResponse);
+    } catch (e) {
+      // If it's not valid JSON, try to extract the information manually
+      const amountMatch = aiResponse.match(/"amount":\s*(\d+\.?\d*)/);
+      const receiverMatch = aiResponse.match(/"receiver_name":\s*"([^"]*)"/);
+      const paymentIdMatch = aiResponse.match(/"payment_id":\s*"([^"]*)"/);
+      
+      extractedData = {
+        receiver_name: receiverMatch ? receiverMatch[1] : "Not found",
+        amount: amountMatch ? parseFloat(amountMatch[1]) : 0,
+        payment_id: paymentIdMatch ? paymentIdMatch[1] : "Not found"
+      };
+    }
+    
     const { receiver_name, amount, payment_id } = extractedData;
     
     // Validate payment details
