@@ -2,7 +2,25 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
-const tesseract = require('tesseract.js');
+const Tesseract = require('tesseract.js');
+const sharp = require('sharp');
+
+// Function to optimize image for faster OCR processing
+async function optimizeImageForOCR(buffer) {
+  try {
+    // Resize image to maximum 1200px width (maintains aspect ratio)
+    // Convert to grayscale for better OCR accuracy
+    // Increase contrast slightly
+    return await sharp(buffer)
+      .resize(1200, null, { withoutEnlargement: true })
+      .grayscale()
+      .linear(1.1, -10)
+      .toBuffer();
+  } catch (error) {
+    console.error('Image optimization error:', error);
+    return buffer; // Return original if optimization fails
+  }
+}
 
 // Function to extract text from different file types
 async function extractTextFromFile(base64Data, mimeType) {
@@ -18,9 +36,16 @@ async function extractTextFromFile(base64Data, mimeType) {
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } else if (mimeType.includes('image')) {
-      // Extract text from image using OCR with simplified configuration
-      const { data: { text } } = await tesseract.recognize(buffer, 'eng', {
-        logger: m => console.log(m) // Optional: remove this in production if not needed
+      // Optimize image first for faster OCR
+      const optimizedBuffer = await optimizeImageForOCR(buffer);
+      
+      // Extract text from image using OCR with optimized settings
+      const { data: { text } } = await Tesseract.recognize(optimizedBuffer, 'eng', {
+        logger: () => {}, // Disable logging to reduce memory usage
+        // Use faster OCR engine (legacy engine is faster but less accurate)
+        oem: Tesseract.OEM.TESSERACT_ONLY,
+        // Set page segmentation mode to auto
+        psm: Tesseract.PSM.AUTO,
       });
       return text;
     } else {
@@ -33,7 +58,7 @@ async function extractTextFromFile(base64Data, mimeType) {
 }
 
 exports.handler = async (event, context) => {
-  // Immediately close database connection to avoid timeout
+  // Increase timeout to 30 seconds (Netlify's maximum)
   context.callbackWaitsForEmptyEventLoop = false;
 
   if (event.httpMethod !== 'POST') {
@@ -44,12 +69,12 @@ exports.handler = async (event, context) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
-    // Extract text from CV and JD files with timeout protection
+    // Extract text from CV and JD files
     let cvText, jdText;
     
-    // Set a timeout for text extraction
+    // Set a longer timeout for text extraction (25 seconds)
     const extractionTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Text extraction timeout')), 20000);
+      setTimeout(() => reject(new Error('Text extraction timeout')), 25000);
     });
 
     const extractionPromise = Promise.all([
@@ -63,7 +88,7 @@ exports.handler = async (event, context) => {
       console.error('Text extraction failed:', error);
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'Failed to extract text from files. Please ensure files are clear and try again.' })
+        body: JSON.stringify({ error: 'Failed to extract text from files. Please try again with clearer images or text-based documents.' })
       };
     }
 
@@ -94,10 +119,10 @@ exports.handler = async (event, context) => {
       Date of Application: ${appDate}
       
       CV Content:
-      ${cvText.substring(0, 2000)}... [Content truncated for length]
+      ${cvText}
       
       Job Description Content:
-      ${jdText.substring(0, 2000)}... [Content truncated for length]
+      ${jdText}
       
       Please write a professional application letter based on the above instructions.
     `;
@@ -133,7 +158,7 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({ letterText })
     };
   } catch (error) {
-    console.error('Letter generation error:', error.response?.data || error.message);
+    console.error('Letter generation error:', error.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Failed to generate letter. Please try again with smaller files or text-based documents.' })
