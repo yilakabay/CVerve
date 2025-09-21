@@ -27,8 +27,8 @@ exports.handler = async (event, context) => {
       1. Name of the payment receiver.
       2. Amount of money transferred.
       3. The payment ID, which starts with "FT".
-      
-      Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
+
+      You must respond with a JSON object only, using exactly these keys: receiver_name, amount, payment_id.
     `;
 
     // Create form data for multipart request
@@ -42,7 +42,7 @@ exports.handler = async (event, context) => {
       contentType: screenshotType
     });
 
-    // Add the JSON payload
+    // Add the JSON payload with response_format to enforce JSON output
     const payload = {
       model: "deepseek-reasoner",
       messages: [
@@ -50,7 +50,8 @@ exports.handler = async (event, context) => {
           role: "user",
           content: prompt
         }
-      ]
+      ],
+      response_format: { type: "json_object" }
     };
     
     formData.append('payload', JSON.stringify(payload));
@@ -74,28 +75,29 @@ exports.handler = async (event, context) => {
     try {
       extractedData = JSON.parse(aiResponse);
     } catch (e) {
-      // If it's not valid JSON, try to extract the information manually
-      const amountMatch = aiResponse.match(/"amount":\s*(\d+\.?\d*)/);
-      const receiverMatch = aiResponse.match(/"receiver_name":\s*"([^"]*)"/);
-      const paymentIdMatch = aiResponse.match(/"payment_id":\s*"([^"]*)"/);
-      
-      extractedData = {
-        receiver_name: receiverMatch ? receiverMatch[1] : "Not found",
-        amount: amountMatch ? parseFloat(amountMatch[1]) : 0,
-        payment_id: paymentIdMatch ? paymentIdMatch[1] : "Not found"
+      console.error('Failed to parse AI response as JSON:', aiResponse);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ 
+          success: false, 
+          message: 'Payment verification failed: Could not parse response.' 
+        })
       };
     }
     
     const { receiver_name, amount, payment_id } = extractedData;
     
-    // Validate payment details
-    const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
-    if (!validNames.includes(receiver_name) || amount < 30 || !payment_id || !payment_id.startsWith('FT')) {
+    // Validate payment details with case-insensitive comparison
+    const validNames = ['yilak abay', 'yilak abay abebe'];
+    const receivedName = receiver_name ? receiver_name.toLowerCase() : '';
+    
+    if (!validNames.includes(receivedName) || amount < 30 || !payment_id || !payment_id.startsWith('FT')) {
+      console.error('Validation failed:', { receiver_name, amount, payment_id });
       return {
         statusCode: 400,
         body: JSON.stringify({ 
           success: false, 
-          message: 'Payment failed: Invalid details from screenshot.' 
+          message: 'Payment failed: Invalid details from screenshot. Please ensure the screenshot shows a valid CBE payment to Yilak Abay with at least 30 ETB and an FT number.' 
         })
       };
     }
@@ -144,7 +146,7 @@ exports.handler = async (event, context) => {
       statusCode: 500,
       body: JSON.stringify({ 
         success: false, 
-        message: 'An unexpected error occurred during payment processing.' 
+        message: 'An unexpected error occurred during payment processing. Please try again.' 
       })
     };
   } finally {
