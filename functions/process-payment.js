@@ -30,6 +30,8 @@ exports.handler = async (event, context) => {
     const fileBuffer = Buffer.from(screenshotData, 'base64');
     const mimeType = screenshotType || mime.lookup(fileName || '') || 'application/octet-stream';
 
+    console.log('Processing file with type:', mimeType);
+
     if (mimeType.startsWith('image/')) {
       // Process images with Tesseract OCR
       console.log('Processing image with OCR...');
@@ -38,7 +40,6 @@ exports.handler = async (event, context) => {
         'eng',
         {
           logger: m => console.log(m),
-          // Enhanced configuration for better OCR accuracy
           tessedit_pageseg_mode: 6, // Assume a single uniform block of text
           tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .@:/,-_$€£¥₹ETBFTP#*+()'
         }
@@ -125,11 +126,11 @@ exports.handler = async (event, context) => {
       The amount should be in ETB. The payment ID always starts with "FT".
     `;
 
-    // Send to DeepSeek API
+    // Send to DeepSeek API using deepseek-reasoner
     const response = await axios.post(
       'https://api.deepseek.com/v1/chat/completions',
       {
-        model: "deepseek-chat",
+        model: "deepseek-reasoner",
         messages: [
           {
             role: "user",
