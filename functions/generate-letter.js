@@ -1,5 +1,4 @@
 const axios = require('axios');
-const FormData = require('form-data');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -10,44 +9,41 @@ exports.handler = async (event, context) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
-    // Create form data for multipart request
-    const formData = new FormData();
-    
-    // Add files to form data
-    const cvBuffer = Buffer.from(cvData, 'base64');
-    const jdBuffer = Buffer.from(jdData, 'base64');
-    
-    formData.append('file', cvBuffer, {
-      filename: 'cv.' + cvFileType.split('/')[1],
-      contentType: cvFileType
-    });
-    
-    formData.append('file', jdBuffer, {
-      filename: 'jd.' + jdFileType.split('/')[1],
-      contentType: jdFileType
-    });
-
-    // Add the JSON payload
     const payload = {
-      model: "deepseek-reasoner",
+      model: "deepseek-vl",
       messages: [
         {
           role: "user",
-          content: prompt
+          content: [
+            {
+              type: "text",
+              text: prompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${cvFileType};base64,${cvData}`
+              }
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${jdFileType};base64,${jdData}`
+              }
+            }
+          ]
         }
-      ]
+      ],
+      max_tokens: 2048
     };
-    
-    formData.append('payload', JSON.stringify(payload));
 
-    // Make request to DeepSeek API
     const response = await axios.post(
       'https://api.deepseek.com/v1/chat/completions',
-      formData,
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          ...formData.getHeaders()
+          'Content-Type': 'application/json'
         }
       }
     );
