@@ -1,5 +1,5 @@
 const { MongoClient } = require('mongodb');
-const axios = require('axios');
+const OpenAI = require('openai');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -20,6 +20,12 @@ exports.handler = async (event, context) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
+    // Initialize OpenAI client with DeepSeek endpoint
+    const openai = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.deepseek.com'
+    });
+
     // Prepare prompt for payment verification
     const prompt = `
       Analyze this payment screenshot from CBE (Commercial Bank of Ethiopia) and extract the following information. If any information is not present, respond with 'Not found'.
@@ -30,17 +36,14 @@ exports.handler = async (event, context) => {
       You must respond with a JSON object only, using exactly these keys: receiver_name, amount, payment_id.
     `;
 
-    // Prepare the request payload for DeepSeek VL API
-    const payload = {
-      model: "deepseek-vl",
+    // Make request to DeepSeek VL API
+    const response = await openai.chat.completions.create({
+      model: "deepseek-vl-chat",
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: prompt
-            },
+            { type: "text", text: prompt },
             {
               type: "image_url",
               image_url: {
@@ -50,23 +53,11 @@ exports.handler = async (event, context) => {
           ]
         }
       ],
-      response_format: { type: "json_object" },
-      max_tokens: 1024
-    };
+      max_tokens: 1024,
+      response_format: { type: "json_object" }
+    });
 
-    // Make request to DeepSeek API
-    const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      payload,
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    const aiResponse = response.data.choices[0].message.content;
+    const aiResponse = response.choices[0].message.content;
     
     // Parse the JSON response from the AI
     let extractedData;
@@ -139,7 +130,7 @@ exports.handler = async (event, context) => {
       })
     };
   } catch (error) {
-    console.error('Payment processing error:', error.response?.data || error.message);
+    console.error('Payment processing error:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ 
