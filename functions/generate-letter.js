@@ -74,38 +74,52 @@ exports.handler = async (event, context) => {
     const jdText = await processMultipleFiles(jdFiles);
 
     const prompt = `
-      Instructions for the application letter:
-      - Format the contact information at the top in this order: Name, Phone, Email, Address, Date (each on separate lines).
-      - The application letter must be medium sized (about 4/5 of a page).
-      - It must not be exaggerated or over-promising.
-      - Focus on humble requests rather than demands.
-      - Emphasize education, field of study, position, and soft skills.
-      - If experience is internship, don't focus on experience as it's just training.
-      - If the user's grade is less than 3.00/4.00, do not mention the CGPA. But if it is greater than or equal to 3.00/4.00, mention it on the application.
-      - Do not say "I have attached my CV or credentials" at the end.
-      - The application letter must be standard and formal.
-      - Extract the job title and company name from the job description.
-      - Extract the company address from the job description if available.
-      - Do not use placeholders like [Your Name], [Date], [Company Name], etc. Use the actual information provided.
-      - If the company address is not mentioned in the job description, omit it from the letter.
-      - The letter should be addressed to the hiring manager with the company name.
-      - Make the application letter demonstrate that the user understands the vacancy as well as the responsibilities and the goal of the company.
-      - Format the letter properly with sender information at the top, date, recipient information, and proper closing.
-      - Use the exact information provided by the user without any placeholders.
+      INSTRUCTIONS:
+      You are generating a job application letter. Please follow these guidelines carefully:
 
-      User's Full Name: ${fullName}
-      User's Phone: ${phone}
-      User's Email: ${email}
-      User's Address: ${address}
-      Date of Application: ${appDate}
-      
-      CV Content (from all uploaded files):
-      ${cvText}
-      
-      Job Description Content (from all uploaded files):
+      1. FORMAT THE CONTACT INFORMATION at the top in this order: 
+         - Full Name
+         - Phone Number  
+         - Email Address
+         - Physical Address
+         - Date (format: Month Day, Year)
+         Each on separate lines.
+
+      2. ADDRESS THE LETTER to the appropriate recipient:
+         - Use "Hiring Manager" if no specific name is found
+         - Include the company name from the job description
+         - Include the company address if available in the job description
+
+      3. CONTENT GUIDELINES:
+         - The letter should be medium length (about 4/5 of a page)
+         - Focus on humble requests rather than demands
+         - Emphasize education, field of study, and relevant skills
+         - If experience is internship, don't focus heavily on experience
+         - Only mention CGPA if it's 3.00/4.00 or higher
+         - Do NOT say "I have attached my CV or credentials"
+         - The letter must be standard and formal
+         - Do not use placeholders - use actual information provided
+         - Make the letter demonstrate understanding of the job requirements
+
+      4. IMPORTANT: The job being applied for is described in the JOB DESCRIPTION section below.
+         The applicant's qualifications are described in the CV section below.
+         The letter should be tailored specifically to the job described in the JOB DESCRIPTION.
+
+      JOB DESCRIPTION (This is the position being applied for):
       ${jdText}
-      
-      Please write a professional application letter based on the above instructions.
+
+      APPLICANT'S CV (This is the person's background and qualifications):
+      ${cvText}
+
+      APPLICANT'S PERSONAL INFORMATION:
+      - Full Name: ${fullName}
+      - Phone: ${phone}
+      - Email: ${email}
+      - Address: ${address}
+      - Application Date: ${appDate}
+
+      Please write a professional application letter based on the above instructions, 
+      specifically tailoring it to the job described in the JOB DESCRIPTION section.
     `;
 
     const response = await axios.post(
