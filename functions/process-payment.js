@@ -22,7 +22,7 @@ exports.handler = async (event, context) => {
   try {
     // Prepare prompt for payment verification
     const prompt = `
-      Analyze the following payment screenshot from CBE and extract the following information. If any information is not present, respond with 'Not found'.
+      Analyze this payment screenshot from CBE (Commercial Bank of Ethiopia) and extract the following information. If any information is not present, respond with 'Not found'.
       1. Name of the payment receiver.
       2. Amount of money transferred.
       3. The payment ID, which starts with "FT".
@@ -30,9 +30,9 @@ exports.handler = async (event, context) => {
       You must respond with a JSON object only, using exactly these keys: receiver_name, amount, payment_id.
     `;
 
-    // Prepare the request payload for DeepSeek API
+    // Prepare the request payload for DeepSeek VL API
     const payload = {
-      model: "deepseek-reasoner",
+      model: "deepseek-vl",
       messages: [
         {
           role: "user",
@@ -50,7 +50,8 @@ exports.handler = async (event, context) => {
           ]
         }
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
+      max_tokens: 1024
     };
 
     // Make request to DeepSeek API
