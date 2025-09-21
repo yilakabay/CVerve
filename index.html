@@ -300,40 +300,15 @@
                 const cvData = await fileToBase64(cvFile);
                 const jdData = await fileToBase64(jdFile);
 
-                const prompt = `
-                    Instructions for the application letter:
-                    - Format the contact information at the top in this order: Name, Phone, Email, Address, Date (each on separate lines).
-                    - The application letter must be medium sized (about 4/5 of a page).
-                    - It must not be exaggerated or over-promising.
-                    - Focus on humble requests rather than demands.
-                    - Emphasize education, field of study, position, and soft skills.
-                    - If experience is internship, don't focus on experience as it's just training.
-                    - If the user's grade is less than 3.00/4.00, do not mention the CGPA. But if it is greater than or equal to 3.00/4.00, mention it on the application.
-                    - Do not say "I have attached my CV or credentials" at the end.
-                    - The application letter must be standard and formal.
-                    - Extract the job title and company name from the job description.
-                    - Extract the company address from the job description if available.
-                    - Do not use placeholders like [Your Name], [Date], [Company Name], etc. Use the actual information provided.
-                    - If the company address is not mentioned in the job description, omit it from the letter.
-                    - The letter should be addressed to the hiring manager with the company name.
-                    - Make the application letter demonstrate that the user understands the vacancy as well as the responsibilities and the goal of the company.
-                    - Format the letter properly with sender information at the top, date, recipient information, and proper closing.
-                    - Use the exact information provided by the user without any placeholders.
-
-                    User's Full Name: ${fullName}
-                    User's Phone: ${phone}
-                    User's Email: ${email}
-                    User's Address: ${address}
-                    Date of Application: ${appDate}
-                    
-                    The following files are the user's CV and the job description. Please write a professional application letter based on the above instructions and the content of these documents.
-                `;
-
                 const response = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        prompt: prompt,
+                        fullName: fullName,
+                        phone: phone,
+                        email: email,
+                        address: address,
+                        appDate: appDate,
                         cvData: cvData,
                         jdData: jdData,
                         cvFileType: cvFile.type,
