@@ -1,6 +1,5 @@
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
-const FormData = require('form-data');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
@@ -31,39 +30,37 @@ exports.handler = async (event, context) => {
       You must respond with a JSON object only, using exactly these keys: receiver_name, amount, payment_id.
     `;
 
-    // Create form data for multipart request
-    const formData = new FormData();
-    
-    // Add screenshot to form data
-    const screenshotBuffer = Buffer.from(screenshotData, 'base64');
-    
-    formData.append('file', screenshotBuffer, {
-      filename: 'payment.' + screenshotType.split('/')[1],
-      contentType: screenshotType
-    });
-
-    // Add the JSON payload with response_format to enforce JSON output
+    // Prepare the request payload for DeepSeek API
     const payload = {
       model: "deepseek-reasoner",
       messages: [
         {
           role: "user",
-          content: prompt
+          content: [
+            {
+              type: "text",
+              text: prompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${screenshotType};base64,${screenshotData}`
+              }
+            }
+          ]
         }
       ],
       response_format: { type: "json_object" }
     };
-    
-    formData.append('payload', JSON.stringify(payload));
 
     // Make request to DeepSeek API
     const response = await axios.post(
       'https://api.deepseek.com/v1/chat/completions',
-      formData,
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          ...formData.getHeaders()
+          'Content-Type': 'application/json'
         }
       }
     );
