@@ -29,7 +29,7 @@ exports.handler = async (event, context) => {
     const prompt = `
       Analyze the following payment text from CBE and extract the following information. If any information is not present, respond with 'Not found'.
       1. Name of the payment receiver.
-      2. Amount of money transferred.
+      2. Amount of money transferred (extract only the numeric value, without currency symbols).
       3. The payment ID, which starts with "FT".
       
       Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
@@ -59,9 +59,12 @@ exports.handler = async (event, context) => {
     const extractedData = JSON.parse(response.data.choices[0].message.content);
     const { receiver_name, amount, payment_id } = extractedData;
     
+    // Convert amount to number
+    const numericAmount = parseFloat(amount);
+    
     // Validate payment details
     const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
-    if (!validNames.includes(receiver_name) || amount < 30 || !payment_id || !payment_id.startsWith('FT')) {
+    if (!validNames.includes(receiver_name) || isNaN(numericAmount) || numericAmount < 30 || !payment_id || !payment_id.startsWith('FT')) {
       return {
         statusCode: 400,
         body: JSON.stringify({ 
@@ -92,13 +95,13 @@ exports.handler = async (event, context) => {
     await paymentsCollection.insertOne({ 
       paymentId: payment_id, 
       userId, 
-      amount, 
+      amount: numericAmount, 
       timestamp: new Date() 
     });
     
     const user = await usersCollection.findOneAndUpdate(
       { userId },
-      { $inc: { balance: amount } },
+      { $inc: { balance: numericAmount } },
       { returnDocument: 'after', upsert: true }
     );
     
