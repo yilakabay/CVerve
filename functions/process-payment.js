@@ -25,6 +25,9 @@ exports.handler = async (event, context) => {
     const buffer = Buffer.from(screenshotData, 'base64');
     const { data: { text } } = await tesseract.recognize(buffer, 'eng');
     
+    // For debugging - log the extracted text
+    console.log('Extracted text from image:', text);
+    
     // Call DeepSeek API to extract payment details
     const prompt = `
       Analyze the following payment text from CBE and extract the following information. If any information is not present, respond with 'Not found'.
@@ -59,8 +62,20 @@ exports.handler = async (event, context) => {
     const extractedData = JSON.parse(response.data.choices[0].message.content);
     const { receiver_name, amount, payment_id } = extractedData;
     
-    // Convert amount to number
-    const numericAmount = parseFloat(amount);
+    // For debugging - log the extracted data
+    console.log('Extracted data:', extractedData);
+    
+    // Convert amount to number, handling Ethiopian currency format
+    let numericAmount;
+    if (typeof amount === 'string') {
+      // Remove "ETB", commas, and any other non-numeric characters except decimal point
+      numericAmount = parseFloat(amount.replace(/ETB|[^\d.]/g, ''));
+    } else {
+      numericAmount = parseFloat(amount);
+    }
+    
+    // For debugging - log the numeric amount
+    console.log('Numeric amount:', numericAmount);
     
     // Validate payment details
     const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
