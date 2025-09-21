@@ -45,70 +45,6 @@ async function processMultipleFiles(files) {
   return combinedText;
 }
 
-// Function to extract key information from job description
-function extractJobInfo(jdText) {
-  console.log("Full JD Text:", jdText);
-  
-  // Try to extract company name using multiple patterns
-  let company = "the company";
-  const companyPatterns = [
-    /(?:Company|Bank|Organization)[:\s-]*([^\n\r.,]+)/i,
-    /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Bank|Company|Organization))/m,
-    /at\s+([^\n\r.,]+)(?:\s+(?:Bank|Company|Organization))/i
-  ];
-  
-  for (const pattern of companyPatterns) {
-    const match = jdText.match(pattern);
-    if (match && match[1]) {
-      company = match[1].trim();
-      break;
-    }
-  }
-  
-  // Try to extract position title using multiple patterns
-  let position = "the position";
-  const positionPatterns = [
-    /(?:Position|Role|Title|Vacancy)[:\s-]*([^\n\r.,]+)/i,
-    /^(?:Position|Role|Title|Vacancy)[\s\S]{1,100}?$/im,
-    /(?:apply|applications?|seeking)[\s\S]{1,100}?(?:for|as)\s+([^\n\r.,]+)/i
-  ];
-  
-  for (const pattern of positionPatterns) {
-    const match = jdText.match(pattern);
-    if (match && match[1]) {
-      position = match[1].trim();
-      // Clean up position title
-      position = position.replace(/^[:\s-]+|[:\s-]+$/g, '');
-      break;
-    }
-  }
-  
-  // If we still have default values, try to extract from the beginning of the text
-  if (company === "the company") {
-    const firstLine = jdText.split('\n')[0].trim();
-    if (firstLine.length > 0 && firstLine.length < 100) {
-      company = firstLine;
-    }
-  }
-  
-  if (position === "the position") {
-    // Look for words that might indicate a position
-    const positionKeywords = ['trainee', 'officer', 'manager', 'specialist', 'analyst', 'assistant', 'intern'];
-    for (const keyword of positionKeywords) {
-      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-      if (regex.test(jdText)) {
-        position = keyword.charAt(0).toUpperCase() + keyword.slice(1);
-        break;
-      }
-    }
-  }
-  
-  console.log("Extracted Company:", company);
-  console.log("Extracted Position:", position);
-  
-  return { company, position };
-}
-
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -140,16 +76,18 @@ exports.handler = async (event, context) => {
     // Log extracted text for debugging
     console.log("CV Text Length:", cvText.length);
     console.log("JD Text Length:", jdText.length);
-    console.log("JD Text Sample:", jdText.substring(0, 500));
-    
-    // Extract key information from job description
-    const jobInfo = extractJobInfo(jdText);
+    console.log("JD Text:", jdText);
+
+    // If JD text is empty or too short, throw an error
+    if (!jdText || jdText.length < 50) {
+      throw new Error('Job description text extraction failed. The file may be unreadable or in an unsupported format.');
+    }
 
     const prompt = `
-      JOB DESCRIPTION CONTENT:
+      JOB DESCRIPTION:
       ${jdText}
 
-      APPLICANT'S CV CONTENT:
+      APPLICANT'S CV:
       ${cvText}
 
       APPLICANT INFORMATION:
@@ -159,29 +97,25 @@ exports.handler = async (event, context) => {
       - Address: ${address}
       - Date: ${appDate}
 
-      EXTRACTED JOB INFORMATION:
-      - Company: ${jobInfo.company}
-      - Position: ${jobInfo.position}
-
       INSTRUCTIONS:
-      Write a professional application letter for the position described in the JOB DESCRIPTION CONTENT.
+      Write a professional application letter for the position described in the JOB DESCRIPTION section.
       
-      IMPORTANT RULES:
-      1. Use the exact company name from the JOB DESCRIPTION CONTENT, not from the CV
-      2. Use the exact position title from the JOB DESCRIPTION CONTENT
-      3. Reference specific requirements mentioned in the job description
-      4. Do NOT use placeholders like [Company Name] or [Position Title]
-      5. If you can't find specific details, use the extracted job information above
-      6. Format the contact information at the top: Name, Phone, Email, Address, Date
-      7. Address the letter to the appropriate recipient
-      8. Keep the letter professional and about 4/5 of a page
-      9. Do not mention attaching a CV or documents
-      10. Only mention GPA if it's 3.00/4.00 or higher
+      IMPORTANT: 
+      1. Use the exact company name and position title from the JOB DESCRIPTION
+      2. Do NOT use placeholders like [Company Name] or [Position Title]
+      3. Reference specific requirements from the job description
+      4. Highlight how the applicant's qualifications match the job requirements
+      5. Format the contact information at the top: Name, Phone, Email, Address, Date
+      6. Address the letter to the appropriate recipient (Hiring Manager if no specific name)
+      7. Keep the letter professional and about 4/5 of a page
+      8. Do not mention attaching a CV or documents
+      9. Only mention GPA if it's 3.00/4.00 or higher
 
       Now generate the application letter:
     `;
 
-    console.log("Prompt sent to AI:", prompt.substring(0, 1000) + "...");
+    // Log the prompt to verify it contains the job description
+    console.log("Prompt sent to AI (first 1000 chars):", prompt.substring(0, 1000));
 
     const response = await axios.post(
       'https://api.deepseek.com/v1/chat/completions',
@@ -190,7 +124,7 @@ exports.handler = async (event, context) => {
         messages: [
           { 
             role: 'system', 
-            content: 'You are a professional resume writer. Always use exact details from the job description. If the job description mentions a specific company and position, use those exact names. Never use placeholders. Ignore any company names mentioned in the CV unless they match the job description exactly.' 
+            content: 'You are a professional resume writer. Always use exact details from the job description without placeholders. If the job description mentions a specific company and position, use those exact names.' 
           },
           { role: 'user', content: prompt }
         ],
@@ -213,10 +147,10 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({ letterText })
     };
   } catch (error) {
-    console.error('Letter generation error:', error.response?.data || error.message);
+    console.error('Letter generation error:', error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to generate letter. Please check that your files contain text and try again.' })
+      body: JSON.stringify({ error: 'Failed to generate letter. Please check that your job description file contains text and is in a supported format (PDF, Word, or image).' })
     };
   }
 };
