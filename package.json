@@ -4,6 +4,11 @@
   "description": "Backend functions for CVerve application",
   "dependencies": {
     "mongodb": "^5.7.0",
-    "openai": "^4.20.1"
+    "axios": "^1.6.0",
+    "tesseract.js": "^4.1.1",
+    "textract": "^2.5.0",
+    "mammoth": "^1.6.0",
+    "pdf-parse": "^1.1.1",
+    "mime-types": "^2.1.35"
   }
 }
