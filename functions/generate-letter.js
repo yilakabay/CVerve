@@ -73,53 +73,64 @@ exports.handler = async (event, context) => {
     const cvText = await processMultipleFiles(cvFiles);
     const jdText = await processMultipleFiles(jdFiles);
 
+    // Log extracted text for debugging (commented out for production)
+    // console.log("CV Text:", cvText.substring(0, 500) + "...");
+    // console.log("JD Text:", jdText.substring(0, 500) + "...");
+
     const prompt = `
-      INSTRUCTIONS:
-      You are generating a job application letter. Please follow these guidelines carefully:
+      TASK: Generate a job application letter for a specific position described in the JOB DESCRIPTION.
 
-      1. FORMAT THE CONTACT INFORMATION at the top in this order: 
-         - Full Name
-         - Phone Number  
-         - Email Address
-         - Physical Address
-         - Date (format: Month Day, Year)
-         Each on separate lines.
+      IMPORTANT: The letter must be specifically tailored to the JOB DESCRIPTION provided below, 
+      not based on any previous experience mentioned in the CV unless it's directly relevant.
 
-      2. ADDRESS THE LETTER to the appropriate recipient:
-         - Use "Hiring Manager" if no specific name is found
-         - Include the company name from the job description
-         - Include the company address if available in the job description
-
-      3. CONTENT GUIDELINES:
-         - The letter should be medium length (about 4/5 of a page)
-         - Focus on humble requests rather than demands
-         - Emphasize education, field of study, and relevant skills
-         - If experience is internship, don't focus heavily on experience
-         - Only mention CGPA if it's 3.00/4.00 or higher
-         - Do NOT say "I have attached my CV or credentials"
-         - The letter must be standard and formal
-         - Do not use placeholders - use actual information provided
-         - Make the letter demonstrate understanding of the job requirements
-
-      4. IMPORTANT: The job being applied for is described in the JOB DESCRIPTION section below.
-         The applicant's qualifications are described in the CV section below.
-         The letter should be tailored specifically to the job described in the JOB DESCRIPTION.
-
-      JOB DESCRIPTION (This is the position being applied for):
+      JOB DESCRIPTION CONTENT:
       ${jdText}
 
-      APPLICANT'S CV (This is the person's background and qualifications):
+      APPLICANT'S CV CONTENT:
       ${cvText}
 
-      APPLICANT'S PERSONAL INFORMATION:
+      APPLICANT PERSONAL INFORMATION:
       - Full Name: ${fullName}
       - Phone: ${phone}
       - Email: ${email}
       - Address: ${address}
       - Application Date: ${appDate}
 
-      Please write a professional application letter based on the above instructions, 
-      specifically tailoring it to the job described in the JOB DESCRIPTION section.
+      INSTRUCTIONS FOR THE APPLICATION LETTER:
+
+      1. FORMAT:
+        - Place the applicant's contact information at the top (name, phone, email, address, date)
+        - Address it to the appropriate recipient based on the job description
+        - Use a professional, formal tone throughout
+
+      2. CONTENT REQUIREMENTS:
+        - The letter must specifically address the position described in the JOB DESCRIPTION
+        - Highlight how the applicant's qualifications match the job requirements
+        - If the job description mentions specific qualifications, skills, or requirements, 
+          address how the applicant meets these
+        - Do not focus on unrelated previous experiences unless they directly relate to the new position
+        - The letter should be medium length (approximately 4/5 of a page)
+        - Do not include phrases like "I have attached my CV" or similar
+        - Only mention GPA if it's 3.00/4.00 or higher
+
+      3. KEY ELEMENTS TO EXTRACT FROM JOB DESCRIPTION:
+        - Company name
+        - Position title
+        - Key qualifications required
+        - Any specific skills mentioned
+        - Application requirements
+
+      4. KEY ELEMENTS TO EXTRACT FROM CV:
+        - Education background
+        - Relevant skills
+        - Any experience that matches the job requirements
+        - Achievements that are relevant to the position
+
+      IMPORTANT: The letter must be written as if applying specifically for the position 
+      described in the JOB DESCRIPTION section. Do not assume the applicant is applying for 
+      a position based on their previous experience unless it matches the job description.
+
+      Now generate a professional application letter following these instructions exactly.
     `;
 
     const response = await axios.post(
@@ -127,6 +138,10 @@ exports.handler = async (event, context) => {
       {
         model: 'deepseek-chat',
         messages: [
+          { 
+            role: 'system', 
+            content: 'You are a professional resume writer who creates tailored application letters for specific job positions.' 
+          },
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
@@ -150,7 +165,7 @@ exports.handler = async (event, context) => {
     console.error('Letter generation error:', error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to generate letter' })
+      body: JSON.stringify({ error: 'Failed to generate letter. Please try again with different files.' })
     };
   }
 };
