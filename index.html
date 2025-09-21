@@ -329,9 +329,6 @@
                     The following files are the user's CV and the job description. Please write a professional application letter based on the above instructions and the content of these documents.
                 `;
 
-                const apiKey = ''; // Will be set by Netlify environment variable
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
                 const response = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
