@@ -45,27 +45,6 @@ async function processMultipleFiles(files) {
   return combinedText;
 }
 
-// Function to extract key information from job description
-function extractJobInfo(jdText) {
-  // Try to extract company name
-  let company = "the company";
-  const companyRegex = /(?:company|bank|organization|employer)[:\s]*([^\n\r]+)/i;
-  const companyMatch = jdText.match(companyRegex);
-  if (companyMatch && companyMatch[1]) {
-    company = companyMatch[1].trim();
-  }
-  
-  // Try to extract position title
-  let position = "the position";
-  const positionRegex = /(?:position|role|title|vacancy)[:\s]*([^\n\r]+)/i;
-  const positionMatch = jdText.match(positionRegex);
-  if (positionMatch && positionMatch[1]) {
-    position = positionMatch[1].trim();
-  }
-  
-  return { company, position };
-}
-
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -93,45 +72,40 @@ exports.handler = async (event, context) => {
     // Extract text from CV and JD files
     const cvText = await processMultipleFiles(cvFiles);
     const jdText = await processMultipleFiles(jdFiles);
-    
-    // Log extracted text for debugging (will appear in Netlify function logs)
-    console.log("CV Text Length:", cvText.length);
-    console.log("JD Text Length:", jdText.length);
-    console.log("JD Text Sample:", jdText.substring(0, 200));
-    
-    // Extract key information from job description
-    const jobInfo = extractJobInfo(jdText);
-    console.log("Extracted Job Info:", jobInfo);
 
     const prompt = `
-      JOB DESCRIPTION:
-      ${jdText}
+      Instructions for the application letter:
+      - Format the contact information at the top in this order: Name, Phone, Email, Address, Date (each on separate lines).
+      - The application letter must be medium sized (about 4/5 of a page).
+      - It must not be exaggerated or over-promising.
+      - Focus on humble requests rather than demands.
+      - Emphasize education, field of study, position, and soft skills.
+      - If experience is internship, don't focus on experience as it's just training.
+      - If the user's grade is less than 3.00/4.00, do not mention the CGPA. But if it is greater than or equal to 3.00/4.00, mention it on the application.
+      - Do not say "I have attached my CV or credentials" at the end.
+      - The application letter must be standard and formal.
+      - Extract the job title and company name from the job description.
+      - Extract the company address from the job description if available.
+      - Do not use placeholders like [Your Name], [Date], [Company Name], etc. Use the actual information provided.
+      - If the company address is not mentioned in the job description, omit it from the letter.
+      - The letter should be addressed to the hiring manager with the company name.
+      - Make the application letter demonstrate that the user understands the vacancy as well as the responsibilities and the goal of the company.
+      - Format the letter properly with sender information at the top, date, recipient information, and proper closing.
+      - Use the exact information provided by the user without any placeholders.
 
-      APPLICANT'S CV:
-      ${cvText}
-
-      APPLICANT INFORMATION:
-      - Name: ${fullName}
-      - Phone: ${phone}
-      - Email: ${email}
-      - Address: ${address}
-      - Date: ${appDate}
-
-      INSTRUCTIONS:
-      Write a professional application letter for the position described in the JOB DESCRIPTION section.
+      User's Full Name: ${fullName}
+      User's Phone: ${phone}
+      User's Email: ${email}
+      User's Address: ${address}
+      Date of Application: ${appDate}
       
-      IMPORTANT: 
-      1. Use the exact company name and position title from the JOB DESCRIPTION
-      2. Do NOT use placeholders like [Company Name] or [Position Title]
-      3. Reference specific requirements from the job description
-      4. Highlight how the applicant's qualifications match the job requirements
-      5. Format the contact information at the top: Name, Phone, Email, Address, Date
-      6. Address the letter to the appropriate recipient (Hiring Manager if no specific name)
-      7. Keep the letter professional and about 4/5 of a page
-      8. Do not mention attaching a CV or documents
-      9. Only mention GPA if it's 3.00/4.00 or higher
-
-      Now generate the application letter:
+      CV Content (from all uploaded files):
+      ${cvText}
+      
+      Job Description Content (from all uploaded files):
+      ${jdText}
+      
+      Please write a professional application letter based on the above instructions.
     `;
 
     const response = await axios.post(
@@ -139,10 +113,6 @@ exports.handler = async (event, context) => {
       {
         model: 'deepseek-chat',
         messages: [
-          { 
-            role: 'system', 
-            content: 'You are a professional resume writer. Always use exact details from the job description without placeholders. If the job description mentions a specific company and position, use those exact names.' 
-          },
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
@@ -166,7 +136,7 @@ exports.handler = async (event, context) => {
     console.error('Letter generation error:', error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to generate letter. Please check that your files contain text and try again.' })
+      body: JSON.stringify({ error: 'Failed to generate letter' })
     };
   }
 };
