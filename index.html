@@ -274,94 +274,132 @@
 
         // --- Application Letter Logic ---
         async function generateLetter() {
-            const fullName = document.getElementById('fullName').value;
-            const phone = document.getElementById('phone').value;
-            const email = document.getElementById('email').value;
-            const address = document.getElementById('address').value;
-            const appDate = document.getElementById('appDate').value;
-            const cvFiles = document.getElementById('cvFile').files;
-            const jdFiles = document.getElementById('jdFile').files;
+    const fullName = document.getElementById('fullName').value;
+    const phone = document.getElementById('phone').value;
+    const email = document.getElementById('email').value;
+    const address = document.getElementById('address').value;
+    const appDate = document.getElementById('appDate').value;
+    const cvFiles = document.getElementById('cvFile').files;
+    const jdFiles = document.getElementById('jdFile').files;
 
-            if (!fullName || !phone || !email || !address || !appDate || cvFiles.length === 0 || jdFiles.length === 0) {
-                showMessage('error', 'Please fill all fields and upload at least one file for both CV and Job Description.');
-                return;
-            }
+    if (!fullName || !phone || !email || !address || !appDate || cvFiles.length === 0 || jdFiles.length === 0) {
+        showMessage('error', 'Please fill all fields and upload at least one file for both CV and Job Description.');
+        return;
+    }
 
-            const cost = 1.95;
+    const cost = 1.95;
 
-            if (userBalance < cost) {
-                showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
-                return;
-            }
+    if (userBalance < cost) {
+        showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
+        return;
+    }
 
-            document.getElementById('loadingIndicator').classList.remove('hidden');
+    document.getElementById('loadingIndicator').classList.remove('hidden');
 
-            try {
-                // Process CV files
-                const cvFilesData = [];
-                for (let i = 0; i < cvFiles.length; i++) {
-                    const file = cvFiles[i];
-                    const base64Data = await fileToBase64(file);
-                    cvFilesData.push({
-                        data: base64Data,
-                        type: file.type
-                    });
-                }
-
-                // Process JD files
-                const jdFilesData = [];
-                for (let i = 0; i < jdFiles.length; i++) {
-                    const file = jdFiles[i];
-                    const base64Data = await fileToBase64(file);
-                    jdFilesData.push({
-                        data: base64Data,
-                        type: file.type
-                    });
-                }
-
-                const response = await fetch('/.netlify/functions/generate-letter', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        fullName: fullName,
-                        phone: phone,
-                        email: email,
-                        address: address,
-                        appDate: appDate,
-                        cvFiles: cvFilesData,
-                        jdFiles: jdFilesData
-                    })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    console.error('API Error:', errorData);
-                    showMessage('error', `API Error: ${response.statusText}`);
-                    document.getElementById('loadingIndicator').classList.add('hidden');
-                    return;
-                }
-
-                const result = await response.json();
-                const letterText = result.letterText;
-
-                if (letterText) {
-                    document.getElementById('applicationLetter').value = letterText;
-                    document.getElementById('downloadLetterBtn').classList.remove('hidden');
-                    showMessage('success', 'Application letter generated successfully!');
-                    
-                    // Update balance
-                    await updateBalance(-cost);
-                } else {
-                    showMessage('error', 'Could not generate letter. Please try again.');
-                }
-
-            } catch (error) {
-                console.error('Error generating letter:', error);
-                showMessage('error', 'An unexpected error occurred.');
-            } finally {
-                document.getElementById('loadingIndicator').classList.add('hidden');
-            }
+    try {
+        // Process CV files to base64
+        const cvFilesData = [];
+        for (let i = 0; i < cvFiles.length; i++) {
+            const file = cvFiles[i];
+            const base64Data = await fileToBase64(file);
+            cvFilesData.push({
+                data: base64Data,
+                type: file.type
+            });
         }
+
+        // Process JD files to base64
+        const jdFilesData = [];
+        for (let i = 0; i < jdFiles.length; i++) {
+            const file = jdFiles[i];
+            const base64Data = await fileToBase64(file);
+            jdFilesData.push({
+                data: base64Data,
+                type: file.type
+            });
+        }
+
+        console.log("Extracting text from CV files...");
+        // Step 1: Extract text from CV files
+        const cvExtractionResponse = await fetch('/.netlify/functions/extract-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                files: cvFilesData,
+                fileType: 'cv'
+            })
+        });
+
+        if (!cvExtractionResponse.ok) {
+            const errorData = await cvExtractionResponse.json();
+            throw new Error(`CV extraction failed: ${errorData.error}`);
+        }
+
+        const cvExtractionResult = await cvExtractionResponse.json();
+        const cvText = cvExtractionResult.extractedText;
+
+        console.log("Extracting text from JD files...");
+        // Step 2: Extract text from JD files
+        const jdExtractionResponse = await fetch('/.netlify/functions/extract-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                files: jdFilesData,
+                fileType: 'jd'
+            })
+        });
+
+        if (!jdExtractionResponse.ok) {
+            const errorData = await jdExtractionResponse.json();
+            throw new Error(`JD extraction failed: ${errorData.error}`);
+        }
+
+        const jdExtractionResult = await jdExtractionResponse.json();
+        const jdText = jdExtractionResult.extractedText;
+
+        console.log("Generating letter with AI...");
+        // Step 3: Generate letter with extracted text
+        const letterResponse = await fetch('/.netlify/functions/generate-letter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fullName: fullName,
+                phone: phone,
+                email: email,
+                address: address,
+                appDate: appDate,
+                cvText: cvText,
+                jdText: jdText
+            })
+        });
+
+        if (!letterResponse.ok) {
+            const errorData = await letterResponse.json();
+            throw new Error(`Letter generation failed: ${errorData.error}`);
+        }
+
+        const result = await letterResponse.json();
+        const letterText = result.letterText;
+
+        if (letterText) {
+            document.getElementById('applicationLetter').value = letterText;
+            document.getElementById('downloadLetterBtn').classList.remove('hidden');
+            showMessage('success', 'Application letter generated successfully!');
+            
+            // Update balance
+            await updateBalance(-cost);
+        } else {
+            showMessage('error', 'Could not generate letter. Please try again.');
+        }
+
+    } catch (error) {
+        console.error('Error generating letter:', error);
+        showMessage('error', error.message || 'An unexpected error occurred.');
+    } finally {
+        document.getElementById('loadingIndicator').classList.add('hidden');
+    }
+}
+
 
         async function fileToBase64(file) {
             return new Promise((resolve, reject) => {
