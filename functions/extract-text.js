@@ -9,82 +9,126 @@ async function extractTextFromFile(base64Data, mimeType) {
     const buffer = Buffer.from(base64Data, 'base64');
     
     if (mimeType.includes('pdf')) {
-      try {
-        // First try to extract text directly from PDF
-        const data = await pdfParse(buffer);
-        
-        // If we get meaningful text, return it
-        if (data.text && data.text.trim().length > 50) {
-          console.log('Extracted text from PDF directly');
-          return data.text;
-        }
-        
-        // If text is too short (likely image-based PDF), use OCR
-        console.log('PDF appears to be image-based, using OCR...');
-        return await extractTextFromImagePDF(buffer);
-      } catch (pdfError) {
-        console.log('PDF parsing failed, trying OCR...', pdfError.message);
-        // If pdf-parse fails, try OCR
-        return await extractTextFromImagePDF(buffer);
-      }
+      return await extractTextFromPDF(buffer);
     } else if (mimeType.includes('word') || mimeType.includes('document')) {
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } else if (mimeType.includes('image')) {
-      // For images, use OCR with pre-processing
       return await extractTextFromImage(buffer);
     } else {
-      throw new Error('Unsupported file type');
+      throw new Error('Unsupported file type: ' + mimeType);
     }
   } catch (error) {
     console.error('Text extraction error:', error);
-    throw new Error('Failed to extract text from file');
+    throw new Error('Failed to extract text from file: ' + error.message);
   }
 }
 
-// Enhanced function for image-based PDFs
-async function extractTextFromImagePDF(pdfBuffer) {
+// Enhanced function for PDFs
+async function extractTextFromPDF(pdfBuffer) {
   try {
-    // For now, we'll use Tesseract directly on the PDF buffer
-    // In a more advanced implementation, you might want to convert PDF pages to images first
-    const { data: { text } } = await tesseract.recognize(pdfBuffer, 'eng', {
-      logger: m => console.log(m) // Optional: log progress
-    });
+    console.log('Attempting to extract text from PDF using pdf-parse...');
     
-    return text;
+    // First try to extract text directly from PDF using pdf-parse
+    const data = await pdfParse(pdfBuffer);
+    
+    // Check if we got meaningful text
+    if (data.text && data.text.trim().length > 50) {
+      console.log('Successfully extracted text from PDF using pdf-parse');
+      return data.text;
+    }
+    
+    console.log('PDF appears to be image-based or has little text, trying alternative methods...');
+    
+    // If pdf-parse didn't get much text, try OCR on the PDF
+    // But first, we need to handle this differently since Tesseract can't read PDF buffers directly
+    throw new Error('Image-based PDF detected - requires specialized processing');
+    
   } catch (error) {
-    console.error('OCR for PDF failed:', error);
-    throw new Error('Could not extract text from image-based PDF');
+    console.log('PDF extraction failed, trying as image...', error.message);
+    
+    // If pdf-parse fails, try treating the PDF as an image for OCR
+    // This is a fallback for image-based PDFs
+    try {
+      console.log('Attempting OCR on PDF buffer...');
+      
+      // For PDFs, we need a different approach since Tesseract expects images
+      // We'll try to recognize the PDF buffer directly with Tesseract
+      const { data: { text } } = await tesseract.recognize(pdfBuffer, 'eng', {
+        logger: m => console.log(m)
+      });
+      
+      if (text && text.trim().length > 0) {
+        console.log('Successfully extracted text from PDF using OCR');
+        return text;
+      } else {
+        throw new Error('No text could be extracted from PDF');
+      }
+    } catch (ocrError) {
+      console.error('OCR on PDF also failed:', ocrError.message);
+      
+      // Final fallback: try to convert PDF to image and then OCR
+      try {
+        console.log('Trying final fallback: PDF to image conversion...');
+        return await convertPdfToImageAndOCR(pdfBuffer);
+      } catch (finalError) {
+        console.error('All PDF extraction methods failed:', finalError.message);
+        throw new Error('Could not extract text from PDF. The PDF may be image-based or corrupted.');
+      }
+    }
   }
 }
 
-// Enhanced function for image OCR with pre-processing
+// Function to convert PDF to image and then OCR (simplified version)
+async function convertPdfToImageAndOCR(pdfBuffer) {
+  // Since we can't easily convert PDF to images in this environment without additional dependencies,
+  // we'll provide a helpful error message and suggest alternatives
+  console.log('PDF to image conversion requires additional dependencies not available in Netlify functions');
+  throw new Error('Image-based PDF detected. Please convert your PDF to images (JPG/PNG) and upload them instead, or use a text-based PDF.');
+}
+
+// Enhanced function for image OCR
 async function extractTextFromImage(imageBuffer) {
   try {
-    // Pre-process image to improve OCR accuracy
-    const processedImage = await sharp(imageBuffer)
-      .grayscale() // Convert to grayscale
-      .normalize() // Enhance contrast
-      .sharpen() // Sharpen image
-      .toBuffer();
+    console.log('Processing image with OCR...');
     
-    const { data: { text } } = await tesseract.recognize(processedImage, 'eng', {
-      logger: m => console.log(m), // Optional: log progress
-      tessedit_pageseg_mode: '6', // Uniform block of text
-      tessedit_ocr_engine_mode: '1' // Neural nets LSTM engine
+    // Pre-process image to improve OCR accuracy
+    let processedBuffer;
+    try {
+      processedBuffer = await sharp(imageBuffer)
+        .grayscale()
+        .normalize()
+        .sharpen()
+        .toBuffer();
+      console.log('Image pre-processing successful');
+    } catch (processError) {
+      console.log('Image pre-processing failed, using original image:', processError.message);
+      processedBuffer = imageBuffer;
+    }
+    
+    const { data: { text } } = await tesseract.recognize(processedBuffer, 'eng', {
+      logger: m => console.log(m),
+      tessedit_pageseg_mode: '6',
+      tessedit_ocr_engine_mode: '1'
     });
     
-    return text;
+    if (text && text.trim().length > 0) {
+      console.log('Successfully extracted text from image');
+      return text;
+    } else {
+      throw new Error('No text found in image');
+    }
   } catch (error) {
-    console.error('Image OCR failed:', error);
+    console.error('Image OCR failed:', error.message);
     
     // Fallback: try without pre-processing
     try {
+      console.log('Trying OCR without pre-processing...');
       const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
-      return text;
+      return text || '[No text could be extracted from the image]';
     } catch (fallbackError) {
-      console.error('Fallback OCR also failed:', fallbackError);
-      throw new Error('Could not extract text from image');
+      console.error('Fallback OCR also failed:', fallbackError.message);
+      throw new Error('Could not extract text from image. The image may be too low quality or contain no text.');
     }
   }
 }
@@ -96,42 +140,69 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { files, fileType } = JSON.parse(event.body); // fileType: 'cv' or 'jd'
+  let requestBody;
+  try {
+    requestBody = JSON.parse(event.body);
+  } catch (parseError) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Invalid JSON in request body' })
+    };
+  }
+
+  const { files, fileType } = requestBody;
 
   try {
-    if (!files || files.length === 0) {
+    if (!files || !Array.isArray(files) || files.length === 0) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'Files are required' })
+        body: JSON.stringify({ error: 'Files are required and must be an array' })
       };
     }
 
-    console.log(`Starting text extraction for ${fileType} files...`);
+    console.log(`Starting text extraction for ${fileType} files. Number of files: ${files.length}`);
 
     let combinedText = '';
+    let successfulFiles = 0;
     
     // Process files sequentially to avoid memory issues
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       console.log(`Processing file ${i + 1} of ${files.length}, type: ${file.type}`);
       
+      if (!file.data || !file.type) {
+        console.log(`Skipping file ${i + 1} - missing data or type`);
+        combinedText += `[File ${i + 1}: Missing data or type]\n\n`;
+        continue;
+      }
+
       try {
         const text = await extractTextFromFile(file.data, file.type);
         if (text && text.trim().length > 0) {
           combinedText += text + '\n\n';
+          successfulFiles++;
           console.log(`Successfully extracted ${text.length} characters from file ${i + 1}`);
         } else {
           console.log(`No text extracted from file ${i + 1}`);
-          combinedText += `[No text could be extracted from file ${i + 1}]\n\n`;
+          combinedText += `[File ${i + 1}: No text could be extracted]\n\n`;
         }
       } catch (error) {
-        console.error(`Error processing file ${i + 1}:`, error);
-        // Continue with other files even if one fails
-        combinedText += `[Error processing file ${i + 1}: ${error.message}]\n\n`;
+        console.error(`Error processing file ${i + 1}:`, error.message);
+        combinedText += `[File ${i + 1}: ${error.message}]\n\n`;
       }
     }
 
-    console.log(`Successfully extracted text from ${files.length} files for ${fileType}, total characters: ${combinedText.length}`);
+    console.log(`Processing complete. Successfully processed ${successfulFiles} out of ${files.length} files. Total characters: ${combinedText.length}`);
+
+    // If no text was extracted from any file, return a specific error
+    if (combinedText.trim().length === 0 || successfulFiles === 0) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ 
+          error: 'Could not extract text from any of the provided files. Please ensure your files contain readable text and are in supported formats (PDF, Word, Images).' 
+        })
+      };
+    }
 
     return {
       statusCode: 200,
@@ -139,14 +210,18 @@ exports.handler = async (event, context) => {
         success: true,
         extractedText: combinedText,
         fileType: fileType,
-        filesProcessed: files.length
+        filesProcessed: files.length,
+        successfulFiles: successfulFiles
       })
     };
   } catch (error) {
     console.error('Extraction error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: `Extraction failed: ${error.message}` })
+      body: JSON.stringify({ 
+        error: `Extraction failed: ${error.message}`,
+        suggestion: 'For image-based PDFs, please convert to images (JPG/PNG) and upload those instead.'
+      })
     };
   }
 };
