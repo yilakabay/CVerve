@@ -400,7 +400,6 @@
     }
 }
 
-
         async function fileToBase64(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -664,6 +663,17 @@
                             <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
                             <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
+                        
+                        <!-- File Tips Section -->
+                        <div class="bg-blue-50 p-3 rounded-lg text-sm text-blue-800 mt-2">
+                          <h3 class="font-bold mb-1">File Tips for Best Results:</h3>
+                          <p>✅ <strong>PDFs:</strong> Use text-based PDFs (not scanned images)</p>
+                          <p>✅ <strong>Images:</strong> Use clear, high-contrast screenshots or photos</p>
+                          <p>✅ <strong>Word Docs:</strong> .docx files work best</p>
+                          <p>❌ <strong>Avoid:</strong> Blurry images, password-protected PDFs</p>
+                          <p>💡 <strong>Tip:</strong> If text isn't extracting, try taking a clearer screenshot</p>
+                        </div>
+                        
                         <button id="generateLetterBtn" onclick="generateLetter()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
                         <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
                         <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
