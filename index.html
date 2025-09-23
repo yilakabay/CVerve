@@ -1,3 +1,4 @@
+index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -697,7 +698,7 @@
             50% { transform: scale(1.05); }
             100% { transform: scale(1); }
         }
-        /* Custom file input styling */
+        /* Custom file input styling - FIXED */
         .file-input-wrapper {
             position: relative;
             display: inline-block;
@@ -708,11 +709,15 @@
         }
         .file-count-display {
             position: absolute;
-            right: 0;
+            right: 8px;
             top: 50%;
             transform: translateY(-50%);
-            margin-right: 1rem;
             pointer-events: none;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            z-index: 10;
         }
     </style>
 </head>
