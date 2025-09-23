@@ -24,70 +24,27 @@ async function extractTextFromFile(base64Data, mimeType) {
   }
 }
 
-// Enhanced function for PDFs
+// Simplified function for PDFs - ONLY use pdf-parse, no OCR attempts
 async function extractTextFromPDF(pdfBuffer) {
   try {
-    console.log('Attempting to extract text from PDF using pdf-parse...');
+    console.log('Extracting text from PDF using pdf-parse...');
     
-    // First try to extract text directly from PDF using pdf-parse
     const data = await pdfParse(pdfBuffer);
     
     // Check if we got meaningful text
-    if (data.text && data.text.trim().length > 50) {
-      console.log('Successfully extracted text from PDF using pdf-parse');
+    if (data.text && data.text.trim().length > 0) {
+      console.log(`Successfully extracted ${data.text.length} characters from PDF`);
       return data.text;
+    } else {
+      throw new Error('PDF appears to be image-based or contains no extractable text');
     }
-    
-    console.log('PDF appears to be image-based or has little text, trying alternative methods...');
-    
-    // If pdf-parse didn't get much text, try OCR on the PDF
-    // But first, we need to handle this differently since Tesseract can't read PDF buffers directly
-    throw new Error('Image-based PDF detected - requires specialized processing');
-    
   } catch (error) {
-    console.log('PDF extraction failed, trying as image...', error.message);
-    
-    // If pdf-parse fails, try treating the PDF as an image for OCR
-    // This is a fallback for image-based PDFs
-    try {
-      console.log('Attempting OCR on PDF buffer...');
-      
-      // For PDFs, we need a different approach since Tesseract expects images
-      // We'll try to recognize the PDF buffer directly with Tesseract
-      const { data: { text } } = await tesseract.recognize(pdfBuffer, 'eng', {
-        logger: m => console.log(m)
-      });
-      
-      if (text && text.trim().length > 0) {
-        console.log('Successfully extracted text from PDF using OCR');
-        return text;
-      } else {
-        throw new Error('No text could be extracted from PDF');
-      }
-    } catch (ocrError) {
-      console.error('OCR on PDF also failed:', ocrError.message);
-      
-      // Final fallback: try to convert PDF to image and then OCR
-      try {
-        console.log('Trying final fallback: PDF to image conversion...');
-        return await convertPdfToImageAndOCR(pdfBuffer);
-      } catch (finalError) {
-        console.error('All PDF extraction methods failed:', finalError.message);
-        throw new Error('Could not extract text from PDF. The PDF may be image-based or corrupted.');
-      }
-    }
+    console.log('PDF extraction failed:', error.message);
+    throw new Error('Could not extract text from PDF. If this is an image-based PDF, please convert it to images (JPG/PNG) and upload those instead.');
   }
 }
 
-// Function to convert PDF to image and then OCR (simplified version)
-async function convertPdfToImageAndOCR(pdfBuffer) {
-  // Since we can't easily convert PDF to images in this environment without additional dependencies,
-  // we'll provide a helpful error message and suggest alternatives
-  console.log('PDF to image conversion requires additional dependencies not available in Netlify functions');
-  throw new Error('Image-based PDF detected. Please convert your PDF to images (JPG/PNG) and upload them instead, or use a text-based PDF.');
-}
-
-// Enhanced function for image OCR
+// Function for image OCR
 async function extractTextFromImage(imageBuffer) {
   try {
     console.log('Processing image with OCR...');
@@ -107,9 +64,7 @@ async function extractTextFromImage(imageBuffer) {
     }
     
     const { data: { text } } = await tesseract.recognize(processedBuffer, 'eng', {
-      logger: m => console.log(m),
-      tessedit_pageseg_mode: '6',
-      tessedit_ocr_engine_mode: '1'
+      logger: m => console.log(m)
     });
     
     if (text && text.trim().length > 0) {
@@ -199,7 +154,7 @@ exports.handler = async (event, context) => {
       return {
         statusCode: 400,
         body: JSON.stringify({ 
-          error: 'Could not extract text from any of the provided files. Please ensure your files contain readable text and are in supported formats (PDF, Word, Images).' 
+          error: 'Could not extract text from any of the provided files. Please ensure your files contain readable text and are in supported formats (PDF, Word, Images). For image-based PDFs, convert to images (JPG/PNG) and upload those instead.' 
         })
       };
     }
