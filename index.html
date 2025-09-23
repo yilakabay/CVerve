@@ -202,8 +202,16 @@
         }
 
         // Show popup function for image-based PDFs
-        function showImageBasedPdfPopup() {
+        function showImageBasedPdfPopup(fileType) {
             const popup = document.getElementById('imageBasedPdfPopup');
+            const messageElement = document.getElementById('imageBasedPdfMessage');
+            
+            if (fileType === 'cv') {
+                messageElement.textContent = 'Your CV PDF is image-based and cannot be extracted. Please upload screenshots of your CV instead.';
+            } else if (fileType === 'jd') {
+                messageElement.textContent = 'Your Job Description PDF is image-based and cannot be extracted. Please upload screenshots of the Job Description instead.';
+            }
+            
             popup.classList.remove('hidden');
         }
 
@@ -347,7 +355,7 @@
             
             // Check if it's an image-based PDF error
             if (errorData.error && errorData.error.includes('image-based')) {
-                showImageBasedPdfPopup();
+                showImageBasedPdfPopup('cv');
                 document.getElementById('loadingIndicator').classList.add('hidden');
                 return;
             }
@@ -374,7 +382,7 @@
             
             // Check if it's an image-based PDF error
             if (errorData.error && errorData.error.includes('image-based')) {
-                showImageBasedPdfPopup();
+                showImageBasedPdfPopup('jd');
                 document.getElementById('loadingIndicator').classList.add('hidden');
                 return;
             }
@@ -582,11 +590,11 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-semibold text-gray-800 mb-2">Image-based PDF Detected</h3>
-                <p class="text-sm text-gray-600 mb-4">
-                    Your CV PDF is image-based and cannot be extracted. Please upload screenshots of your CV instead.
+                <p id="imageBasedPdfMessage" class="text-sm text-gray-600 mb-4">
+                    <!-- Dynamic message will be inserted here -->
                 </p>
                 <p class="text-xs text-gray-500 mb-4">
-                    Tip: Take screenshots of each page of your CV and upload them as images (JPG or PNG).
+                    Tip: Take screenshots of each page and upload them as images (JPG or PNG).
                 </p>
                 <button onclick="closeImageBasedPdfPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">
                     OK, I Understand
