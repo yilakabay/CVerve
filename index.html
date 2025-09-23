@@ -16,6 +16,21 @@
         let cvFilesArray = [];
         let jdFilesArray = [];
 
+        // Function to truncate filename in the middle
+        function truncateFilename(filename, maxLength = 25) {
+            if (filename.length <= maxLength) return filename;
+            
+            const extension = filename.split('.').pop();
+            const nameWithoutExt = filename.slice(0, -(extension.length + 1));
+            const charsToShow = maxLength - extension.length - 3; // 3 for "..."
+            
+            if (charsToShow < 5) return filename.slice(0, maxLength - 3) + '...';
+            
+            const start = nameWithoutExt.slice(0, Math.floor(charsToShow / 2));
+            const end = nameWithoutExt.slice(-Math.ceil(charsToShow / 2));
+            return `${start}...${end}.${extension}`;
+        }
+
         // Function to generate a unique user ID
         function generateUserId() {
             return 'user_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
@@ -116,14 +131,14 @@
                 const fileElement = document.createElement('div');
                 fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
                 fileElement.innerHTML = `
-                    <div class="flex items-center space-x-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div class="flex items-center space-x-2 min-w-0 flex-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <span class="text-sm text-gray-700 truncate max-w-xs">${file.name}</span>
-                        <span class="text-xs text-gray-500">(${(file.size / 1024).toFixed(1)} KB)</span>
+                        <span class="text-sm text-gray-700 truncate" title="${file.name}">${truncateFilename(file.name)}</span>
+                        <span class="text-xs text-gray-500 flex-shrink-0">(${(file.size / 1024).toFixed(1)} KB)</span>
                     </div>
-                    <button onclick="removeCvFile(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full">
+                    <button onclick="removeCvFile(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0 ml-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -147,14 +162,14 @@
                 const fileElement = document.createElement('div');
                 fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
                 fileElement.innerHTML = `
-                    <div class="flex items-center space-x-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div class="flex items-center space-x-2 min-w-0 flex-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <span class="text-sm text-gray-700 truncate max-w-xs">${file.name}</span>
-                        <span class="text-xs text-gray-500">(${(file.size / 1024).toFixed(1)} KB)</span>
+                        <span class="text-sm text-gray-700 truncate" title="${file.name}">${truncateFilename(file.name)}</span>
+                        <span class="text-xs text-gray-500 flex-shrink-0">(${(file.size / 1024).toFixed(1)} KB)</span>
                     </div>
-                    <button onclick="removeJdFile(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full">
+                    <button onclick="removeJdFile(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0 ml-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -239,7 +254,7 @@
             copyToClipboard(window.generatedUserId);
             
             // Stop the animation after copying
-            document.getElementById('copyUserIdBtn').classList.remove('animate-pulse');
+            document.getElementById('copyUserIdBtn').classlist.remove('animate-pulse');
         }
 
         // Function to show save confirmation
