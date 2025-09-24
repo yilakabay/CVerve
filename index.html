@@ -698,6 +698,10 @@
             100% { transform: scale(1); }
         }
         /* Custom file input styling - FIXED */
+        .file-input-container {
+            position: relative;
+            margin-bottom: 0.5rem;
+        }
         .file-input-wrapper {
             position: relative;
             display: inline-block;
@@ -708,7 +712,7 @@
         }
         .file-count-display {
             position: absolute;
-            right: 100px; /* Moved left to be closer to the button */
+            right: 100px;
             top: 50%;
             transform: translateY(-50%);
             pointer-events: none;
@@ -725,11 +729,6 @@
             position: relative;
             z-index: 1;
             margin-top: 0.5rem; /* Add some spacing above the file list */
-        }
-        /* Fix for file input container to prevent shifting */
-        .file-input-container {
-            position: relative;
-            margin-bottom: 0.5rem;
         }
         .file-list-container {
             margin-top: 0.5rem;
@@ -883,9 +882,9 @@
                                 <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
                                     <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                    <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
+                            <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                             <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
@@ -896,9 +895,9 @@
                                 <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
                                     <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                    <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
+                            <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                             <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
