@@ -699,23 +699,32 @@
             doc.setFont('Times-Roman');
             doc.setFontSize(12);
             
+            // Set margins to 2.54 cm (1 inch) - convert to points (1 inch = 72 points)
+            const marginInInches = 1;
+            const marginInPoints = marginInInches * 72;
+            
             // Calculate the maximum width for text (page width minus margins)
             const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 15; // Reduced margins to use more horizontal space
-            const maxWidth = pageWidth - (margin * 2);
+            const maxWidth = pageWidth - (marginInPoints * 2);
             
             // Split the text into lines that fit within the maxWidth
             const lines = doc.splitTextToSize(letterContent, maxWidth);
             
-            // Start position for text
-            let y = 20;
+            // Start position for text (with top margin)
+            let y = marginInPoints;
             
             // Add each line to the PDF
             for (let i = 0; i < lines.length; i++) {
-                // Add text line with full width
-                doc.text(lines[i], margin, y);
+                // Check if we need to add a new page
+                if (y > doc.internal.pageSize.getHeight() - marginInPoints) {
+                    doc.addPage();
+                    y = marginInPoints; // Reset y position for new page
+                }
                 
-                // Move to next line
+                // Add text line with proper margins
+                doc.text(lines[i], marginInPoints, y);
+                
+                // Move to next line (line height)
                 y += 7;
             }
             
