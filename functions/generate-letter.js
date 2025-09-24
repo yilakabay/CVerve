@@ -71,7 +71,6 @@ exports.handler = async (event, context) => {
       10. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
       11. Adopt a humble and factual tone; avoid exaggeration.
       12. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      13. Format the following elements in bold: the applicant's GPA (if mentioned), Name, subject line, and graduating institution.
 
       Now generate the application letter following all these guidelines precisely:
     `;
