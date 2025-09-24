@@ -124,6 +124,75 @@
             if (pdfFileInput) {
                 pdfFileInput.addEventListener('change', handlePdfFileSelect);
             }
+            
+            // Initialize rich text editor
+            initRichTextEditor();
+        }
+
+        // Initialize rich text editor
+        function initRichTextEditor() {
+            const editor = document.getElementById('applicationLetter');
+            const boldBtn = document.getElementById('boldBtn');
+            const italicBtn = document.getElementById('italicBtn');
+            const fontSizeBtn = document.getElementById('fontSizeBtn');
+            const fontSizeMenu = document.getElementById('fontSizeMenu');
+            
+            // Bold button functionality
+            boldBtn.addEventListener('click', function() {
+                document.execCommand('bold', false, null);
+                updateButtonState();
+            });
+            
+            // Italic button functionality
+            italicBtn.addEventListener('click', function() {
+                document.execCommand('italic', false, null);
+                updateButtonState();
+            });
+            
+            // Font size button functionality
+            fontSizeBtn.addEventListener('click', function() {
+                fontSizeMenu.classList.toggle('hidden');
+            });
+            
+            // Font size selection
+            fontSizeMenu.querySelectorAll('button').forEach(button => {
+                button.addEventListener('click', function() {
+                    const size = this.getAttribute('data-size');
+                    document.execCommand('fontSize', false, size);
+                    fontSizeBtn.textContent = size;
+                    fontSizeMenu.classList.add('hidden');
+                    editor.focus();
+                });
+            });
+            
+            // Update button states based on current selection
+            function updateButtonState() {
+                boldBtn.classList.toggle('bg-gray-300', document.queryCommandState('bold'));
+                italicBtn.classList.toggle('bg-gray-300', document.queryCommandState('italic'));
+            }
+            
+            // Update button states when selection changes
+            document.addEventListener('selectionchange', updateButtonState);
+            
+            // Close font size menu when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!fontSizeBtn.contains(e.target) && !fontSizeMenu.contains(e.target)) {
+                    fontSizeMenu.classList.add('hidden');
+                }
+            });
+            
+            // Handle placeholder for contenteditable div
+            editor.addEventListener('focus', function() {
+                if (this.textContent === this.getAttribute('placeholder')) {
+                    this.textContent = '';
+                }
+            });
+            
+            editor.addEventListener('blur', function() {
+                if (this.textContent === '') {
+                    this.textContent = this.getAttribute('placeholder');
+                }
+            });
         }
 
         // Function to handle CV file selection
@@ -663,7 +732,9 @@
                 const letterText = result.letterText;
 
                 if (letterText) {
-                    document.getElementById('applicationLetter').value = letterText;
+                    // Set the content of the rich text editor
+                    const editor = document.getElementById('applicationLetter');
+                    editor.innerHTML = letterText.replace(/\n/g, '<br>');
                     document.getElementById('downloadLetterBtn').classList.remove('hidden');
                     showMessage('success', 'Application letter generated successfully!');
                     
@@ -693,7 +764,15 @@
         function downloadLetterAsPdf() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
-            const letterContent = document.getElementById('applicationLetter').value;
+            
+            // Get the HTML content from the rich text editor
+            const editor = document.getElementById('applicationLetter');
+            let letterContent = editor.innerText || editor.textContent;
+            
+            // If the editor is showing the placeholder, use empty content
+            if (letterContent === editor.getAttribute('placeholder')) {
+                letterContent = '';
+            }
             
             // Set font and size
             doc.setFont('Times-Roman');
@@ -894,6 +973,78 @@
         }
         .file-list-container {
             margin-top: 0.5rem;
+        }
+        
+        /* Rich Text Editor Styles */
+        .rich-text-editor {
+            min-height: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            background-color: white;
+        }
+        
+        .rich-text-editor:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        }
+        
+        .rich-text-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .toolbar-btn {
+            padding: 0.25rem 0.5rem;
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-weight: 600;
+            min-width: 32px;
+            text-align: center;
+        }
+        
+        .toolbar-btn:hover {
+            background-color: #e5e7eb;
+        }
+        
+        .toolbar-btn.active {
+            background-color: #d1d5db;
+        }
+        
+        .font-size-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background-color: white;
+            border: 1px solid #d1d5db;
+            border-radius: 0.25rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            min-width: 60px;
+        }
+        
+        .font-size-option {
+            display: block;
+            width: 100%;
+            padding: 0.25rem 0.5rem;
+            border: none;
+            background: none;
+            text-align: left;
+            cursor: pointer;
+        }
+        
+        .font-size-option:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .font-size-wrapper {
+            position: relative;
         }
     </style>
 </head>
@@ -1114,7 +1265,26 @@
                         
                         <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
                         <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
-                        <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                        
+                        <!-- Rich Text Editor -->
+                        <div class="mt-4">
+                            <div class="rich-text-toolbar">
+                                <button id="boldBtn" class="toolbar-btn" title="Bold">B</button>
+                                <button id="italicBtn" class="toolbar-btn" title="Italic">I</button>
+                                <div class="font-size-wrapper">
+                                    <button id="fontSizeBtn" class="toolbar-btn" title="Font Size">12</button>
+                                    <div id="fontSizeMenu" class="font-size-menu hidden">
+                                        <button class="font-size-option" data-size="10">10</button>
+                                        <button class="font-size-option" data-size="12">12</button>
+                                        <button class="font-size-option" data-size="14">14</button>
+                                        <button class="font-size-option" data-size="16">16</button>
+                                        <button class="font-size-option" data-size="18">18</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="applicationLetter" class="rich-text-editor" contenteditable="true" placeholder="Your generated application letter will appear here..."></div>
+                        </div>
+                        
                         <button id="downloadLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download as PDF</button>
                     </div>
                 </div>
