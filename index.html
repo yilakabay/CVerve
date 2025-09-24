@@ -15,6 +15,7 @@
         let userBalance = 0;
         let cvFilesArray = [];
         let jdFilesArray = [];
+        let pdfFilesArray = [];
 
         // Function to truncate filename in the middle
         function truncateFilename(filename, maxLength = 25) {
@@ -97,6 +98,11 @@
             if (jdFileInput) {
                 jdFileInput.addEventListener('change', handleJdFileSelect);
             }
+
+            const pdfFileInput = document.getElementById('pdfInput');
+            if (pdfFileInput) {
+                pdfFileInput.addEventListener('change', handlePdfFileSelect);
+            }
         }
 
         // Function to handle CV file selection
@@ -113,6 +119,15 @@
             const files = Array.from(event.target.files);
             jdFilesArray = [...jdFilesArray, ...files];
             updateJdFilesList();
+            // Clear the input so same file can be selected again if needed
+            event.target.value = '';
+        }
+
+        // Function to handle PDF file selection
+        function handlePdfFileSelect(event) {
+            const files = Array.from(event.target.files);
+            pdfFilesArray = [...pdfFilesArray, ...files];
+            updatePdfFilesList();
             // Clear the input so same file can be selected again if needed
             event.target.value = '';
         }
@@ -187,6 +202,41 @@
             });
         }
 
+        // Function to update PDF files list display
+        function updatePdfFilesList() {
+            const container = document.getElementById('pdfFilesList');
+            const counter = document.getElementById('pdfFilesCounter');
+            container.innerHTML = '';
+            
+            // Update counter - position it next to the button
+            counter.textContent = `${pdfFilesArray.length} file${pdfFilesArray.length !== 1 ? 's' : ''} selected`;
+            counter.className = `text-sm font-medium ${pdfFilesArray.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
+            
+            if (pdfFilesArray.length === 0) {
+                return;
+            }
+            
+            pdfFilesArray.forEach((file, index) => {
+                const fileElement = document.createElement('div');
+                fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
+                fileElement.innerHTML = `
+                    <div class="flex items-center space-x-2 min-w-0 flex-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span class="text-sm text-gray-700 truncate" title="${file.name}">${truncateFilename(file.name)}</span>
+                        <span class="text-xs text-gray-500 flex-shrink-0">(${(file.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    <button onclick="removePdfFile(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0 ml-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                `;
+                container.appendChild(fileElement);
+            });
+        }
+
         // Function to remove CV file
         function removeCvFile(index) {
             cvFilesArray.splice(index, 1);
@@ -197,6 +247,12 @@
         function removeJdFile(index) {
             jdFilesArray.splice(index, 1);
             updateJdFilesList();
+        }
+
+        // Function to remove PDF file
+        function removePdfFile(index) {
+            pdfFilesArray.splice(index, 1);
+            updatePdfFilesList();
         }
 
         // Function to handle user login
@@ -370,8 +426,7 @@
         let mergedPdf = null;
 
         async function mergePdfs() {
-            const files = document.getElementById('pdfInput').files;
-            if (files.length < 2) {
+            if (pdfFilesArray.length < 2) {
                 showMessage('error', 'Please select at least two PDF files to merge.');
                 return;
             }
@@ -387,7 +442,7 @@
                 const { PDFDocument } = window.PDFLib;
                 const mergedDoc = await PDFDocument.create();
 
-                for (const file of files) {
+                for (const file of pdfFilesArray) {
                     const arrayBuffer = await file.arrayBuffer();
                     const pdfDoc = await PDFDocument.load(arrayBuffer);
                     const copiedPages = await mergedDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
@@ -698,10 +753,6 @@
             100% { transform: scale(1); }
         }
         /* Custom file input styling - FIXED */
-        .file-input-container {
-            position: relative;
-            margin-bottom: 0.5rem;
-        }
         .file-input-wrapper {
             position: relative;
             display: inline-block;
@@ -712,7 +763,7 @@
         }
         .file-count-display {
             position: absolute;
-            right: 100px;
+            right: 100px; /* Moved left to be closer to the button */
             top: 50%;
             transform: translateY(-50%);
             pointer-events: none;
@@ -725,10 +776,15 @@
             white-space: nowrap;
         }
         /* Ensure the file list container doesn't affect the counter position */
-        #cvFilesList, #jdFilesList {
+        #cvFilesList, #jdFilesList, #pdfFilesList {
             position: relative;
             z-index: 1;
             margin-top: 0.5rem; /* Add some spacing above the file list */
+        }
+        /* Fix for file input container to prevent shifting */
+        .file-input-container {
+            position: relative;
+            margin-bottom: 0.5rem;
         }
         .file-list-container {
             margin-top: 0.5rem;
@@ -857,10 +913,18 @@
                 <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                     <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
                     <div class="space-y-4">
-                        <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
-                            <input type="file" id="pdfInput" multiple accept="application/pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                        </label>
+                        <div class="file-input-container">
+                            <label class="block">
+                                <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="pdfFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                            </label>
+                            <div id="pdfFilesList" class="file-list-container max-h-32 overflow-y-auto">
+                                <!-- File list will be populated here -->
+                            </div>
+                        </div>
                         <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Merge PDFs</button>
                         <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download Merged PDF</button>
                     </div>
@@ -882,9 +946,9 @@
                                 <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
                                     <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                             <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
@@ -895,9 +959,9 @@
                                 <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
                                     <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                             <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
