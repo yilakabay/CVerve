@@ -62,16 +62,15 @@ exports.handler = async (event, context) => {
       1. Use the exact company name and position title as they appear in the job description.
       2. Write a clear subject line that mentions the specific position the user is applying for next to the company information.
       3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
-      5. Highlight how the applicant's qualifications directly match the job's requirements.
-      6. Format the contact information at the top: Name, Phone, Email, Address, Date [but don't say phone, email, name address and date just put their value]
-      7. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
-      8. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information
-      9. Do not mention attaching a resume or other documents.
-      10. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
-      11. Adopt a humble and factual tone; avoid exaggeration and  overpromising.
-      12. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      13. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fits the position and he is really interested.
-     14. Do not bold any text on the letter.
+      5. Format the contact information at the top: Name, Phone, Email, Address, Date [but don't say phone, email, name address and date just put their value]
+      6. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
+      7. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information
+      8. Do not mention attaching a resume or other documents.
+      9. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
+      10. Adopt a humble and factual tone; avoid exaggeration and  overpromising.
+      11. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
+      12. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fits the position and he is really interested.
+      13. Do not bold any text on the letter.
       Now generate the application letter following all these guidelines precisely:
     `;
 
