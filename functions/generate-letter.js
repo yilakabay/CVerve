@@ -1,3 +1,6 @@
+[file name]: Toro.txt
+[file content begin]
+functions/generate-letter.js
 const axios = require('axios');
 
 exports.handler = async (event, context) => {
@@ -56,23 +59,36 @@ exports.handler = async (event, context) => {
       - Date: ${appDate}
 
       INSTRUCTIONS:
-      Write a professional application letter for the position described in the JOB DESCRIPTION section.
-      
-      CRITICAL GUIDELINES:
-      1. Use the exact company name and position title as they appear in the job description.
-      2. Write a clear subject line that mentions the specific position the user is applying for next to the company information.
-      3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
-      4. Reference specific requirements from the job description to demonstrate you have read it carefully.
-      5. Highlight how the applicant's qualifications directly match the job's requirements.
-      6. Format the contact information at the top: Name, Phone, Email, Address, Date
-      7. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
-      8. Keep the letter professional, concise, and approximately three-quarters of a page in length.
-      9. Do not mention attaching a resume or other documents.
-      10. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
-      11. Adopt a humble and factual tone; avoid exaggeration.
-      12. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      13. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fit the position and he is realy interested.
-      Now generate the application letter following all these guidelines precisely:
+      Write a professional application letter that will fit within 4/5 of a single page without page breaks.
+
+      CRITICAL FORMATTING RULES:
+      1. CONTACT INFORMATION FORMAT: At the top, format exactly like this (NO LABELS like "Email:", "Phone:"):
+         ${fullName}
+         ${phone}
+         ${email}
+         ${address}
+         ${appDate}
+
+      2. COMPANY ADDRESS: Below your contact info, leave a space and then add the company address from the job description.
+
+      3. SALUTATION: After company address, use "Dear Hiring Manager," or the specific name if provided.
+
+      4. CONTENT REQUIREMENTS:
+         - Use the exact company name and position title from the job description
+         - Do NOT use any placeholders like [Company Name] or [Position Title]
+         - Reference specific requirements from the job description
+         - Highlight how the applicant's qualifications match the job requirements
+         - Keep the letter concise (approximately 250-300 words)
+         - Use only plain paragraphs (NO bullet points or lists)
+         - Three main paragraphs: understanding of job, qualifications, interest in position
+         - Only mention GPA if 3.0 or higher (without "/4.0" scale)
+         - For internship-heavy experience, focus on soft skills and education
+
+      5. CLOSING: Use "Sincerely," followed by a space for signature and then ${fullName}
+
+      6. LENGTH CONTROL: The entire letter must fit within 4/5 of one page with normal formatting.
+
+      Generate the application letter following ALL these rules precisely:
     `;
 
     const response = await axios.post(
@@ -82,12 +98,12 @@ exports.handler = async (event, context) => {
         messages: [
           { 
             role: 'system', 
-            content: 'You are a professional resume writer. Always use exact details from the job description without placeholders. Follow all formatting instructions precisely. Maintain a humble, factual tone throughout.' 
+            content: 'You are a professional resume writer. Format contact information without labels. Create concise letters that fit 4/5 of a page. Use exact details from job descriptions. Maintain humble, factual tone.' 
           },
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 2000
+        max_tokens: 1200  // Reduced to ensure shorter output
       },
       {
         headers: {
@@ -122,3 +138,4 @@ exports.handler = async (event, context) => {
     };
   }
 };
+[file content end]
