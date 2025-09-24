@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script>
         // Global variables
         let userId = null;
@@ -760,58 +761,83 @@
             });
         }
         
-        // Fixed function to download letter as PDF with proper text formatting
-        function downloadLetterAsPdf() {
+        // Fixed function to download letter as PDF with proper formatting
+        async function downloadLetterAsPdf() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             
             // Get the HTML content from the rich text editor
             const editor = document.getElementById('applicationLetter');
-            let letterContent = editor.innerHTML;
             
             // If the editor is showing the placeholder, use empty content
-            if (letterContent === editor.getAttribute('placeholder')) {
-                letterContent = '';
+            if (editor.innerHTML === editor.getAttribute('placeholder')) {
+                showMessage('error', 'Please generate a letter first');
+                return;
             }
             
-            // Convert HTML to plain text while preserving basic formatting
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = letterContent;
-            const plainText = tempDiv.textContent || tempDiv.innerText || '';
+            showLoadingOverlay('Generating PDF...');
             
-            // Set font and size for the PDF
-            doc.setFont('helvetica');
-            doc.setFontSize(12);
-            
-            // Calculate the maximum width for text (page width minus margins)
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 20;
-            const maxWidth = pageWidth - (margin * 2);
-            
-            // Split the text into lines that fit within the maxWidth
-            const lines = doc.splitTextToSize(plainText, maxWidth);
-            
-            // Start position for text
-            let y = 30;
-            const lineHeight = 7;
-            
-            // Add each line to the PDF
-            for (let i = 0; i < lines.length; i++) {
-                // Check if we need to add a new page
-                if (y > doc.internal.pageSize.getHeight() - 20) {
+            try {
+                // Create a temporary div to preserve formatting
+                const tempDiv = document.createElement('div');
+                tempDiv.style.width = '210mm'; // A4 width
+                tempDiv.style.padding = '20mm';
+                tempDiv.style.fontFamily = 'Arial, sans-serif';
+                tempDiv.style.fontSize = '12pt';
+                tempDiv.style.lineHeight = '1.5';
+                tempDiv.innerHTML = editor.innerHTML;
+                
+                // Replace <br> tags with proper line breaks
+                tempDiv.innerHTML = tempDiv.innerHTML.replace(/<br\s*\/?>/gi, '<div style="height: 6pt;"></div>');
+                
+                // Add tempDiv to document body temporarily
+                document.body.appendChild(tempDiv);
+                
+                // Use html2canvas to capture the content as an image
+                const canvas = await html2canvas(tempDiv, {
+                    scale: 2, // Higher scale for better quality
+                    useCORS: true,
+                    logging: false,
+                    width: tempDiv.offsetWidth,
+                    height: tempDiv.scrollHeight
+                });
+                
+                // Remove tempDiv from document
+                document.body.removeChild(tempDiv);
+                
+                // Convert canvas to image data
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                
+                // Calculate PDF dimensions
+                const imgWidth = 210; // A4 width in mm
+                const pageHeight = 295; // A4 height in mm
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                let heightLeft = imgHeight;
+                let position = 0;
+                
+                // Add first page
+                doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+                
+                // Add additional pages if needed
+                while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight;
                     doc.addPage();
-                    y = 20;
+                    doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+                    heightLeft -= pageHeight;
                 }
                 
-                // Add text line with proper margins
-                doc.text(lines[i], margin, y);
+                // Save the PDF
+                doc.save('application_letter.pdf');
+                showMessage('success', 'PDF downloaded successfully!');
                 
-                // Move to next line
-                y += lineHeight;
+            } catch (error) {
+                console.error('Error generating PDF:', error);
+                showMessage('error', 'Failed to generate PDF. Please try again.');
+            } finally {
+                hideLoadingOverlay();
             }
-            
-            // Save the PDF
-            doc.save('application_letter.pdf');
         }
 
         // --- Payment Logic ---
