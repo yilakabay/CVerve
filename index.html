@@ -708,7 +708,7 @@
         }
         .file-count-display {
             position: absolute;
-            right: 8px;
+            right: 100px; /* Moved left to be closer to the button */
             top: 50%;
             transform: translateY(-50%);
             pointer-events: none;
@@ -718,11 +718,13 @@
             font-size: 0.75rem;
             z-index: 10;
             border: 1px solid #e5e7eb;
+            white-space: nowrap;
         }
         /* Ensure the file list container doesn't affect the counter position */
         #cvFilesList, #jdFilesList {
             position: relative;
             z-index: 1;
+            margin-top: 0.5rem; /* Add some spacing above the file list */
         }
     </style>
 </head>
@@ -805,10 +807,10 @@
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">Have you saved your User ID in a safe place?</h3>
                     <p class="text-sm text-gray-600 mb-6">You won't be able to recover your account if you lose this ID.</p>
                     <div class="flex space-x-4">
-                        <button onclick="handleSaveConfirmation(false)" class="flex-1 bg-red-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-red-600 transition-colors">
+                        <button onclick="handleSaveConfirmation(false)" class="flex-1 bg-red-500 text-white py-2 px-4 rounded-full font-semibold">
                             No
                         </button>
-                        <button onclick="handleSaveConfirmation(true)" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors">
+                        <button onclick="handleSaveConfirmation(true)" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold">
                             Yes
                         </button>
                     </div>
