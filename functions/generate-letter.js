@@ -1,6 +1,3 @@
-[file name]: Toro.txt
-[file content begin]
-functions/generate-letter.js
 const axios = require('axios');
 
 exports.handler = async (event, context) => {
@@ -84,7 +81,7 @@ exports.handler = async (event, context) => {
          - Only mention GPA if 3.0 or higher (without "/4.0" scale)
          - For internship-heavy experience, focus on soft skills and education
 
-      5. CLOSING: Use "Sincerely," followed by a space for signature and then ${fullName}
+      5. CLOSING: Use "Sincerely," followed by ${fullName}
 
       6. LENGTH CONTROL: The entire letter must fit within 4/5 of one page with normal formatting.
 
