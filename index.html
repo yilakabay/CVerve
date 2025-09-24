@@ -763,50 +763,57 @@
         
         function downloadLetterAsPdf() {
             const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            
-            // Get the HTML content from the rich text editor
             const editor = document.getElementById('applicationLetter');
-            let letterContent = editor.innerText || editor.textContent;
             
-            // If the editor is showing the placeholder, use empty content
-            if (letterContent === editor.getAttribute('placeholder')) {
-                letterContent = '';
+            // If the editor is showing the placeholder, show error
+            if (editor.textContent === editor.getAttribute('placeholder') || editor.textContent.trim() === '') {
+                showMessage('error', 'No content to download. Please generate a letter first.');
+                return;
             }
             
-            // Set font and size
-            doc.setFont('Times-Roman');
-            doc.setFontSize(12);
+            showLoadingOverlay('Generating PDF...');
             
-            // Calculate the maximum width for text (page width minus margins)
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 25; // Increased margins for better spacing
-            const maxWidth = pageWidth - (margin * 2);
-            
-            // Split the text into lines that fit within the maxWidth
-            const lines = doc.splitTextToSize(letterContent, maxWidth);
-            
-            // Start position for text
-            let y = 30;
-            
-            // Add each line to the PDF
-            for (let i = 0; i < lines.length; i++) {
-                // Check if we need to add a new page
-                if (y > doc.internal.pageSize.getHeight() - 20) {
-                    doc.addPage();
-                    y = 20;
+            // Use html2canvas to capture the formatted content as an image
+            html2canvas(editor, {
+                scale: 2, // Higher resolution for better quality
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                
+                // Calculate dimensions to fit the content on the page
+                const imgWidth = canvas.width;
+                const imgHeight = canvas.height;
+                const ratio = imgWidth / imgHeight;
+                
+                let pdfWidth = pageWidth - 20; // Margin of 10mm on each side
+                let pdfHeight = pdfWidth / ratio;
+                
+                // If the content is too tall for one page, adjust
+                if (pdfHeight > pageHeight - 20) {
+                    pdfHeight = pageHeight - 20;
+                    pdfWidth = pdfHeight * ratio;
                 }
                 
-                // Add text line with proper margins
-                doc.text(lines[i], margin, y);
+                // Center the image on the page
+                const x = (pageWidth - pdfWidth) / 2;
+                const y = (pageHeight - pdfHeight) / 2;
                 
-                // Move to next line
-                y += 7;
-            }
-            
-            // Save the PDF
-            doc.save('application_letter.pdf');
-        };
+                pdf.addImage(imgData, 'PNG', x, y, pdfWidth, pdfHeight);
+                pdf.save('application_letter.pdf');
+                
+                hideLoadingOverlay();
+                showMessage('success', 'PDF downloaded successfully!');
+            }).catch(error => {
+                console.error('Error generating PDF:', error);
+                hideLoadingOverlay();
+                showMessage('error', 'Failed to generate PDF. Please try again.');
+            });
+        }
 
         // --- Payment Logic ---
         window.showTopUpForm = () => {
@@ -984,6 +991,7 @@
             border-radius: 0.5rem;
             padding: 1rem;
             background-color: white;
+            line-height: 1.6;
         }
         
         .rich-text-editor:focus {
