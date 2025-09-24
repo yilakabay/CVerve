@@ -276,6 +276,29 @@
             updatePdfFilesList();
         }
 
+        // Show loading overlay
+        function showLoadingOverlay(message) {
+            document.getElementById('loadingMessage').textContent = message;
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+        }
+
+        // Hide loading overlay
+        function hideLoadingOverlay() {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        // Update loading progress for letter generation
+        function updateLetterProgress(step) {
+            const steps = [
+                "Preparing your files...",
+                "Organizing your letter...", 
+                "Generating letter..."
+            ];
+            
+            document.getElementById('loadingMessage').textContent = steps[step - 1];
+            document.getElementById('progressBar').style.width = `${(step / 3) * 100}%`;
+        }
+
         // Function to handle user login
         async function handleLogin() {
             const inputUserId = document.getElementById('userIdInput').value.trim();
@@ -284,6 +307,8 @@
                 showMessage('error', 'Please enter your User ID');
                 return;
             }
+
+            showLoadingOverlay('Logging in...');
 
             try {
                 // Check if user exists in database
@@ -313,6 +338,8 @@
             } catch (error) {
                 console.error('Login error:', error);
                 showMessage('error', 'Login failed. Please try again.');
+            } finally {
+                hideLoadingOverlay();
             }
         }
 
@@ -351,6 +378,8 @@
             document.getElementById('saveConfirmation').classList.add('hidden');
             
             if (saved) {
+                showLoadingOverlay('Creating your account...');
+                
                 try {
                     // Create new user in database
                     const response = await fetch('/.netlify/functions/create-user', {
@@ -381,6 +410,8 @@
                 } catch (error) {
                     console.error('Account creation error:', error);
                     showMessage('error', 'Account creation failed. Please try again.');
+                } finally {
+                    hideLoadingOverlay();
                 }
             } else {
                 // If user didn't save, show the ID again
@@ -457,6 +488,8 @@
                 return;
             }
 
+            showLoadingOverlay('Merging PDFs...');
+
             try {
                 const { PDFDocument } = window.PDFLib;
                 const mergedDoc = await PDFDocument.create();
@@ -477,6 +510,8 @@
             } catch (error) {
                 console.error('Error merging PDFs:', error);
                 showMessage('error', 'Failed to merge PDFs. Please try again.');
+            } finally {
+                hideLoadingOverlay();
             }
         }
 
@@ -514,7 +549,8 @@
                 return;
             }
 
-            document.getElementById('loadingIndicator').classList.remove('hidden');
+            showLoadingOverlay('Preparing your files...');
+            updateLetterProgress(1);
 
             try {
                 // Process CV files to base64
@@ -540,6 +576,8 @@
                 }
 
                 console.log("Extracting text from CV files...");
+                updateLetterProgress(1);
+                
                 // Step 1: Extract text from CV files
                 const cvExtractionResponse = await fetch('/.netlify/functions/extract-text', {
                     method: 'POST',
@@ -556,7 +594,7 @@
                     // Check if it's an image-based PDF error
                     if (errorData.error && errorData.error.includes('image-based')) {
                         showImageBasedPdfPopup('cv');
-                        document.getElementById('loadingIndicator').classList.add('hidden');
+                        hideLoadingOverlay();
                         return;
                     }
                     
@@ -567,6 +605,8 @@
                 const cvText = cvExtractionResult.extractedText;
 
                 console.log("Extracting text from JD files...");
+                updateLetterProgress(1);
+                
                 // Step 2: Extract text from JD files
                 const jdExtractionResponse = await fetch('/.netlify/functions/extract-text', {
                     method: 'POST',
@@ -583,7 +623,7 @@
                     // Check if it's an image-based PDF error
                     if (errorData.error && errorData.error.includes('image-based')) {
                         showImageBasedPdfPopup('jd');
-                        document.getElementById('loadingIndicator').classList.add('hidden');
+                        hideLoadingOverlay();
                         return;
                     }
                     
@@ -593,7 +633,12 @@
                 const jdExtractionResult = await jdExtractionResponse.json();
                 const jdText = jdExtractionResult.extractedText;
 
+                console.log("Organizing your letter...");
+                updateLetterProgress(2);
+                
                 console.log("Generating letter with AI...");
+                updateLetterProgress(3);
+                
                 // Step 3: Generate letter with extracted text
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST',
@@ -632,7 +677,7 @@
                 console.error('Error generating letter:', error);
                 showMessage('error', error.message || 'An unexpected error occurred.');
             } finally {
-                document.getElementById('loadingIndicator').classList.add('hidden');
+                hideLoadingOverlay();
             }
         }
 
@@ -690,7 +735,7 @@
                 return;
             }
 
-            document.getElementById('loadingIndicatorPayment').classList.remove('hidden');
+            showLoadingOverlay('Confirming your payment...');
 
             try {
                 const screenshotData = await fileToBase64(screenshotFile);
@@ -709,7 +754,6 @@
                     const errorData = await response.json();
                     console.error('Payment Error:', errorData);
                     showMessage('error', `Payment Error: ${response.statusText}`);
-                    document.getElementById('loadingIndicatorPayment').classList.add('hidden');
                     return;
                 }
 
@@ -728,7 +772,7 @@
                 console.error('Error confirming payment:', error);
                 showMessage('error', 'An unexpected error occurred during payment confirmation.');
             } finally {
-                document.getElementById('loadingIndicatorPayment').classList.add('hidden');
+                hideLoadingOverlay();
             }
         }
 
@@ -771,6 +815,43 @@
             50% { transform: scale(1.05); }
             100% { transform: scale(1); }
         }
+        
+        /* Modern Loading Animation */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            80%, 100% { transform: scale(2); opacity: 0; }
+        }
+        
+        .animate-float {
+            animation: float 2s ease-in-out infinite;
+        }
+        
+        .animate-spin-slow {
+            animation: spin 3s linear infinite;
+        }
+        
+        .animate-pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.455, 0.030, 0.515, 0.955) infinite;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .progress-bar {
+            transition: width 0.5s ease-in-out;
+        }
+        
         /* Custom file input styling - FIXED */
         .file-input-wrapper {
             position: relative;
@@ -815,6 +896,38 @@
     <!-- Message Box -->
     <div id="messageBox" class="hidden">
         <p id="messageText"></p>
+    </div>
+
+    <!-- Modern Loading Overlay -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 transform transition-all duration-300">
+            <div class="text-center">
+                <!-- Animated Spinner -->
+                <div class="relative mx-auto w-20 h-20 mb-6">
+                    <div class="absolute inset-0 rounded-full border-4 border-indigo-200 animate-pulse-ring"></div>
+                    <div class="absolute inset-2 rounded-full border-4 border-indigo-500 animate-spin-slow"></div>
+                    <div class="absolute inset-4 rounded-full bg-gradient-to-r from-blue-400 to-green-400 animate-float"></div>
+                </div>
+                
+                <!-- Loading Text -->
+                <h3 id="loadingMessage" class="text-lg font-semibold text-gray-800 mb-2">Processing...</h3>
+                
+                <!-- Progress Bar for Letter Generation -->
+                <div id="progressContainer" class="w-full bg-gray-200 rounded-full h-2 mt-4 hidden">
+                    <div id="progressBar" class="progress-bar h-2 rounded-full gradient-bg" style="width: 0%"></div>
+                </div>
+                
+                <!-- Subtle Animation Dots -->
+                <div class="flex justify-center space-x-1 mt-4">
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.3s"></div>
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+                </div>
+                
+                <p class="text-sm text-gray-500 mt-3">Please wait while we process your request</p>
+            </div>
+        </div>
     </div>
 
     <!-- Image-based PDF Popup -->
@@ -1030,5 +1143,19 @@
             </div>
         </div>
     </div>
+
+    <script>
+        // Initialize progress bar for letter generation
+        document.addEventListener('DOMContentLoaded', function() {
+            const progressContainer = document.getElementById('progressContainer');
+            const generateLetterBtn = document.getElementById('generateLetterBtn');
+            
+            if (generateLetterBtn) {
+                generateLetterBtn.addEventListener('click', function() {
+                    progressContainer.classList.remove('hidden');
+                });
+            }
+        });
+    </script>
 </body>
 </html>
