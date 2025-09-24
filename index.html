@@ -19,7 +19,7 @@
         let isUserIdVisible = true;
         let isDarkMode = false;
 
-        // Function to initialize theme
+        // Function to initialize theme - FIXED
         function initializeTheme() {
             const savedTheme = localStorage.getItem('cverve-theme');
             if (savedTheme === 'dark') {
@@ -497,9 +497,15 @@
             popup.classList.add('hidden');
         }
 
-        // Initialize the app
+        // Initialize the app - FIXED: Added proper theme initialization
         window.onload = function() {
-            initializeTheme();
+            // Check if theme is already set in localStorage
+            const savedTheme = localStorage.getItem('cverve-theme');
+            if (savedTheme === 'dark') {
+                enableDarkMode();
+            } else {
+                enableLightMode();
+            }
             toggleLoginScreen(true);
         };
 
