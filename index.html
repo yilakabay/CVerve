@@ -726,6 +726,14 @@
             z-index: 1;
             margin-top: 0.5rem; /* Add some spacing above the file list */
         }
+        /* Fix for file input container to prevent shifting */
+        .file-input-container {
+            position: relative;
+            margin-bottom: 0.5rem;
+        }
+        .file-list-container {
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -870,7 +878,7 @@
                         <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         
-                        <div class="relative">
+                        <div class="file-input-container">
                             <label class="block">
                                 <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
@@ -878,12 +886,12 @@
                                     <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <div id="cvFilesList" class="mt-2 max-h-32 overflow-y-auto">
+                            <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
                         </div>
                         
-                        <div class="relative">
+                        <div class="file-input-container">
                             <label class="block">
                                 <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
                                 <div class="file-input-wrapper mt-1">
@@ -891,7 +899,7 @@
                                     <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <div id="jdFilesList" class="mt-2 max-h-32 overflow-y-auto">
+                            <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto">
                                 <!-- File list will be populated here -->
                             </div>
                         </div>
