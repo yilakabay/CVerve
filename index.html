@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
         // Global variables
@@ -761,68 +760,58 @@
             });
         }
         
-        // Fixed function to download letter as PDF with formatting preserved
-        async function downloadLetterAsPdf() {
-            showLoadingOverlay('Generating PDF...');
+        // Fixed function to download letter as PDF with proper text formatting
+        function downloadLetterAsPdf() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
             
-            try {
-                const editor = document.getElementById('applicationLetter');
-                
-                // Create a temporary container with proper styling for PDF generation
-                const tempContainer = document.createElement('div');
-                tempContainer.style.width = '210mm'; // A4 width
-                tempContainer.style.minHeight = '297mm'; // A4 height
-                tempContainer.style.padding = '20mm';
-                tempContainer.style.fontFamily = 'Times New Roman, serif';
-                tempContainer.style.fontSize = '12pt';
-                tempContainer.style.lineHeight = '1.5';
-                tempContainer.style.backgroundColor = 'white';
-                tempContainer.style.color = 'black';
-                
-                // Clone the content from the editor
-                tempContainer.innerHTML = editor.innerHTML;
-                
-                // Add the container to the document temporarily
-                document.body.appendChild(tempContainer);
-                
-                // Use html2canvas to capture the styled content
-                const canvas = await html2canvas(tempContainer, {
-                    scale: 2, // Higher resolution
-                    useCORS: true,
-                    logging: false,
-                    backgroundColor: '#ffffff'
-                });
-                
-                // Remove the temporary container
-                document.body.removeChild(tempContainer);
-                
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({
-                    orientation: 'portrait',
-                    unit: 'mm',
-                    format: 'a4'
-                });
-                
-                // Convert canvas to image data
-                const imgData = canvas.toDataURL('image/png');
-                
-                // Calculate dimensions to fit the page
-                const pageWidth = doc.internal.pageSize.getWidth();
-                const pageHeight = doc.internal.pageSize.getHeight();
-                
-                // Add the image to the PDF
-                doc.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-                
-                // Save the PDF
-                doc.save('application_letter.pdf');
-                
-                showMessage('success', 'PDF downloaded successfully!');
-            } catch (error) {
-                console.error('Error generating PDF:', error);
-                showMessage('error', 'Failed to generate PDF. Please try again.');
-            } finally {
-                hideLoadingOverlay();
+            // Get the HTML content from the rich text editor
+            const editor = document.getElementById('applicationLetter');
+            let letterContent = editor.innerHTML;
+            
+            // If the editor is showing the placeholder, use empty content
+            if (letterContent === editor.getAttribute('placeholder')) {
+                letterContent = '';
             }
+            
+            // Convert HTML to plain text while preserving basic formatting
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = letterContent;
+            const plainText = tempDiv.textContent || tempDiv.innerText || '';
+            
+            // Set font and size for the PDF
+            doc.setFont('helvetica');
+            doc.setFontSize(12);
+            
+            // Calculate the maximum width for text (page width minus margins)
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 20;
+            const maxWidth = pageWidth - (margin * 2);
+            
+            // Split the text into lines that fit within the maxWidth
+            const lines = doc.splitTextToSize(plainText, maxWidth);
+            
+            // Start position for text
+            let y = 30;
+            const lineHeight = 7;
+            
+            // Add each line to the PDF
+            for (let i = 0; i < lines.length; i++) {
+                // Check if we need to add a new page
+                if (y > doc.internal.pageSize.getHeight() - 20) {
+                    doc.addPage();
+                    y = 20;
+                }
+                
+                // Add text line with proper margins
+                doc.text(lines[i], margin, y);
+                
+                // Move to next line
+                y += lineHeight;
+            }
+            
+            // Save the PDF
+            doc.save('application_letter.pdf');
         }
 
         // --- Payment Logic ---
