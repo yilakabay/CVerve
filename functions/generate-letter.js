@@ -62,16 +62,16 @@ exports.handler = async (event, context) => {
       1. Use the exact company name and position title as they appear in the job description.
       2. Write a clear subject line that mentions the specific position the user is applying for next to the company information.
       3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
-      4. Reference specific requirements from the job description to demonstrate you have read it carefully.
       5. Highlight how the applicant's qualifications directly match the job's requirements.
-      6. Format the contact information at the top: Name, Phone, Email, Address, Date
+      6. Format the contact information at the top: Name, Phone, Email, Address, Date [but don't say phone, email, name address and date just put their value]
       7. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
-      8. Keep the letter professional, concise, and approximately three-quarters of a page in length.
+      8. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information
       9. Do not mention attaching a resume or other documents.
       10. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
-      11. Adopt a humble and factual tone; avoid exaggeration.
+      11. Adopt a humble and factual tone; avoid exaggeration and  overpromising.
       12. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      13. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fit the position and he is realy interested.
+      13. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fits the position and he is really interested.
+     14. Do not bold any text on the letter.
       Now generate the application letter following all these guidelines precisely:
     `;
 
