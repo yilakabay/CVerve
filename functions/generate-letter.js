@@ -60,7 +60,7 @@ exports.handler = async (event, context) => {
       
       CRITICAL GUIDELINES:
       1. Use the exact company name and position title as they appear in the job description.
-      2. Write a clear subject line that mentions the specific position the user is applying for next to the company information. (important, don't skip this)
+      2. Write a clear subject line that mentions the specific position the user is applying for next to the company information. This is crucial and must not be skipped.
       3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
       5. Format the contact information at the top: Name, Phone, Email, Address, Date [but don't say phone, email, name address and date just put their value]
       6. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
