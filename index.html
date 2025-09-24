@@ -1,3 +1,4 @@
+index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -695,28 +696,82 @@
             const doc = new jsPDF();
             const letterContent = document.getElementById('applicationLetter').value;
             
-            // Set font and size
+            // Convert markdown bold (**text**) to HTML bold tags for proper formatting
+            const formattedContent = letterContent.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            
+            // Split content into lines for proper formatting
+            const lines = formattedContent.split('\n');
+            let y = 20;
+            const margin = 15;
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const maxWidth = pageWidth - (margin * 2);
+            
+            // Set initial font
             doc.setFont('Times-Roman');
             doc.setFontSize(12);
             
-            // Calculate the maximum width for text (page width minus margins)
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 15; // Reduced margins to use more horizontal space
-            const maxWidth = pageWidth - (margin * 2);
-            
-            // Split the text into lines that fit within the maxWidth
-            const lines = doc.splitTextToSize(letterContent, maxWidth);
-            
-            // Start position for text
-            let y = 20;
-            
-            // Add each line to the PDF
             for (let i = 0; i < lines.length; i++) {
-                // Add text line with full width
-                doc.text(lines[i], margin, y);
+                const line = lines[i].trim();
+                if (line === '') {
+                    y += 7; // Add extra space for empty lines
+                    continue;
+                }
                 
-                // Move to next line
-                y += 7;
+                // Check if line contains bold tags
+                if (line.includes('<b>')) {
+                    // Process lines with bold formatting
+                    const parts = line.split(/(<b>.*?<\/b>)/g);
+                    
+                    let x = margin;
+                    for (const part of parts) {
+                        if (part.startsWith('<b>') && part.endsWith('</b>')) {
+                            const boldText = part.replace(/<b>|<\/b>/g, '');
+                            doc.setFont('Times-Bold');
+                            const textWidth = doc.getTextWidth(boldText);
+                            
+                            // Check if text would exceed page width
+                            if (x + textWidth > pageWidth - margin) {
+                                y += 7;
+                                x = margin;
+                            }
+                            
+                            doc.text(boldText, x, y);
+                            x += textWidth;
+                            doc.setFont('Times-Roman');
+                        } else if (part.trim() !== '') {
+                            const normalText = part;
+                            const textWidth = doc.getTextWidth(normalText);
+                            
+                            // Check if text would exceed page width
+                            if (x + textWidth > pageWidth - margin) {
+                                y += 7;
+                                x = margin;
+                            }
+                            
+                            doc.text(normalText, x, y);
+                            x += textWidth;
+                        }
+                    }
+                } else {
+                    // Regular text without bold formatting
+                    const textLines = doc.splitTextToSize(line, maxWidth);
+                    for (let j = 0; j < textLines.length; j++) {
+                        if (y > 280) { // Check if we need a new page
+                            doc.addPage();
+                            y = 20;
+                        }
+                        doc.text(textLines[j], margin, y);
+                        y += 7;
+                    }
+                }
+                
+                y += 7; // Line spacing
+                
+                // Check if we need a new page
+                if (y > 280 && i < lines.length - 1) {
+                    doc.addPage();
+                    y = 20;
+                }
             }
             
             // Save the PDF
@@ -783,7 +838,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                    },
+                        },
                     body: JSON.stringify({ 
                         userId: userId,
                         amount: amount
