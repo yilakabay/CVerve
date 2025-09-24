@@ -761,58 +761,68 @@
             });
         }
         
-        function downloadLetterAsPdf() {
-            const { jsPDF } = window.jspdf;
-            const editor = document.getElementById('applicationLetter');
-            
-            // If the editor is showing the placeholder, show error
-            if (editor.textContent === editor.getAttribute('placeholder') || editor.textContent.trim() === '') {
-                showMessage('error', 'No content to download. Please generate a letter first.');
-                return;
-            }
-            
+        // Fixed function to download letter as PDF with formatting preserved
+        async function downloadLetterAsPdf() {
             showLoadingOverlay('Generating PDF...');
             
-            // Use html2canvas to capture the formatted content as an image
-            html2canvas(editor, {
-                scale: 2, // Higher resolution for better quality
-                useCORS: true,
-                logging: false,
-                backgroundColor: '#ffffff'
-            }).then(canvas => {
+            try {
+                const editor = document.getElementById('applicationLetter');
+                
+                // Create a temporary container with proper styling for PDF generation
+                const tempContainer = document.createElement('div');
+                tempContainer.style.width = '210mm'; // A4 width
+                tempContainer.style.minHeight = '297mm'; // A4 height
+                tempContainer.style.padding = '20mm';
+                tempContainer.style.fontFamily = 'Times New Roman, serif';
+                tempContainer.style.fontSize = '12pt';
+                tempContainer.style.lineHeight = '1.5';
+                tempContainer.style.backgroundColor = 'white';
+                tempContainer.style.color = 'black';
+                
+                // Clone the content from the editor
+                tempContainer.innerHTML = editor.innerHTML;
+                
+                // Add the container to the document temporarily
+                document.body.appendChild(tempContainer);
+                
+                // Use html2canvas to capture the styled content
+                const canvas = await html2canvas(tempContainer, {
+                    scale: 2, // Higher resolution
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                });
+                
+                // Remove the temporary container
+                document.body.removeChild(tempContainer);
+                
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({
+                    orientation: 'portrait',
+                    unit: 'mm',
+                    format: 'a4'
+                });
+                
+                // Convert canvas to image data
                 const imgData = canvas.toDataURL('image/png');
-                const pdf = new jsPDF('p', 'mm', 'a4');
-                const pageWidth = pdf.internal.pageSize.getWidth();
-                const pageHeight = pdf.internal.pageSize.getHeight();
                 
-                // Calculate dimensions to fit the content on the page
-                const imgWidth = canvas.width;
-                const imgHeight = canvas.height;
-                const ratio = imgWidth / imgHeight;
+                // Calculate dimensions to fit the page
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
                 
-                let pdfWidth = pageWidth - 20; // Margin of 10mm on each side
-                let pdfHeight = pdfWidth / ratio;
+                // Add the image to the PDF
+                doc.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
                 
-                // If the content is too tall for one page, adjust
-                if (pdfHeight > pageHeight - 20) {
-                    pdfHeight = pageHeight - 20;
-                    pdfWidth = pdfHeight * ratio;
-                }
+                // Save the PDF
+                doc.save('application_letter.pdf');
                 
-                // Center the image on the page
-                const x = (pageWidth - pdfWidth) / 2;
-                const y = (pageHeight - pdfHeight) / 2;
-                
-                pdf.addImage(imgData, 'PNG', x, y, pdfWidth, pdfHeight);
-                pdf.save('application_letter.pdf');
-                
-                hideLoadingOverlay();
                 showMessage('success', 'PDF downloaded successfully!');
-            }).catch(error => {
+            } catch (error) {
                 console.error('Error generating PDF:', error);
-                hideLoadingOverlay();
                 showMessage('error', 'Failed to generate PDF. Please try again.');
-            });
+            } finally {
+                hideLoadingOverlay();
+            }
         }
 
         // --- Payment Logic ---
@@ -991,7 +1001,6 @@
             border-radius: 0.5rem;
             padding: 1rem;
             background-color: white;
-            line-height: 1.6;
         }
         
         .rich-text-editor:focus {
