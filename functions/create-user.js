@@ -1,5 +1,13 @@
 const { MongoClient } = require('mongodb');
 
+// Connection pooling - shared client for all requests
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri, {
+    maxPoolSize: 10,
+    minPoolSize: 1,
+    maxIdleTimeMS: 30000
+});
+
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -10,9 +18,6 @@ exports.handler = async (event, context) => {
   if (!userId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'User ID is required' }) };
   }
-
-  const uri = process.env.MONGODB_URI;
-  const client = new MongoClient(uri);
 
   try {
     await client.connect();
@@ -49,7 +54,5 @@ exports.handler = async (event, context) => {
       statusCode: 500,
       body: JSON.stringify({ error: 'Internal server error' })
     };
-  } finally {
-    await client.close();
   }
 };
