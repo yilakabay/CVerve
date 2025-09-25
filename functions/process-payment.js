@@ -2,7 +2,17 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const tesseract = require('tesseract.js');
 
+// Connection pooling - shared client for all requests
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri, {
+    maxPoolSize: 10,
+    minPoolSize: 1,
+    maxIdleTimeMS: 30000
+});
+
 exports.handler = async (event, context) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -16,13 +26,10 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const uri = process.env.MONGODB_URI;
-  const client = new MongoClient(uri);
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   try {
     // Extract text from screenshot using OCR
-    // Ensure we have proper base64 data (remove data URI prefix if present)
     let cleanScreenshotData = screenshotData;
     if (screenshotData.includes('base64,')) {
       cleanScreenshotData = screenshotData.split('base64,')[1];
@@ -31,7 +38,6 @@ exports.handler = async (event, context) => {
     const buffer = Buffer.from(cleanScreenshotData, 'base64');
     const { data: { text } } = await tesseract.recognize(buffer, 'eng');
     
-    // For debugging - log the extracted text
     console.log('Extracted text from image:', text);
     
     // Call DeepSeek API to extract payment details
@@ -40,9 +46,8 @@ exports.handler = async (event, context) => {
       1. Name of the payment receiver.
       2. Amount of money transferred (extract only the numeric value, without currency symbols).
       3. The payment ID, which starts with "FT".
-      4. The transaction date in dd/mm/yyyy format.
       
-      Please format your response as a JSON object with keys: receiver_name, amount, payment_id, transaction_date.
+      Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
       
       Payment Text:
       ${text}
@@ -67,39 +72,19 @@ exports.handler = async (event, context) => {
     );
 
     const extractedData = JSON.parse(response.data.choices[0].message.content);
-    const { receiver_name, amount, payment_id, transaction_date } = extractedData;
+    const { receiver_name, amount, payment_id } = extractedData;
     
-    // For debugging - log the extracted data
     console.log('Extracted data:', extractedData);
     
     // Convert amount to number, handling Ethiopian currency format
     let numericAmount;
     if (typeof amount === 'string') {
-      // Remove "ETB", commas, and any other non-numeric characters except decimal point
       numericAmount = parseFloat(amount.replace(/ETB|[^\d.]/g, ''));
     } else {
       numericAmount = parseFloat(amount);
     }
     
-    // For debugging - log the numeric amount
     console.log('Numeric amount:', numericAmount);
-    
-    // Validate payment date - REJECT PAYMENTS BEFORE SEPTEMBER 24, 2025
-    if (transaction_date && transaction_date !== 'Not found') {
-      const [day, month, year] = transaction_date.split('/').map(Number);
-      const paymentDate = new Date(year, month - 1, day); // month is 0-indexed in JS
-      const cutoffDate = new Date(2025, 8, 24); // September 24, 2025 (month 8 = September)
-      
-      if (paymentDate < cutoffDate) {
-        return {
-          statusCode: 400,
-          body: JSON.stringify({ 
-            success: false, 
-            message: 'Payment failed: This payment is from before September 24, 2025 and cannot be accepted. Please use a recent payment.' 
-          })
-        };
-      }
-    }
     
     // Validate payment details
     const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
@@ -160,7 +145,5 @@ exports.handler = async (event, context) => {
         message: 'An unexpected error occurred during payment processing.' 
       })
     };
-  } finally {
-    await client.close();
   }
 };
