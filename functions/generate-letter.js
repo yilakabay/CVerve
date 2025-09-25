@@ -71,6 +71,7 @@ exports.handler = async (event, context) => {
       11. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
       12. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fits the position and he is really interested.
       13. Do not bold any text on the letter.
+      14. Avoid using em dashes (—).
       Now generate the application letter following all these guidelines precisely:
     `;
 
