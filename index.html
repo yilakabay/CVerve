@@ -725,8 +725,13 @@
                 y += 5;
             }
             
-            // Save the PDF
-            doc.save('application_letter.pdf');
+            // Get user's first name for filename
+            const fullName = document.getElementById('fullName').value.trim();
+            const firstName = fullName.split(' ')[0] || 'Application';
+            const fileName = `${firstName}_Letter.pdf`;
+            
+            // Save the PDF with the personalized filename
+            doc.save(fileName);
         };
 
         // --- Payment Logic ---
@@ -789,7 +794,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                    },
+                        },
                     body: JSON.stringify({ 
                         userId: userId,
                         amount: amount
