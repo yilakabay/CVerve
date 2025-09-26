@@ -115,7 +115,7 @@ exports.handler = async (event, context) => {
       };
     }
     
-    // Record payment and update balance
+    // Record payment and update balance using phoneNumber as userId
     await paymentsCollection.insertOne({ 
       paymentId: payment_id, 
       userId, 
@@ -124,7 +124,7 @@ exports.handler = async (event, context) => {
     });
     
     const user = await usersCollection.findOneAndUpdate(
-      { userId },
+      { phoneNumber: userId },
       { $inc: { balance: numericAmount } },
       { returnDocument: 'after', upsert: true }
     );
