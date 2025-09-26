@@ -1,4 +1,5 @@
 const { MongoClient } = require('mongodb');
+const bcrypt = require('bcryptjs');
 
 // Connection pooling - shared client for all requests
 const uri = process.env.MONGODB_URI;
@@ -13,10 +14,10 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { userId } = JSON.parse(event.body);
+  const { phoneNumber, password } = JSON.parse(event.body);
   
-  if (!userId) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'User ID is required' }) };
+  if (!phoneNumber || !password) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Phone number and password are required' }) };
   }
 
   try {
@@ -24,16 +25,26 @@ exports.handler = async (event, context) => {
     const db = client.db('cverve');
     const collection = db.collection('users');
     
-    const user = await collection.findOne({ userId });
+    const user = await collection.findOne({ phoneNumber });
     
     if (user) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          userId: user.userId, 
-          balance: user.balance 
-        })
-      };
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      
+      if (isPasswordValid) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ 
+            phoneNumber: user.phoneNumber, 
+            balance: user.balance 
+          })
+        };
+      } else {
+        return {
+          statusCode: 401,
+          body: JSON.stringify({ error: 'Invalid password' })
+        };
+      }
     } else {
       return {
         statusCode: 404,
