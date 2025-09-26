@@ -1,3 +1,4 @@
+index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,7 +17,6 @@
         let cvFilesArray = [];
         let jdFilesArray = [];
         let pdfFilesArray = [];
-        let isPhoneNumberVisible = true;
 
         // Function to truncate filename in the middle
         function truncateFilename(filename, maxLength = 25) {
@@ -31,35 +31,6 @@
             const start = nameWithoutExt.slice(0, Math.floor(charsToShow / 2));
             const end = nameWithoutExt.slice(-Math.ceil(charsToShow / 2));
             return `${start}...${end}.${extension}`;
-        }
-
-        // Function to copy text to clipboard
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                showMessage('success', 'Phone number copied to clipboard!');
-            }).catch(err => {
-                console.error('Failed to copy: ', err);
-            });
-        }
-
-        // Function to toggle Phone Number visibility
-        function togglePhoneNumberVisibility() {
-            isPhoneNumberVisible = !isPhoneNumberVisible;
-            const phoneNumberElement = document.getElementById('dashboardPhoneNumber');
-            const eyeIcon = document.getElementById('eyeIcon');
-            
-            if (isPhoneNumberVisible) {
-                phoneNumberElement.textContent = userId;
-                eyeIcon.innerHTML = `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                `;
-            } else {
-                phoneNumberElement.textContent = '••••••••••';
-                eyeIcon.innerHTML = `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                `;
-            }
         }
 
         // Function to show/hide login screen
@@ -331,7 +302,6 @@
                     userBalance = data.balance;
                     
                     // Update UI
-                    document.getElementById('dashboardPhoneNumber').textContent = userId;
                     document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
                     
                     toggleLoginScreen(false);
@@ -1027,26 +997,9 @@
     <div id="mainApp" class="hidden">
         <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
             
-            <!-- Header with Phone Number -->
-            <div class="flex items-center justify-between mb-6">
+            <!-- Header with Title Only -->
+            <div class="flex items-center justify-center mb-6">
                 <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
-                <div class="flex flex-col items-end">
-                    <span class="text-sm font-medium text-gray-700 mb-1">Phone Number</span>
-                    <div class="flex items-center space-x-1">
-                        <span id="dashboardPhoneNumber" class="text-sm text-gray-500"></span>
-                        <button onclick="togglePhoneNumberVisibility()" class="text-indigo-600 hover:text-indigo-800 p-1 rounded-full">
-                            <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                        </button>
-                        <button onclick="copyToClipboard(userId)" class="text-indigo-600 hover:text-indigo-800 p-1 rounded-full">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
             </div>
             
             <!-- Tab Navigation -->
