@@ -1,4 +1,5 @@
 const { MongoClient } = require('mongodb');
+const bcrypt = require('bcryptjs');
 
 // Connection pooling - shared client for all requests
 const uri = process.env.MONGODB_URI;
@@ -13,10 +14,10 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { userId, balance = 0 } = JSON.parse(event.body);
+  const { phoneNumber, password, balance = 0 } = JSON.parse(event.body);
   
-  if (!userId) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'User ID is required' }) };
+  if (!phoneNumber || !password) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Phone number and password are required' }) };
   }
 
   try {
@@ -25,17 +26,21 @@ exports.handler = async (event, context) => {
     const collection = db.collection('users');
     
     // Check if user already exists
-    const existingUser = await collection.findOne({ userId });
+    const existingUser = await collection.findOne({ phoneNumber });
     if (existingUser) {
       return {
         statusCode: 409,
-        body: JSON.stringify({ error: 'User already exists' })
+        body: JSON.stringify({ error: 'User already exists with this phone number' })
       };
     }
     
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
     // Create new user
     const result = await collection.insertOne({
-      userId,
+      phoneNumber,
+      password: hashedPassword,
       balance,
       createdAt: new Date()
     });
@@ -44,7 +49,7 @@ exports.handler = async (event, context) => {
       statusCode: 201,
       body: JSON.stringify({ 
         success: true, 
-        userId,
+        phoneNumber,
         balance
       })
     };
