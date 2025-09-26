@@ -915,4 +915,221 @@
                     <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
                 </div>
                 
-                <p class="text-sm text-
+                <p class="text-sm text-gray-500 mt-3">Please wait while we process your request</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image-based PDF Popup -->
+    <div id="imageBasedPdfPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl shadow-lg max-w-md w-full mx-4">
+            <div class="text-center">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-2">Image-based PDF Detected</h3>
+                <p id="imageBasedPdfMessage" class="text-sm text-gray-600 mb-4">
+                    <!-- Dynamic message will be inserted here -->
+                </p>
+                <p class="text-xs text-gray-500 mb-4">
+                    Tip: Take screenshots of each page and upload them as images (JPG or PNG).
+                </p>
+                <button onclick="closeImageBasedPdfPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">
+                    OK, I Understand
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="loginScreen" class="fixed inset-0 bg-gray-100 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
+            <h1 class="text-3xl font-bold text-center text-indigo-600 mb-2">CVerve</h1>
+            <p class="text-sm text-center text-gray-500 mb-6">Login to access your account</p>
+            
+            <!-- Login Form -->
+            <div id='loginForm'>
+                <div class="mb-4">
+                    <label for="phoneNumberInput" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" id="phoneNumberInput" placeholder="Enter your phone number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <div class="mb-6">
+                    <label for="passwordInput" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md mb-4">
+                    Login
+                </button>
+                
+                <div class="text-center">
+                    <p class="text-sm text-gray-600">Don't have an account?</p>
+                    <button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">
+                        Create Account
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Registration Form -->
+            <div id="registerForm" class="hidden">
+                <div class="mb-4">
+                    <label for="registerPhoneNumber" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <div class="mb-4">
+                    <label for="registerPassword" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <div class="mb-6">
+                    <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                    <input type="password" id="confirmPassword" placeholder="Confirm your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors duration-200 shadow-md mb-4">
+                    Create Account
+                </button>
+                
+                <div class="text-center">
+                    <p class="text-sm text-gray-600">Already have an account?</p>
+                    <button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">
+                        Back to Login
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="mainApp" class="hidden">
+        <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
+            
+            <!-- Header with Title Only -->
+            <div class="flex items-center justify-center mb-6">
+                <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div class="flex border-b border-gray-200 mb-4">
+                <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
+                <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
+                <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Balance</button>
+            </div>
+
+            <!-- Tab Content Containers -->
+            <div id="merger-content" class="tab-content">
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                    <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
+                    <div class="space-y-4">
+                        <div class="file-input-container">
+                            <label class="block">
+                                <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="pdfFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                            </label>
+                            <div id="pdfFilesList" class="file-list-container max-h-32 overflow-y-auto">
+                                <!-- File list will be populated here -->
+                            </div>
+                        </div>
+                        <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Merge PDFs</button>
+                        <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download Merged PDF</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="letter-content" class="tab-content hidden">
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                    <h2 class="text-xl font-semibold mb-4 text-center">Application Letter Writer</h2>
+                    <div class="space-y-4">
+                        <input type="text" id="fullName" placeholder="Full Name" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="tel" id="phone" placeholder="Phone Number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="email" id="email" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        
+                        <div class="file-input-container">
+                            <label class="block">
+                                <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                            </label>
+                            <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto">
+                                <!-- File list will be populated here -->
+                            </div>
+                        </div>
+                        
+                        <div class="file-input-container">
+                            <label class="block">
+                                <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                            </label>
+                            <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto">
+                                <!-- File list will be populated here -->
+                            </div>
+                        </div>
+                        
+                        <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
+                        <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
+                        <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                        <button id="downloadLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download as PDF</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="payment-content" class="tab-content hidden">
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
+                    <h2 class="text-xl font-semibold mb-4 text-center">Payment & Balance</h2>
+                    <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-lg shadow">
+                        <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
+                        <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors duration-200 shadow-md">Top Up</button>
+                    </div>
+                    
+                    <div id="topUpForm" class="hidden space-y-4">
+                        <div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
+                            <h3 class="font-bold mb-2">Payment Instructions:</h3>
+                            <p>✔️ Payment Method: Bank Transfer</p>
+                            <p>✔️ Bank: Commercial Bank of Ethiopia</p>
+                            <p>✔️ Account Number: 1000577617639</p>
+                            <p>✔️ Account Name: YILAK ABAY ABEBE</p>
+                            <p>✔️ Amount: Minimum 30 ETB</p>
+                            <p class="mt-2">After you pay please send the screenshot of the text you received from CBE below.</p>
+                        </div>
+                        <label class="block">
+                            <span class="text-sm font-medium text-gray-700">Upload your payment screenshot</span>
+                            <input type="file" id="paymentScreenshot" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                        </label>
+                        <button id="confirmPaymentBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Confirm Payment</button>
+                        <div id="loadingIndicatorPayment" class="hidden text-center text-sm font-medium text-gray-500">Confirming payment...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize progress bar for letter generation
+        document.addEventListener('DOMContentLoaded', function() {
+            const progressContainer = document.getElementById('progressContainer');
+            const generateLetterBtn = document.getElementById('generateLetterBtn');
+            
+            if (generateLetterBtn) {
+                generateLetterBtn.addEventListener('click', function() {
+                    progressContainer.classList.remove('hidden');
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+[file content end]
