@@ -27,9 +27,9 @@ exports.handler = async (event, context) => {
     const db = client.db('cverve');
     const collection = db.collection('users');
     
-    // Update user balance
+    // Update user balance using phoneNumber as userId
     const result = await collection.findOneAndUpdate(
-      { userId },
+      { phoneNumber: userId },
       { $inc: { balance: amount } },
       { returnDocument: 'after', upsert: true }
     );
