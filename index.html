@@ -45,30 +45,7 @@
             if (!show) {
                 // After showing the main app, attach event listeners
                 attachEventListeners();
-                // Set current date as placeholder in application date field
-                setCurrentDate();
             }
-        }
-
-        // Function to set current date in application date field
-        function setCurrentDate() {
-            const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            const currentDate = `${yyyy}-${mm}-${dd}`;
-            document.getElementById('appDate').value = currentDate;
-        }
-
-        // Function to copy account number to clipboard
-        function copyAccountNumber() {
-            const accountNumber = '1000577617639';
-            navigator.clipboard.writeText(accountNumber).then(() => {
-                showMessage('success', 'Account number copied to clipboard!');
-            }).catch(err => {
-                console.error('Failed to copy: ', err);
-                showMessage('error', 'Failed to copy account number');
-            });
         }
 
         // Function to attach event listeners to buttons
@@ -924,4 +901,20 @@
                 <div class="relative mx-auto w-20 h-20 mb-6">
                     <div class="absolute inset-0 rounded-full border-4 border-indigo-200 animate-pulse-ring"></div>
                     <div class="absolute inset-2 rounded-full border-4 border-indigo-500 animate-spin-slow"></div>
-                    <div class="absolute inset-4 rounded-full bg-gradient-to-
+                    <div class="absolute inset-4 rounded-full bg-gradient-to-r from-blue-400 to-green-400 animate-float"></div>
+                </div>
+                
+                <!-- Loading Text -->
+                <h3 id="loadingMessage" class="text-lg font-semibold text-gray-800 mb-2">Processing...</h3>
+                
+                <!-- Progress Bar for Letter Generation -->
+                <div id="progressContainer" class="w-full bg-gray-200 rounded-full h-2 mt-4 hidden">
+                    <div id="progressBar" class="progress-bar h-2 rounded-full gradient-bg" style="width: 0%"></div>
+                </div>
+                
+                <!-- Subtle Animation Dots -->
+                <div class="flex justify-center space-x-1 mt-4">
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.3s"></div>
+      
