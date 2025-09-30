@@ -457,11 +457,6 @@
             popup.classList.add('hidden');
         }
 
-        // Function to show guide video message
-        function showGuideVideoMessage() {
-            showMessage('info', 'We are recording the guide video. Please wait for us.');
-        }
-
         // Initialize the app
         window.onload = function() {
             toggleLoginScreen(true);
@@ -1039,7 +1034,7 @@
             <!-- Header with Title and Guide Video Button -->
             <div class="flex items-center justify-between mb-6">
                 <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
-                <button onclick="showGuideVideoMessage()" class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
+                <button onclick="window.open('https://t.me/cverve_guide', '_blank')" class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
                     <span>Guide Video</span>
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
