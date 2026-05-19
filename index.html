@@ -43,24 +43,19 @@
             document.getElementById('loginScreen').classList.toggle('hidden', !show);
             document.getElementById('mainApp').classList.toggle('hidden', show);
             if (!show) {
-                // After showing the main app, attach event listeners
                 attachEventListeners();
-                // Set current date as placeholder in application date field
                 setCurrentDate();
             }
         }
 
-        // Function to set current date in application date field
         function setCurrentDate() {
             const today = new Date();
             const yyyy = today.getFullYear();
             const mm = String(today.getMonth() + 1).padStart(2, '0');
             const dd = String(today.getDate()).padStart(2, '0');
-            const currentDate = `${yyyy}-${mm}-${dd}`;
-            document.getElementById('appDate').value = currentDate;
+            document.getElementById('appDate').value = `${yyyy}-${mm}-${dd}`;
         }
 
-        // Function to copy account number to clipboard
         function copyAccountNumber() {
             const accountNumber = '1000577617639';
             navigator.clipboard.writeText(accountNumber).then(() => {
@@ -71,96 +66,60 @@
             });
         }
 
-        // Function to attach event listeners to buttons
         function attachEventListeners() {
-            // Attach event listener for Merge PDFs button
             const mergePdfBtn = document.getElementById('mergePdfBtn');
-            if (mergePdfBtn) {
-                mergePdfBtn.addEventListener('click', mergePdfs);
-            }
+            if (mergePdfBtn) mergePdfBtn.addEventListener('click', mergePdfs);
 
-            // Attach event listener for Download Merged PDF button
             const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-            if (downloadPdfBtn) {
-                downloadPdfBtn.addEventListener('click', downloadMergedPdf);
-            }
+            if (downloadPdfBtn) downloadPdfBtn.addEventListener('click', downloadMergedPdf);
 
-            // Attach event listener for Generate Application Letter button
             const generateLetterBtn = document.getElementById('generateLetterBtn');
-            if (generateLetterBtn) {
-                generateLetterBtn.addEventListener('click', generateLetter);
-            }
+            if (generateLetterBtn) generateLetterBtn.addEventListener('click', generateLetter);
 
-            // Attach event listener for Download Letter button
-            const downloadLetterBtn = document.getElementById('downloadLetterBtn');
-            if (downloadLetterBtn) {
-                downloadLetterBtn.addEventListener('click', downloadLetterAsPdf);
-            }
+            const printLetterBtn = document.getElementById('printLetterBtn');
+            if (printLetterBtn) printLetterBtn.addEventListener('click', printLetter);
 
-            // Attach event listener for Confirm Payment button
             const confirmPaymentBtn = document.getElementById('confirmPaymentBtn');
-            if (confirmPaymentBtn) {
-                confirmPaymentBtn.addEventListener('click', confirmPayment);
-            }
+            if (confirmPaymentBtn) confirmPaymentBtn.addEventListener('click', confirmPayment);
 
-            // Attach event listeners for file inputs
             const cvFileInput = document.getElementById('cvFile');
-            if (cvFileInput) {
-                cvFileInput.addEventListener('change', handleCvFileSelect);
-            }
+            if (cvFileInput) cvFileInput.addEventListener('change', handleCvFileSelect);
 
             const jdFileInput = document.getElementById('jdFile');
-            if (jdFileInput) {
-                jdFileInput.addEventListener('change', handleJdFileSelect);
-            }
+            if (jdFileInput) jdFileInput.addEventListener('change', handleJdFileSelect);
 
             const pdfFileInput = document.getElementById('pdfInput');
-            if (pdfFileInput) {
-                pdfFileInput.addEventListener('change', handlePdfFileSelect);
-            }
+            if (pdfFileInput) pdfFileInput.addEventListener('change', handlePdfFileSelect);
         }
 
-        // Function to handle CV file selection
         function handleCvFileSelect(event) {
             const files = Array.from(event.target.files);
             cvFilesArray = [...cvFilesArray, ...files];
             updateCvFilesList();
-            // Clear the input so same file can be selected again if needed
             event.target.value = '';
         }
 
-        // Function to handle JD file selection
         function handleJdFileSelect(event) {
             const files = Array.from(event.target.files);
             jdFilesArray = [...jdFilesArray, ...files];
             updateJdFilesList();
-            // Clear the input so same file can be selected again if needed
             event.target.value = '';
         }
 
-        // Function to handle PDF file selection
         function handlePdfFileSelect(event) {
             const files = Array.from(event.target.files);
             pdfFilesArray = [...pdfFilesArray, ...files];
             updatePdfFilesList();
-            // Clear the input so same file can be selected again if needed
             event.target.value = '';
         }
 
-        // Function to update CV files list display
         function updateCvFilesList() {
             const container = document.getElementById('cvFilesList');
             const counter = document.getElementById('cvFilesCounter');
             container.innerHTML = '';
-            
-            // Update counter - position it next to the button
             counter.textContent = `${cvFilesArray.length} file${cvFilesArray.length !== 1 ? 's' : ''} selected`;
             counter.className = `text-sm font-medium ${cvFilesArray.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
-            
-            if (cvFilesArray.length === 0) {
-                return;
-            }
-            
+            if (cvFilesArray.length === 0) return;
             cvFilesArray.forEach((file, index) => {
                 const fileElement = document.createElement('div');
                 fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
@@ -182,20 +141,13 @@
             });
         }
 
-        // Function to update JD files list display
         function updateJdFilesList() {
             const container = document.getElementById('jdFilesList');
             const counter = document.getElementById('jdFilesCounter');
             container.innerHTML = '';
-            
-            // Update counter - position it next to the button
             counter.textContent = `${jdFilesArray.length} file${jdFilesArray.length !== 1 ? 's' : ''} selected`;
             counter.className = `text-sm font-medium ${jdFilesArray.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
-            
-            if (jdFilesArray.length === 0) {
-                return;
-            }
-            
+            if (jdFilesArray.length === 0) return;
             jdFilesArray.forEach((file, index) => {
                 const fileElement = document.createElement('div');
                 fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
@@ -217,20 +169,13 @@
             });
         }
 
-        // Function to update PDF files list display
         function updatePdfFilesList() {
             const container = document.getElementById('pdfFilesList');
             const counter = document.getElementById('pdfFilesCounter');
             container.innerHTML = '';
-            
-            // Update counter - position it next to the button
             counter.textContent = `${pdfFilesArray.length} file${pdfFilesArray.length !== 1 ? 's' : ''} selected`;
             counter.className = `text-sm font-medium ${pdfFilesArray.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
-            
-            if (pdfFilesArray.length === 0) {
-                return;
-            }
-            
+            if (pdfFilesArray.length === 0) return;
             pdfFilesArray.forEach((file, index) => {
                 const fileElement = document.createElement('div');
                 fileElement.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
@@ -252,86 +197,35 @@
             });
         }
 
-        // Function to remove CV file
-        function removeCvFile(index) {
-            cvFilesArray.splice(index, 1);
-            updateCvFilesList();
-        }
+        function removeCvFile(index) { cvFilesArray.splice(index, 1); updateCvFilesList(); }
+        function removeJdFile(index) { jdFilesArray.splice(index, 1); updateJdFilesList(); }
+        function removePdfFile(index) { pdfFilesArray.splice(index, 1); updatePdfFilesList(); }
 
-        // Function to remove JD file
-        function removeJdFile(index) {
-            jdFilesArray.splice(index, 1);
-            updateJdFilesList();
-        }
-
-        // Function to remove PDF file
-        function removePdfFile(index) {
-            pdfFilesArray.splice(index, 1);
-            updatePdfFilesList();
-        }
-
-        // Show loading overlay
         function showLoadingOverlay(message) {
             document.getElementById('loadingMessage').textContent = message;
             document.getElementById('loadingOverlay').classList.remove('hidden');
         }
-
-        // Hide loading overlay
         function hideLoadingOverlay() {
             document.getElementById('loadingOverlay').classList.add('hidden');
         }
 
-        // Update loading progress for letter generation
-        function updateLetterProgress(step) {
-            const steps = [
-                "Preparing your files...",
-                "Organizing your letter...", 
-                "Generating letter..."
-            ];
-            
-            document.getElementById('loadingMessage').textContent = steps[step - 1];
-            document.getElementById('progressBar').style.width = `${(step / 3) * 100}%`;
-        }
-
-        // Function to handle user login
         async function handleLogin() {
             const phoneNumber = document.getElementById('phoneNumberInput').value.trim();
             const password = document.getElementById('passwordInput').value;
-            
-            if (!phoneNumber) {
-                showMessage('error', 'Please enter your phone number');
-                return;
-            }
-
-            if (!password) {
-                showMessage('error', 'Please enter your password');
-                return;
-            }
-
+            if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
+            if (!password) { showMessage('error', 'Please enter your password'); return; }
             showLoadingOverlay('Logging in...');
-
             try {
-                // Check if user exists in database
                 const response = await fetch('/.netlify/functions/get-user', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        phoneNumber: phoneNumber,
-                        password: password
-                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber, password }),
                 });
-
                 const data = await response.json();
-
                 if (response.ok) {
                     userId = phoneNumber;
                     userBalance = data.balance;
-                    
-                    // Update UI
                     document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
-                    
                     toggleLoginScreen(false);
                     showMessage('success', 'Login successful!');
                 } else {
@@ -345,59 +239,25 @@
             }
         }
 
-        // Function to handle user registration
         async function handleRegister() {
             const phoneNumber = document.getElementById('registerPhoneNumber').value.trim();
             const password = document.getElementById('registerPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
-            
-            if (!phoneNumber) {
-                showMessage('error', 'Please enter your phone number');
-                return;
-            }
-
-            // Validate phone number format
-            if (!isValidPhoneNumber(phoneNumber)) {
-                showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total');
-                return;
-            }
-
-            if (!password) {
-                showMessage('error', 'Please enter a password');
-                return;
-            }
-
-            if (password !== confirmPassword) {
-                showMessage('error', 'Passwords do not match');
-                return;
-            }
-
-            if (password.length < 6) {
-                showMessage('error', 'Password must be at least 6 characters long');
-                return;
-            }
-
+            if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
+            if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
+            if (!password) { showMessage('error', 'Please enter a password'); return; }
+            if (password !== confirmPassword) { showMessage('error', 'Passwords do not match'); return; }
+            if (password.length < 6) { showMessage('error', 'Password must be at least 6 characters long'); return; }
             showLoadingOverlay('Creating your account...');
-
             try {
-                // Create new user in database
                 const response = await fetch('/.netlify/functions/create-user', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        phoneNumber: phoneNumber,
-                        password: password,
-                        balance: 0 
-                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber, password, balance: 0 }),
                 });
-
                 const data = await response.json();
-
                 if (response.ok) {
                     showMessage('success', 'Account created successfully! Please login.');
-                    // Switch back to login form
                     document.getElementById('registerForm').classList.add('hidden');
                     document.getElementById('loginForm').classList.remove('hidden');
                 } else {
@@ -411,110 +271,65 @@
             }
         }
 
-        // Function to show registration form
         function showRegisterForm() {
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('registerForm').classList.remove('hidden');
         }
-
-        // Function to show login form
         function showLoginForm() {
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('loginForm').classList.remove('hidden');
         }
 
-        // Show message function
         function showMessage(type, message) {
             const messageBox = document.getElementById('messageBox');
             const messageText = document.getElementById('messageText');
             messageBox.className = `fixed inset-x-0 bottom-4 mx-auto p-4 rounded-lg shadow-lg z-50 max-w-sm ${type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-yellow-500'} text-white text-center font-bold transition-all duration-300 transform scale-0`;
             messageText.textContent = message;
-            setTimeout(() => {
-                messageBox.classList.add('scale-100');
-            }, 10);
-            setTimeout(() => {
-                messageBox.classList.remove('scale-100');
-            }, 3000);
+            setTimeout(() => messageBox.classList.add('scale-100'), 10);
+            setTimeout(() => messageBox.classList.remove('scale-100'), 3000);
         }
 
-        // Show popup function for image-based PDFs
         function showImageBasedPdfPopup(fileType) {
             const popup = document.getElementById('imageBasedPdfPopup');
             const messageElement = document.getElementById('imageBasedPdfMessage');
-            
-            if (fileType === 'cv') {
-                messageElement.textContent = 'Your CV PDF is image-based and cannot be extracted. Please upload screenshots of your CV instead.';
-            } else if (fileType === 'jd') {
-                messageElement.textContent = 'Your Job Description PDF is image-based and cannot be extracted. Please upload screenshots of the Job Description instead.';
-            }
-            
+            if (fileType === 'cv') messageElement.textContent = 'Your CV PDF is image-based and cannot be extracted. Please upload screenshots of your CV instead.';
+            else messageElement.textContent = 'Your Job Description PDF is image-based and cannot be extracted. Please upload screenshots of the Job Description instead.';
             popup.classList.remove('hidden');
         }
+        function closeImageBasedPdfPopup() { document.getElementById('imageBasedPdfPopup').classList.add('hidden'); }
 
-        // Close popup function
-        function closeImageBasedPdfPopup() {
-            const popup = document.getElementById('imageBasedPdfPopup');
-            popup.classList.add('hidden');
-        }
+        window.onload = () => toggleLoginScreen(true);
 
-        // Initialize the app
-        window.onload = function() {
-            toggleLoginScreen(true);
-        };
-
-        // --- Tab Switching Logic ---
         window.switchTab = (tabName) => {
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.add('hidden');
-            });
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('border-b-2', 'border-indigo-500');
-            });
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('border-b-2', 'border-indigo-500'));
             document.getElementById(`${tabName}-content`).classList.remove('hidden');
             document.getElementById(`${tabName}-button`).classList.add('border-b-2', 'border-indigo-500');
         };
 
-        // --- PDF Merger Logic ---
         let mergedPdf = null;
-
         async function mergePdfs() {
-            if (pdfFilesArray.length < 2) {
-                showMessage('error', 'Please select at least two PDF files to merge.');
-                return;
-            }
-
+            if (pdfFilesArray.length < 2) { showMessage('error', 'Please select at least two PDF files to merge.'); return; }
             const cost = 1.05;
-
-            if (userBalance < cost) {
-                showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
-                return;
-            }
-
+            if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); return; }
             showLoadingOverlay('Merging PDFs...');
-
             try {
                 const { PDFDocument } = window.PDFLib;
                 const mergedDoc = await PDFDocument.create();
-
                 for (const file of pdfFilesArray) {
                     const arrayBuffer = await file.arrayBuffer();
                     const pdfDoc = await PDFDocument.load(arrayBuffer);
                     const copiedPages = await mergedDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
                     copiedPages.forEach(page => mergedDoc.addPage(page));
                 }
-
                 mergedPdf = await mergedDoc.save();
                 document.getElementById('downloadPdfBtn').classList.remove('hidden');
                 showMessage('success', 'PDFs merged successfully!');
-                
-                // Update balance
                 await updateBalance(-cost);
             } catch (error) {
                 console.error('Error merging PDFs:', error);
                 showMessage('error', 'Failed to merge PDFs. Please try again.');
-            } finally {
-                hideLoadingOverlay();
-            }
+            } finally { hideLoadingOverlay(); }
         }
 
         function downloadMergedPdf() {
@@ -531,247 +346,120 @@
             }
         }
 
-        // --- Application Letter Logic ---
+        async function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
         async function generateLetter() {
             const fullName = document.getElementById('fullName').value;
             const phone = document.getElementById('phone').value;
             const email = document.getElementById('email').value;
             const address = document.getElementById('address').value;
             const appDate = document.getElementById('appDate').value;
-
             if (!fullName || !phone || !email || !address || !appDate || cvFilesArray.length === 0 || jdFilesArray.length === 0) {
                 showMessage('error', 'Please fill all fields and upload at least one file for both CV and Job Description.');
                 return;
             }
-
             const cost = 2.95;
-
-            if (userBalance < cost) {
-                showMessage('error', `Not enough balance. Please top up your account. Cost: ${cost} ETB`);
-                return;
-            }
-
+            if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); return; }
             showLoadingOverlay('Preparing your files...');
-            updateLetterProgress(1);
-
             try {
-                // Process CV files to base64
                 const cvFilesData = [];
-                for (let i = 0; i < cvFilesArray.length; i++) {
-                    const file = cvFilesArray[i];
+                for (const file of cvFilesArray) {
                     const base64Data = await fileToBase64(file);
-                    cvFilesData.push({
-                        data: base64Data,
-                        type: file.type
-                    });
+                    cvFilesData.push({ data: base64Data, type: file.type });
                 }
-
-                // Process JD files to base64
                 const jdFilesData = [];
-                for (let i = 0; i < jdFilesArray.length; i++) {
-                    const file = jdFilesArray[i];
+                for (const file of jdFilesArray) {
                     const base64Data = await fileToBase64(file);
-                    jdFilesData.push({
-                        data: base64Data,
-                        type: file.type
-                    });
+                    jdFilesData.push({ data: base64Data, type: file.type });
                 }
-
-                console.log("Extracting text from CV files...");
-                updateLetterProgress(1);
-                
-                // Step 1: Extract text from CV files
                 const cvExtractionResponse = await fetch('/.netlify/functions/extract-text', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        files: cvFilesData,
-                        fileType: 'cv'
-                    })
+                    body: JSON.stringify({ files: cvFilesData, fileType: 'cv' })
                 });
-
                 if (!cvExtractionResponse.ok) {
                     const errorData = await cvExtractionResponse.json();
-                    
-                    // Check if it's an image-based PDF error
-                    if (errorData.error && errorData.error.includes('image-based')) {
-                        showImageBasedPdfPopup('cv');
-                        hideLoadingOverlay();
-                        return;
-                    }
-                    
+                    if (errorData.error && errorData.error.includes('image-based')) { showImageBasedPdfPopup('cv'); hideLoadingOverlay(); return; }
                     throw new Error(`CV extraction failed: ${errorData.error}`);
                 }
-
                 const cvExtractionResult = await cvExtractionResponse.json();
                 const cvText = cvExtractionResult.extractedText;
-
-                console.log("Extracting text from JD files...");
-                updateLetterProgress(1);
-                
-                // Step 2: Extract text from JD files
                 const jdExtractionResponse = await fetch('/.netlify/functions/extract-text', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        files: jdFilesData,
-                        fileType: 'jd'
-                    })
+                    body: JSON.stringify({ files: jdFilesData, fileType: 'jd' })
                 });
-
                 if (!jdExtractionResponse.ok) {
                     const errorData = await jdExtractionResponse.json();
-                    
-                    // Check if it's an image-based PDF error
-                    if (errorData.error && errorData.error.includes('image-based')) {
-                        showImageBasedPdfPopup('jd');
-                        hideLoadingOverlay();
-                        return;
-                    }
-                    
+                    if (errorData.error && errorData.error.includes('image-based')) { showImageBasedPdfPopup('jd'); hideLoadingOverlay(); return; }
                     throw new Error(`JD extraction failed: ${errorData.error}`);
                 }
-
                 const jdExtractionResult = await jdExtractionResponse.json();
                 const jdText = jdExtractionResult.extractedText;
-
-                console.log("Organizing your letter...");
-                updateLetterProgress(2);
-                
-                console.log("Generating letter with AI...");
-                updateLetterProgress(3);
-                
-                // Step 3: Generate letter with extracted text
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        fullName: fullName,
-                        phone: phone,
-                        email: email,
-                        address: address,
-                        appDate: appDate,
-                        cvText: cvText,
-                        jdText: jdText
-                    })
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText, jdText })
                 });
-
                 if (!letterResponse.ok) {
                     const errorData = await letterResponse.json();
                     throw new Error(`Letter generation failed: ${errorData.error}`);
                 }
-
                 const result = await letterResponse.json();
                 const letterText = result.letterText;
-
                 if (letterText) {
                     document.getElementById('applicationLetter').value = letterText;
-                    document.getElementById('downloadLetterBtn').classList.remove('hidden');
+                    document.getElementById('printLetterBtn').classList.remove('hidden');
                     showMessage('success', 'Application letter generated successfully!');
-                    
-                    // Update balance
                     await updateBalance(-cost);
                 } else {
                     showMessage('error', 'Could not generate letter. Please try again.');
                 }
-
             } catch (error) {
                 console.error('Error generating letter:', error);
                 showMessage('error', error.message || 'An unexpected error occurred.');
-            } finally {
-                hideLoadingOverlay();
-            }
+            } finally { hideLoadingOverlay(); }
         }
 
-        async function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]);
-                reader.onerror = error => reject(error);
-                reader.readAsDataURL(file);
-            });
+        function printLetter() {
+            const letterText = document.getElementById('applicationLetter').value;
+            if (!letterText) { showMessage('error', 'No letter to print. Generate a letter first.'); return; }
+            const printBody = document.getElementById('printLetterBody');
+            const formattedText = letterText.replace(/\n/g, '<br>');
+            printBody.innerHTML = formattedText;
+            const printDiv = document.getElementById('printableLetter');
+            printDiv.style.display = 'block';
+            window.print();
+            printDiv.style.display = 'none';
         }
-        
-        function downloadLetterAsPdf() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            const letterContent = document.getElementById('applicationLetter').value;
-            
-            // Set font and size
-            doc.setFont('Times-Roman');
-            doc.setFontSize(12);
-            
-            // Calculate the maximum width for text (page width minus margins)
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 25; // Increased margins for better spacing
-            const maxWidth = pageWidth - (margin * 2);
-            
-            // Split the text into lines that fit within the maxWidth
-            const lines = doc.splitTextToSize(letterContent, maxWidth);
-            
-            // Start position for text
-            let y = 30;
-            
-            // Add each line to the PDF
-            for (let i = 0; i < lines.length; i++) {
-                // Check if we need to add a new page
-                if (y > doc.internal.pageSize.getHeight() - 20) {
-                    doc.addPage();
-                    y = 20;
-                }
-                
-                // Add text line with proper margins
-                doc.text(lines[i], margin, y);
-                
-                // Move to next line - REDUCED FROM 7 TO 5 FOR TIGHTER LINE SPACING
-                y += 5;
-            }
-            
-            // Get user's first name for filename
-            const fullName = document.getElementById('fullName').value.trim();
-            const firstName = fullName.split(' ')[0] || 'Application';
-            const fileName = `${firstName}_Letter.pdf`;
-            
-            // Save the PDF with the personalized filename
-            doc.save(fileName);
-        };
 
-        // --- Payment Logic ---
-        window.showTopUpForm = () => {
-            document.getElementById('topUpForm').classList.remove('hidden');
-        };
+        window.showTopUpForm = () => { document.getElementById('topUpForm').classList.remove('hidden'); };
 
         async function confirmPayment() {
             const screenshotFile = document.getElementById('paymentScreenshot').files[0];
-            if (!screenshotFile) {
-                showMessage('error', 'Please upload a screenshot.');
-                return;
-            }
-
+            if (!screenshotFile) { showMessage('error', 'Please upload a screenshot.'); return; }
             showLoadingOverlay('Confirming your payment...');
-
             try {
                 const screenshotData = await fileToBase64(screenshotFile);
-
                 const response = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: userId,
-                        screenshotData: screenshotData,
-                        screenshotType: screenshotFile.type
-                    })
+                    body: JSON.stringify({ userId, screenshotData, screenshotType: screenshotFile.type })
                 });
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     console.error('Payment Error:', errorData);
                     showMessage('error', `Payment Error: ${response.statusText}`);
                     return;
                 }
-
                 const result = await response.json();
-                
                 if (result.success) {
                     userBalance = result.newBalance;
                     document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
@@ -780,164 +468,70 @@
                 } else {
                     showMessage('error', result.message || 'Payment failed');
                 }
-
             } catch (error) {
                 console.error('Error confirming payment:', error);
                 showMessage('error', 'An unexpected error occurred during payment confirmation.');
-            } finally {
-                hideLoadingOverlay();
-            }
+            } finally { hideLoadingOverlay(); }
         }
 
-        // Function to update user balance
         async function updateBalance(amount) {
             try {
                 const response = await fetch('/.netlify/functions/update-balance', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        },
-                    body: JSON.stringify({ 
-                        userId: userId,
-                        amount: amount
-                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, amount })
                 });
-
                 const data = await response.json();
-
                 if (response.ok) {
                     userBalance = data.balance;
                     document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
                     return true;
-                } else {
-                    console.error('Balance update error:', data.error);
-                    return false;
-                }
-            } catch (error) {
-                console.error('Balance update error:', error);
-                return false;
-            }
+                } else { console.error('Balance update error:', data.error); return false; }
+            } catch (error) { console.error('Balance update error:', error); return false; }
         }
     </script>
     <style>
-        .animate-pulse {
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-        
-        /* Modern Loading Animation */
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        @keyframes pulse-ring {
-            0% { transform: scale(0.8); opacity: 1; }
-            80%, 100% { transform: scale(2); opacity: 0; }
-        }
-        
-        .animate-float {
-            animation: float 2s ease-in-out infinite;
-        }
-        
-        .animate-spin-slow {
-            animation: spin 3s linear infinite;
-        }
-        
-        .animate-pulse-ring {
-            animation: pulse-ring 2s cubic-bezier(0.455, 0.030, 0.515, 0.955) infinite;
-        }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .progress-bar {
-            transition: width 0.5s ease-in-out;
-        }
-        
-        /* Custom file input styling - FIXED */
-        .file-input-wrapper {
-            position: relative;
-            display: inline-block;
-            width: 100%;
-        }
-        .file-input-wrapper input[type="file"] {
-            color: transparent;
-        }
-        .file-count-display {
-            position: absolute;
-            right: 100px; /* Moved left to be closer to the button */
-            top: 50%;
-            transform: translateY(-50%);
-            pointer-events: none;
-            background: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            z-index: 10;
-            border: 1px solid #e5e7eb;
-            white-space: nowrap;
-        }
-        /* Ensure the file list container doesn't affect the counter position */
-        #cvFilesList, #jdFilesList, #pdfFilesList {
-            position: relative;
-            z-index: 1;
-            margin-top: 0.5rem; /* Add some spacing above the file list */
-        }
-        /* Fix for file input container to prevent shifting */
-        .file-input-container {
-            position: relative;
-            margin-bottom: 0.5rem;
-        }
-        .file-list-container {
-            margin-top: 0.5rem;
+        .animate-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 80%,100% { transform: scale(2); opacity: 0; } }
+        .animate-float { animation: float 2s ease-in-out infinite; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        .animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.455,0.030,0.515,0.955) infinite; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .progress-bar { transition: width 0.5s ease-in-out; }
+        .file-input-wrapper { position: relative; display: inline-block; width: 100%; }
+        .file-input-wrapper input[type="file"] { color: transparent; }
+        .file-count-display { position: absolute; right: 100px; top: 50%; transform: translateY(-50%); pointer-events: none; background: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; z-index: 10; border: 1px solid #e5e7eb; white-space: nowrap; }
+        @media print {
+            body * { visibility: hidden; }
+            #printableLetter, #printableLetter * { visibility: visible; }
+            #printableLetter { position: fixed; top: 0; left: 0; width: 100%; padding: 20px; background: white; color: black; font-size: 12pt; }
+            .print-letter-content { max-width: 800px; margin: 0 auto; }
         }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
 
-    <!-- Message Box -->
-    <div id="messageBox" class="hidden">
-        <p id="messageText"></p>
-    </div>
+    <div id="messageBox" class="hidden"><p id="messageText"></p></div>
 
-    <!-- Modern Loading Overlay -->
+    <!-- Loading Overlay -->
     <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 transform transition-all duration-300">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
             <div class="text-center">
-                <!-- Animated Spinner -->
                 <div class="relative mx-auto w-20 h-20 mb-6">
                     <div class="absolute inset-0 rounded-full border-4 border-indigo-200 animate-pulse-ring"></div>
                     <div class="absolute inset-2 rounded-full border-4 border-indigo-500 animate-spin-slow"></div>
                     <div class="absolute inset-4 rounded-full bg-gradient-to-r from-blue-400 to-green-400 animate-float"></div>
                 </div>
-                
-                <!-- Loading Text -->
                 <h3 id="loadingMessage" class="text-lg font-semibold text-gray-800 mb-2">Processing...</h3>
-                
-                <!-- Progress Bar for Letter Generation -->
-                <div id="progressContainer" class="w-full bg-gray-200 rounded-full h-2 mt-4 hidden">
-                    <div id="progressBar" class="progress-bar h-2 rounded-full gradient-bg" style="width: 0%"></div>
-                </div>
-                
-                <!-- Subtle Animation Dots -->
                 <div class="flex justify-center space-x-1 mt-4">
-                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0.3s"></div>
-                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay:0.1s"></div>
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay:0.2s"></div>
+                    <div class="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style="animation-delay:0.3s"></div>
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay:0.4s"></div>
                 </div>
-                
                 <p class="text-sm text-gray-500 mt-3">Please wait while we process your request</p>
             </div>
         </div>
@@ -953,15 +547,9 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-semibold text-gray-800 mb-2">Image-based PDF Detected</h3>
-                <p id="imageBasedPdfMessage" class="text-sm text-gray-600 mb-4">
-                    <!-- Dynamic message will be inserted here -->
-                </p>
-                <p class="text-xs text-gray-500 mb-4">
-                    Tip: Take screenshots of each page and upload them as images (JPG or PNG).
-                </p>
-                <button onclick="closeImageBasedPdfPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">
-                    OK, I Understand
-                </button>
+                <p id="imageBasedPdfMessage" class="text-sm text-gray-600 mb-4"></p>
+                <p class="text-xs text-gray-500 mb-4">Tip: Take screenshots of each page and upload them as images (JPG or PNG).</p>
+                <button onclick="closeImageBasedPdfPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">OK, I Understand</button>
             </div>
         </div>
     </div>
@@ -971,57 +559,38 @@
         <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
             <h1 class="text-3xl font-bold text-center text-indigo-600 mb-2">CVerve</h1>
             <p class="text-sm text-center text-gray-500 mb-6">Login to access your account</p>
-            
-            <!-- Login Form -->
             <div id='loginForm'>
                 <div class="mb-4">
                     <label for="phoneNumberInput" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                     <input type="tel" id="phoneNumberInput" placeholder="Enter your phone number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                
                 <div class="mb-6">
                     <label for="passwordInput" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
                     <input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                
-                <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md mb-4">
-                    Login
-                </button>
-                
+                <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
                 <div class="text-center">
                     <p class="text-sm text-gray-600">Don't have an account?</p>
-                    <button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">
-                        Create Account
-                    </button>
+                    <button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button>
                 </div>
             </div>
-            
-            <!-- Registration Form -->
             <div id="registerForm" class="hidden">
                 <div class="mb-4">
                     <label for="registerPhoneNumber" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                     <input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                
                 <div class="mb-4">
                     <label for="registerPassword" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
                     <input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                
                 <div class="mb-6">
                     <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
                     <input type="password" id="confirmPassword" placeholder="Confirm your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                
-                <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors duration-200 shadow-md mb-4">
-                    Create Account
-                </button>
-                
+                <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
                 <div class="text-center">
                     <p class="text-sm text-gray-600">Already have an account?</p>
-                    <button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">
-                        Back to Login
-                    </button>
+                    <button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Back to Login</button>
                 </div>
             </div>
         </div>
@@ -1030,26 +599,20 @@
     <!-- Main Application -->
     <div id="mainApp" class="hidden">
         <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
-            
-            <!-- Header with Title and Guide Video Button -->
             <div class="flex items-center justify-between mb-6">
                 <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
                 <button onclick="window.open('https://t.me/cverve_guide', '_blank')" class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
                     <span>Guide Video</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 </button>
             </div>
-            
-            <!-- Tab Navigation -->
+
             <div class="flex border-b border-gray-200 mb-4">
                 <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
                 <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
                 <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Balance</button>
             </div>
 
-            <!-- Tab Content Containers -->
             <div id="merger-content" class="tab-content">
                 <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                     <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
@@ -1062,12 +625,10 @@
                                     <span id="pdfFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <div id="pdfFilesList" class="file-list-container max-h-32 overflow-y-auto">
-                                <!-- File list will be populated here -->
-                            </div>
+                            <div id="pdfFilesList" class="file-list-container max-h-32 overflow-y-auto"></div>
                         </div>
-                        <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Merge PDFs</button>
-                        <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download Merged PDF</button>
+                        <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Merge PDFs</button>
+                        <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download Merged PDF</button>
                     </div>
                 </div>
             </div>
@@ -1081,7 +642,6 @@
                         <input type="email" id="email" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text" id="address" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="date" id="appDate" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        
                         <div class="file-input-container">
                             <label class="block">
                                 <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
@@ -1090,11 +650,8 @@
                                     <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto">
-                                <!-- File list will be populated here -->
-                            </div>
+                            <div id="cvFilesList" class="file-list-container max-h-32 overflow-y-auto"></div>
                         </div>
-                        
                         <div class="file-input-container">
                             <label class="block">
                                 <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
@@ -1103,15 +660,11 @@
                                     <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                             </label>
-                            <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto">
-                                <!-- File list will be populated here -->
-                            </div>
+                            <div id="jdFilesList" class="file-list-container max-h-32 overflow-y-auto"></div>
                         </div>
-                        
-                        <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Generate Application Letter</button>
-                        <div id="loadingIndicator" class="hidden text-center text-sm font-medium text-gray-500">Generating letter...</div>
+                        <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
                         <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                        <button id="downloadLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors duration-200 shadow-md">Download as PDF</button>
+                        <button id="printLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">🖨️ Print Letter</button>
                     </div>
                 </div>
             </div>
@@ -1121,22 +674,14 @@
                     <h2 class="text-xl font-semibold mb-4 text-center">Payment & Balance</h2>
                     <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-lg shadow">
                         <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
-                        <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors duration-200 shadow-md">Top Up</button>
+                        <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">Top Up</button>
                     </div>
-                    
                     <div id="topUpForm" class="hidden space-y-4">
                         <div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
                             <h3 class="font-bold mb-2">Payment Instructions:</h3>
                             <p>✔️ Payment Method: Bank Transfer</p>
                             <p>✔️ Bank: Commercial Bank of Ethiopia</p>
-                            <p class="flex items-center">
-                                ✔️ Account Number: 1000577617639
-                                <button onclick="copyAccountNumber()" class="ml-2 text-blue-600 hover:text-blue-800 focus:outline-none" title="Copy account number">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                    </svg>
-                                </button>
-                            </p>
+                            <p class="flex items-center">✔️ Account Number: 1000577617639 <button onclick="copyAccountNumber()" class="ml-2 text-blue-600 hover:text-blue-800 focus:outline-none" title="Copy account number"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button></p>
                             <p>✔️ Account Name: YILAK ABAY ABEBE</p>
                             <p>✔️ Amount: Minimum 30 ETB</p>
                             <p class="mt-2">After you pay please send the screenshot of the text you received from CBE below.</p>
@@ -1145,26 +690,23 @@
                             <span class="text-sm font-medium text-gray-700">Upload your payment screenshot</span>
                             <input type="file" id="paymentScreenshot" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                         </label>
-                        <button id="confirmPaymentBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors duration-200 shadow-md">Confirm Payment</button>
-                        <div id="loadingIndicatorPayment" class="hidden text-center text-sm font-medium text-gray-500">Confirming payment...</div>
+                        <button id="confirmPaymentBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Confirm Payment</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        // Initialize progress bar for letter generation
-        document.addEventListener('DOMContentLoaded', function() {
-            const progressContainer = document.getElementById('progressContainer');
-            const generateLetterBtn = document.getElementById('generateLetterBtn');
-            
-            if (generateLetterBtn) {
-                generateLetterBtn.addEventListener('click', function() {
-                    progressContainer.classList.remove('hidden');
-                });
-            }
-        });
-    </script>
+    <!-- Printable Letter Container (hidden until print) -->
+    <div id="printableLetter" style="display: none;">
+        <div class="print-letter-content">
+            <div style="text-align:center; margin-bottom: 20px;">
+                <h1 style="font-family: 'Times New Roman', serif; font-size: 24px;">CVerve</h1>
+                <p style="font-style: italic;">Professional Application Letter</p>
+                <hr style="margin: 10px 0;">
+            </div>
+            <div id="printLetterBody" style="font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.4; white-space: pre-wrap;"></div>
+        </div>
+    </div>
 </body>
 </html>
