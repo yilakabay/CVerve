@@ -1,4 +1,4 @@
-const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
@@ -8,38 +8,36 @@ exports.handler = async (event, context) => {
   }
 
   const { fullName, phone, email, address, appDate, cvText, jdText } = JSON.parse(event.body);
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing Gemini API key' }) };
+  }
 
   try {
-    // Validate input
     if (!cvText || cvText.length < 20) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'CV text is required and must contain sufficient content' })
-      };
+      return { statusCode: 400, body: JSON.stringify({ error: 'CV text is required and must contain sufficient content' }) };
     }
-
     if (!jdText || jdText.length < 20) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Job description text is required and must contain sufficient content' })
-      };
+      return { statusCode: 400, body: JSON.stringify({ error: 'Job description text is required and must contain sufficient content' }) };
     }
 
     console.log("CV Text Length:", cvText.length);
     console.log("JD Text Length:", jdText.length);
 
-    // Truncate very long texts if necessary
-    const MAX_TEXT_LENGTH = 15000;
+    // Truncate very long texts (Gemini 2.5 Flash has 1M context, but keep for safety)
+    const MAX_TEXT_LENGTH = 50000;
     const truncatedJdText = jdText.length > MAX_TEXT_LENGTH 
-      ? jdText.substring(0, MAX_TEXT_LENGTH) + '... [text truncated for length]'
+      ? jdText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : jdText;
-    
     const truncatedCvText = cvText.length > MAX_TEXT_LENGTH
-      ? cvText.substring(0, MAX_TEXT_LENGTH) + '... [text truncated for length]'
+      ? cvText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : cvText;
 
-    console.log("Sending request to AI...");
+    console.log("Sending request to Gemini 2.5 Flash...");
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
 
     const prompt = `
       JOB DESCRIPTION:
@@ -62,43 +60,24 @@ exports.handler = async (event, context) => {
       1. Use the exact company name and position title as they appear in the job description.
       2. Write a clear subject line that mentions the specific position the user is applying for next to the company information. This is crucial and must not be skipped.
       3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
-      5. Format the contact information at the top: Name, Phone, Email, Address, Date [but don't say phone, email, name address and date just put their value]
-      6. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
-      7. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information
-      8. Do not mention attaching a resume or other documents.
-      9. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
-      10. Adopt a humble and factual tone; avoid exaggeration and  overpromising.
-      11. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      12. Do not use any listing or bullet points, Just plain paragraphs. About three paragraphs that states the user understands the job, he fits the position and he is really interested.
-      13. Do not bold any text on the letter.
-      14. Avoid using em dashes (—).
+      4. Format the contact information at the top: Name, Phone, Email, Address, Date (just put the values, no labels).
+      5. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
+      6. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information.
+      7. Do not mention attaching a resume or other documents.
+      8. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
+      9. Adopt a humble and factual tone; avoid exaggeration and overpromising.
+      10. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
+      11. Do not use any listing or bullet points. Just plain paragraphs. About three paragraphs that state the user understands the job, fits the position, and is really interested.
+      12. Do not bold any text on the letter.
+      13. Avoid using em dashes (—).
+      
       Now generate the application letter following all these guidelines precisely:
     `;
 
-    const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        model: 'deepseek-chat',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are a professional resume writer. Always use exact details from the job description without placeholders. Follow all formatting instructions precisely. Maintain a humble, factual tone throughout.' 
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        timeout: 25000
-      }
-    );
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const letterText = response.text();
 
-    const letterText = response.data.choices[0].message.content;
     console.log("Letter generated successfully");
 
     return {
@@ -106,16 +85,13 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({ letterText })
     };
   } catch (error) {
-    console.error('Letter generation error:', error.message);
-    
+    console.error('Letter generation error:', error);
     let errorMessage = 'Failed to generate letter. ';
-    
     if (error.message.includes('timeout')) {
       errorMessage += 'The AI request took too long. Please try again.';
     } else {
-      errorMessage += 'Please check your internet connection and try again.';
+      errorMessage += error.message || 'An unexpected error occurred.';
     }
-    
     return {
       statusCode: 500,
       body: JSON.stringify({ error: errorMessage })
