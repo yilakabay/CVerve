@@ -11,7 +11,7 @@
 <div class="container mx-auto p-6 max-w-2xl">
     <h1 class="text-3xl font-bold text-indigo-600 mb-6">Admin Payment Verifier</h1>
 
-    <!-- Registration / Login -->
+    <!-- Admin Auth Container -->
     <div id="adminAuth" class="bg-white p-6 rounded-xl shadow-md">
         <div id="adminRegisterForm">
             <h2 class="text-xl font-semibold mb-4">First-time Setup: Create Admin Account</h2>
@@ -44,6 +44,21 @@
 <script>
     let adminToken = null;
 
+    // Check if admin already exists on page load
+    async function checkAdminExists() {
+        const res = await fetch('/.netlify/functions/admin-check');
+        const data = await res.json();
+        if (data.exists) {
+            // Show login form
+            document.getElementById('adminRegisterForm').classList.add('hidden');
+            document.getElementById('adminLoginForm').classList.remove('hidden');
+        } else {
+            // Show registration form
+            document.getElementById('adminRegisterForm').classList.remove('hidden');
+            document.getElementById('adminLoginForm').classList.add('hidden');
+        }
+    }
+
     async function registerAdmin() {
         const phone = document.getElementById('adminPhone').value.trim();
         const password = document.getElementById('adminPassword').value;
@@ -58,6 +73,7 @@
         const data = await res.json();
         if (res.ok) {
             alert('Admin registered. Please login.');
+            // Switch to login form
             document.getElementById('adminRegisterForm').classList.add('hidden');
             document.getElementById('adminLoginForm').classList.remove('hidden');
         } else {
@@ -113,6 +129,9 @@
         loadPendingPayments();
         document.getElementById('paymentIdsInput').value = '';
     }
+
+    // Run on page load
+    checkAdminExists();
 </script>
 </body>
 </html>
