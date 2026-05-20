@@ -1,14 +1,8 @@
 const { MongoClient } = require('mongodb');
-const axios = require('axios');
-const tesseract = require('tesseract.js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Connection pooling - shared client for all requests
 const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri, {
-    maxPoolSize: 10,
-    minPoolSize: 1,
-    maxIdleTimeMS: 30000
-});
+const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
@@ -17,133 +11,98 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { userId, screenshotData, screenshotType } = JSON.parse(event.body);
-  
+  const { userId, screenshotData, screenshotType, paymentMethod, expectedAmount } = JSON.parse(event.body);
   if (!userId || !screenshotData) {
-    return { 
-      statusCode: 400, 
-      body: JSON.stringify({ error: 'User ID and screenshot are required' }) 
-    };
+    return { statusCode: 400, body: JSON.stringify({ error: 'User ID and screenshot are required' }) };
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Gemini API key missing' }) };
+  }
 
   try {
-    // Extract text from screenshot using OCR
-    let cleanScreenshotData = screenshotData;
-    if (screenshotData.includes('base64,')) {
-      cleanScreenshotData = screenshotData.split('base64,')[1];
-    }
-    
-    const buffer = Buffer.from(cleanScreenshotData, 'base64');
-    const { data: { text } } = await tesseract.recognize(buffer, 'eng');
-    
-    console.log('Extracted text from image:', text);
-    
-    // Call DeepSeek API to extract payment details
-    const prompt = `
-      Analyze the following payment text from CBE and extract the following information. If any information is not present, respond with 'Not found'.
-      1. Name of the payment receiver.
-      2. Amount of money transferred (extract only the numeric value, without currency symbols).
-      3. The payment ID, which starts with "FT".
-      
-      Please format your response as a JSON object with keys: receiver_name, amount, payment_id.
-      
-      Payment Text:
-      ${text}
-    `;
+    // Convert base64 to buffer for OCR (only if image, PDF would need different handling)
+    let cleanData = screenshotData;
+    if (screenshotData.includes('base64,')) cleanData = screenshotData.split('base64,')[1];
+    const buffer = Buffer.from(cleanData, 'base64');
 
-    const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        }
-      }
-    );
+    // Use Gemini to extract receipt fields
+    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
 
-    const extractedData = JSON.parse(response.data.choices[0].message.content);
-    const { receiver_name, amount, payment_id } = extractedData;
-    
-    console.log('Extracted data:', extractedData);
-    
-    // Convert amount to number, handling Ethiopian currency format
-    let numericAmount;
-    if (typeof amount === 'string') {
-      numericAmount = parseFloat(amount.replace(/ETB|[^\d.]/g, ''));
-    } else {
-      numericAmount = parseFloat(amount);
+    // For images, we can use vision; for PDF we'd need to extract text first.
+    // Since we accept both, we'll assume the screenshot is an image (user will upload image of the SMS/transaction).
+    // If PDF, we could extract text with pdf-parse, but for simplicity we'll treat as image and rely on Gemini vision.
+    // Gemini 2.5 flash supports vision. We'll send the image as base64 inline.
+
+    const prompt = `Extract the following from this payment receipt image (CBE, CBEBirr, or bank transfer):
+1. Receiver name (the person/company that received the money)
+2. Payment ID (starts with "FT" or a transaction reference number)
+3. Amount (numeric value only, in ETB)
+
+Return only JSON: {"receiver_name": "...", "payment_id": "...", "amount": number}`;
+
+    const result = await model.generateContent([
+      { text: prompt },
+      { inlineData: { mimeType: screenshotType, data: cleanData } }
+    ]);
+    const responseText = result.response.text();
+    let extracted;
+    try {
+      extracted = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Gemini response not JSON:', responseText);
+      return { statusCode: 400, body: JSON.stringify({ error: 'Could not extract payment details. Ensure the image is clear.' }) };
     }
-    
-    console.log('Numeric amount:', numericAmount);
-    
-    // Validate payment details
+
+    const { receiver_name, payment_id, amount } = extracted;
+    if (!receiver_name || !payment_id || !amount) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields in payment proof.' }) };
+    }
+
+    // Validate receiver name (case-insensitive)
     const validNames = ['Yilak Abay', 'Yilak Abay Abebe', 'YILAK ABAY', 'YILAK ABAY ABEBE'];
-    if (!validNames.includes(receiver_name) || isNaN(numericAmount) || numericAmount < 30 || !payment_id || !payment_id.startsWith('FT')) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ 
-          success: false, 
-          message: 'Payment failed: Invalid details from screenshot.' 
-        })
-      };
+    if (!validNames.some(name => name.toLowerCase() === receiver_name.toLowerCase())) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Payment receiver name mismatch. Payment failed.' }) };
     }
-    
+
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount) || numericAmount < 100) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Amount must be at least 100 ETB.' }) };
+    }
+
+    // Check if payment ID already used (in verified payments)
     await client.connect();
     const db = client.db('cverve');
     const paymentsCollection = db.collection('payments');
-    const usersCollection = db.collection('users');
-    
-    // Check if payment ID has been used before
-    const existingPayment = await paymentsCollection.findOne({ paymentId: payment_id });
-    if (existingPayment) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ 
-          success: false, 
-          message: 'Payment failed: This payment ID has already been used.' 
-        })
-      };
+    const existing = await paymentsCollection.findOne({ paymentId: payment_id });
+    if (existing) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'This payment ID has already been used.' }) };
     }
-    
-    // Record payment and update balance using phoneNumber as userId
-    await paymentsCollection.insertOne({ 
-      paymentId: payment_id, 
-      userId, 
-      amount: numericAmount, 
-      timestamp: new Date() 
+
+    // Store pending payment (awaiting admin verification)
+    const pendingPayments = db.collection('pendingPayments');
+    await pendingPayments.insertOne({
+      userId,
+      paymentId: payment_id,
+      amount: numericAmount,
+      paymentMethod,
+      expectedAmount: expectedAmount || numericAmount,
+      receiverName: receiver_name,
+      screenshotData: cleanData,   // store for admin reference
+      status: 'pending',
+      createdAt: new Date(),
     });
-    
-    const user = await usersCollection.findOneAndUpdate(
-      { phoneNumber: userId },
-      { $inc: { balance: numericAmount } },
-      { returnDocument: 'after', upsert: true }
-    );
-    
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ 
-        success: true, 
-        newBalance: user.value.balance 
-      })
+      body: JSON.stringify({ success: true, message: 'Payment recorded. Awaiting admin verification (within 6 hours).' })
     };
   } catch (error) {
-    console.error('Payment processing error:', error.response?.data || error.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ 
-        success: false, 
-        message: 'An unexpected error occurred during payment processing.' 
-      })
-    };
+    console.error('Payment processing error:', error);
+    return { statusCode: 500, body: JSON.stringify({ error: 'Internal server error' }) };
+  } finally {
+    await client.close();
   }
 };
