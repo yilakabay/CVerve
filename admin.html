@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 font-[Inter]">
-<div class="container mx-auto p-6 max-w-2xl">
+<div class="container mx-auto p-6 max-w-4xl">
     <h1 class="text-3xl font-bold text-indigo-600 mb-6">Admin Payment Verifier</h1>
 
     <!-- Admin Auth Container -->
@@ -31,8 +31,8 @@
     <!-- Verification Panel (shown after login) -->
     <div id="adminPanel" class="hidden mt-6 bg-white p-6 rounded-xl shadow-md">
         <h2 class="text-xl font-semibold mb-4">Verify Pending Payments</h2>
-        <p class="text-sm text-gray-600 mb-2">Enter Payment IDs (one per line):</p>
-        <textarea id="paymentIdsInput" rows="10" class="w-full border rounded p-2 font-mono text-sm" placeholder="FT123456789&#10;FT987654321"></textarea>
+        <p class="text-sm text-gray-600 mb-2">Enter Payment IDs and Amounts (one per line, separated by space or comma):</p>
+        <textarea id="paymentIdsInput" rows="10" class="w-full border rounded p-2 font-mono text-sm" placeholder="FT123456789 100&#10;FT987654321,250&#10;FT111222333 150"></textarea>
         <button onclick="submitVerification()" class="bg-emerald-500 text-white px-6 py-2 rounded mt-2">Verify and Credit</button>
         <div id="verificationResult" class="mt-4 text-sm"></div>
         <hr class="my-4">
@@ -44,16 +44,13 @@
 <script>
     let adminToken = null;
 
-    // Check if admin already exists on page load
     async function checkAdminExists() {
         const res = await fetch('/.netlify/functions/admin-check');
         const data = await res.json();
         if (data.exists) {
-            // Show login form
             document.getElementById('adminRegisterForm').classList.add('hidden');
             document.getElementById('adminLoginForm').classList.remove('hidden');
         } else {
-            // Show registration form
             document.getElementById('adminRegisterForm').classList.remove('hidden');
             document.getElementById('adminLoginForm').classList.add('hidden');
         }
@@ -73,7 +70,6 @@
         const data = await res.json();
         if (res.ok) {
             alert('Admin registered. Please login.');
-            // Switch to login form
             document.getElementById('adminRegisterForm').classList.add('hidden');
             document.getElementById('adminLoginForm').classList.remove('hidden');
         } else {
@@ -110,19 +106,28 @@
             container.innerHTML = '<p class="text-gray-500">No pending payments.</p>';
             return;
         }
-        container.innerHTML = '<table class="w-full text-left border-collapse"><thead><tr><th>User</th><th>Payment ID</th><th>Amount</th><th>Method</th><th>Date</th></tr></thead><tbody>' +
-            pending.map(p => `<tr><td>${p.userId}</td><td>${p.paymentId}</td><td>${p.amount} ETB</td><td>${p.paymentMethod}</td><td>${new Date(p.createdAt).toLocaleString()}</td></tr>`).join('') +
+        container.innerHTML = '<table class="w-full text-left border-collapse"><thead><tr><th>User</th><th>Payment ID</th><th>Amount (ETB)</th><th>Method</th><th>Date</th></tr></thead><tbody>' +
+            pending.map(p => `<tr><td>${p.userId}</td><td>${p.paymentId}</td><td>${p.amount}</td><td>${p.paymentMethod}</td><td>${new Date(p.createdAt).toLocaleString()}</td></tr>`).join('') +
             '</tbody></table>';
     }
 
     async function submitVerification() {
-        const idsText = document.getElementById('paymentIdsInput').value;
-        const ids = idsText.split('\n').map(s => s.trim()).filter(s => s);
-        if (ids.length === 0) return alert('Enter at least one Payment ID');
+        const text = document.getElementById('paymentIdsInput').value;
+        const lines = text.split('\n').filter(l => l.trim());
+        const pairs = [];
+        for (let line of lines) {
+            // Split by space or comma
+            let parts = line.trim().split(/[ ,]+/);
+            if (parts.length >= 2) {
+                pairs.push({ id: parts[0], amount: parseFloat(parts[1]) });
+            }
+        }
+        if (pairs.length === 0) return alert('Enter at least one valid ID and amount pair (e.g., FT123 100)');
+
         const res = await fetch('/.netlify/functions/admin-verify-payments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-            body: JSON.stringify({ paymentIds: ids })
+            body: JSON.stringify({ payments: pairs })
         });
         const result = await res.json();
         document.getElementById('verificationResult').innerHTML = `<div class="bg-green-100 p-2 rounded">${result.message}</div>`;
@@ -130,7 +135,6 @@
         document.getElementById('paymentIdsInput').value = '';
     }
 
-    // Run on page load
     checkAdminExists();
 </script>
 </body>
