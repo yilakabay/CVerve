@@ -428,16 +428,32 @@
             } finally { hideLoadingOverlay(); }
         }
 
+        // FIXED PRINT LETTER FUNCTION
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
-            if (!letterText) { showMessage('error', 'No letter to print. Generate a letter first.'); return; }
+            if (!letterText) {
+                showMessage('error', 'No letter to print. Generate a letter first.');
+                return;
+            }
+
+            // Get printable container
+            const printDiv = document.getElementById('printableLetter');
             const printBody = document.getElementById('printLetterBody');
+
+            // Format text: preserve line breaks
             const formattedText = letterText.replace(/\n/g, '<br>');
             printBody.innerHTML = formattedText;
-            const printDiv = document.getElementById('printableLetter');
+
+            // Make container visible
             printDiv.style.display = 'block';
+
+            // Trigger browser print
             window.print();
-            printDiv.style.display = 'none';
+
+            // Hide after print (or if user cancels)
+            setTimeout(() => {
+                printDiv.style.display = 'none';
+            }, 500);
         }
 
         window.showTopUpForm = () => { document.getElementById('topUpForm').classList.remove('hidden'); };
@@ -505,10 +521,26 @@
         .file-input-wrapper input[type="file"] { color: transparent; }
         .file-count-display { position: absolute; right: 100px; top: 50%; transform: translateY(-50%); pointer-events: none; background: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; z-index: 10; border: 1px solid #e5e7eb; white-space: nowrap; }
         @media print {
-            body * { visibility: hidden; }
-            #printableLetter, #printableLetter * { visibility: visible; }
-            #printableLetter { position: fixed; top: 0; left: 0; width: 100%; padding: 20px; background: white; color: black; font-size: 12pt; }
-            .print-letter-content { max-width: 800px; margin: 0 auto; }
+            body * {
+                visibility: hidden;
+            }
+            #printableLetter, #printableLetter * {
+                visibility: visible;
+            }
+            #printableLetter {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                padding: 20px;
+                background: white;
+                color: black;
+                font-size: 12pt;
+            }
+            .print-letter-content {
+                max-width: 800px;
+                margin: 0 auto;
+            }
         }
     </style>
 </head>
