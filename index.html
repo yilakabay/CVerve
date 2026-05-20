@@ -17,28 +17,22 @@
         let jdFilesArray = [];
         let pdfFilesArray = [];
 
-        // Function to validate phone number
         function isValidPhoneNumber(phone) {
             const phoneRegex = /^(09|07)\d{8}$/;
             return phoneRegex.test(phone);
         }
 
-        // Function to truncate filename in the middle
         function truncateFilename(filename, maxLength = 25) {
             if (filename.length <= maxLength) return filename;
-            
             const extension = filename.split('.').pop();
             const nameWithoutExt = filename.slice(0, -(extension.length + 1));
-            const charsToShow = maxLength - extension.length - 3; // 3 for "..."
-            
+            const charsToShow = maxLength - extension.length - 3;
             if (charsToShow < 5) return filename.slice(0, maxLength - 3) + '...';
-            
             const start = nameWithoutExt.slice(0, Math.floor(charsToShow / 2));
             const end = nameWithoutExt.slice(-Math.ceil(charsToShow / 2));
             return `${start}...${end}.${extension}`;
         }
 
-        // Function to show/hide login screen
         function toggleLoginScreen(show) {
             document.getElementById('loginScreen').classList.toggle('hidden', !show);
             document.getElementById('mainApp').classList.toggle('hidden', show);
@@ -69,25 +63,18 @@
         function attachEventListeners() {
             const mergePdfBtn = document.getElementById('mergePdfBtn');
             if (mergePdfBtn) mergePdfBtn.addEventListener('click', mergePdfs);
-
             const downloadPdfBtn = document.getElementById('downloadPdfBtn');
             if (downloadPdfBtn) downloadPdfBtn.addEventListener('click', downloadMergedPdf);
-
             const generateLetterBtn = document.getElementById('generateLetterBtn');
             if (generateLetterBtn) generateLetterBtn.addEventListener('click', generateLetter);
-
             const printLetterBtn = document.getElementById('printLetterBtn');
             if (printLetterBtn) printLetterBtn.addEventListener('click', printLetter);
-
             const confirmPaymentBtn = document.getElementById('confirmPaymentBtn');
             if (confirmPaymentBtn) confirmPaymentBtn.addEventListener('click', confirmPayment);
-
             const cvFileInput = document.getElementById('cvFile');
             if (cvFileInput) cvFileInput.addEventListener('change', handleCvFileSelect);
-
             const jdFileInput = document.getElementById('jdFile');
             if (jdFileInput) jdFileInput.addEventListener('change', handleJdFileSelect);
-
             const pdfFileInput = document.getElementById('pdfInput');
             if (pdfFileInput) pdfFileInput.addEventListener('change', handlePdfFileSelect);
         }
@@ -425,35 +412,76 @@
             } catch (error) {
                 console.error('Error generating letter:', error);
                 showMessage('error', error.message || 'An unexpected error occurred.');
-            } finally { hideLoadingOverlay(); }
+            } finally {
+                hideLoadingOverlay();
+            }
         }
 
-        // FIXED PRINT LETTER FUNCTION
+        // FIXED: Print using a new window (reliable, no CSS conflicts)
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
             if (!letterText) {
                 showMessage('error', 'No letter to print. Generate a letter first.');
                 return;
             }
-
-            // Get printable container
-            const printDiv = document.getElementById('printableLetter');
-            const printBody = document.getElementById('printLetterBody');
-
-            // Format text: preserve line breaks
-            const formattedText = letterText.replace(/\n/g, '<br>');
-            printBody.innerHTML = formattedText;
-
-            // Make container visible
-            printDiv.style.display = 'block';
-
-            // Trigger browser print
-            window.print();
-
-            // Hide after print (or if user cancels)
-            setTimeout(() => {
-                printDiv.style.display = 'none';
-            }, 500);
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                showMessage('error', 'Popup blocked. Please allow popups for this site.');
+                return;
+            }
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>CVerve - Application Letter</title>
+                    <style>
+                        body {
+                            font-family: 'Times New Roman', Times, serif;
+                            font-size: 12pt;
+                            line-height: 1.4;
+                            margin: 1.5in 1in;
+                            padding: 0;
+                            color: black;
+                        }
+                        .letter-header {
+                            text-align: center;
+                            margin-bottom: 20px;
+                        }
+                        .letter-header h1 {
+                            font-size: 24pt;
+                            margin: 0;
+                        }
+                        .letter-header p {
+                            font-style: italic;
+                            margin: 5px 0;
+                        }
+                        hr {
+                            margin: 10px 0;
+                        }
+                        .content {
+                            white-space: pre-wrap;
+                        }
+                        @media print {
+                            body {
+                                margin: 0.5in;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="letter-header">
+                        <h1>CVerve</h1>
+                        <p>Professional Application Letter</p>
+                        <hr>
+                    </div>
+                    <div class="content">${letterText.replace(/\n/g, '<br>')}</div>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+            printWindow.onafterprint = () => printWindow.close();
         }
 
         window.showTopUpForm = () => { document.getElementById('topUpForm').classList.remove('hidden'); };
@@ -487,7 +515,9 @@
             } catch (error) {
                 console.error('Error confirming payment:', error);
                 showMessage('error', 'An unexpected error occurred during payment confirmation.');
-            } finally { hideLoadingOverlay(); }
+            } finally {
+                hideLoadingOverlay();
+            }
         }
 
         async function updateBalance(amount) {
@@ -502,8 +532,14 @@
                     userBalance = data.balance;
                     document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
                     return true;
-                } else { console.error('Balance update error:', data.error); return false; }
-            } catch (error) { console.error('Balance update error:', error); return false; }
+                } else {
+                    console.error('Balance update error:', data.error);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Balance update error:', error);
+                return false;
+            }
         }
     </script>
     <style>
@@ -520,28 +556,6 @@
         .file-input-wrapper { position: relative; display: inline-block; width: 100%; }
         .file-input-wrapper input[type="file"] { color: transparent; }
         .file-count-display { position: absolute; right: 100px; top: 50%; transform: translateY(-50%); pointer-events: none; background: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; z-index: 10; border: 1px solid #e5e7eb; white-space: nowrap; }
-        @media print {
-            body * {
-                visibility: hidden;
-            }
-            #printableLetter, #printableLetter * {
-                visibility: visible;
-            }
-            #printableLetter {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                padding: 20px;
-                background: white;
-                color: black;
-                font-size: 12pt;
-            }
-            .print-letter-content {
-                max-width: 800px;
-                margin: 0 auto;
-            }
-        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -726,18 +740,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Printable Letter Container (hidden until print) -->
-    <div id="printableLetter" style="display: none;">
-        <div class="print-letter-content">
-            <div style="text-align:center; margin-bottom: 20px;">
-                <h1 style="font-family: 'Times New Roman', serif; font-size: 24px;">CVerve</h1>
-                <p style="font-style: italic;">Professional Application Letter</p>
-                <hr style="margin: 10px 0;">
-            </div>
-            <div id="printLetterBody" style="font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.4; white-space: pre-wrap;"></div>
         </div>
     </div>
 </body>
