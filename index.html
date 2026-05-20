@@ -417,71 +417,20 @@
             }
         }
 
-        // FIXED: Print using a new window (reliable, no CSS conflicts)
+        // Print function identical to Bete Fetena dashboard method
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
             if (!letterText) {
                 showMessage('error', 'No letter to print. Generate a letter first.');
                 return;
             }
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                showMessage('error', 'Popup blocked. Please allow popups for this site.');
-                return;
-            }
-            printWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>CVerve - Application Letter</title>
-                    <style>
-                        body {
-                            font-family: 'Times New Roman', Times, serif;
-                            font-size: 12pt;
-                            line-height: 1.4;
-                            margin: 1.5in 1in;
-                            padding: 0;
-                            color: black;
-                        }
-                        .letter-header {
-                            text-align: center;
-                            margin-bottom: 20px;
-                        }
-                        .letter-header h1 {
-                            font-size: 24pt;
-                            margin: 0;
-                        }
-                        .letter-header p {
-                            font-style: italic;
-                            margin: 5px 0;
-                        }
-                        hr {
-                            margin: 10px 0;
-                        }
-                        .content {
-                            white-space: pre-wrap;
-                        }
-                        @media print {
-                            body {
-                                margin: 0.5in;
-                            }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="letter-header">
-                        <h1>CVerve</h1>
-                        <p>Professional Application Letter</p>
-                        <hr>
-                    </div>
-                    <div class="content">${letterText.replace(/\n/g, '<br>')}</div>
-                </body>
-                </html>
-            `);
-            printWindow.document.close();
-            printWindow.focus();
-            printWindow.print();
-            printWindow.onafterprint = () => printWindow.close();
+            // Fill the printable div with formatted content
+            const printBody = document.getElementById('printLetterBody');
+            printBody.innerHTML = letterText.replace(/\n/g, '<br>');
+            const printDiv = document.getElementById('printableLetter');
+            printDiv.style.display = 'block';
+            window.print();
+            printDiv.style.display = 'none';
         }
 
         window.showTopUpForm = () => { document.getElementById('topUpForm').classList.remove('hidden'); };
@@ -556,6 +505,30 @@
         .file-input-wrapper { position: relative; display: inline-block; width: 100%; }
         .file-input-wrapper input[type="file"] { color: transparent; }
         .file-count-display { position: absolute; right: 100px; top: 50%; transform: translateY(-50%); pointer-events: none; background: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; z-index: 10; border: 1px solid #e5e7eb; white-space: nowrap; }
+
+        /* Print styles - exactly like Bete Fetena */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #printableLetter, #printableLetter * {
+                visibility: visible;
+            }
+            #printableLetter {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                padding: 20px;
+                background: white;
+                color: black;
+                font-size: 12pt;
+            }
+            .print-letter-content {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -740,6 +713,18 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Printable Letter Container (hidden until print) -->
+    <div id="printableLetter" style="display: none;">
+        <div class="print-letter-content">
+            <div style="text-align:center; margin-bottom: 20px;">
+                <h1 style="font-family: 'Times New Roman', serif; font-size: 24px;">CVerve</h1>
+                <p style="font-style: italic;">Professional Application Letter</p>
+                <hr style="margin: 10px 0;">
+            </div>
+            <div id="printLetterBody" style="font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.4; white-space: pre-wrap;"></div>
         </div>
     </div>
 </body>
