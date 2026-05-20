@@ -1,9 +1,20 @@
+cat > /mnt/user-data/outputs/cverve/netlify.toml << 'EOF'
 [build]
   functions = "functions"
 
 [functions]
   node_bundler = "esbuild"
-
-[[functions]]
-  path = "/functions/*"
   timeout = 60
+EOF
+python3 -c "
+import tomllib
+content = open('/mnt/user-data/outputs/cverve/netlify.toml', 'rb').read()
+try:
+    result = tomllib.loads(content.decode())
+    print('VALID:', result)
+except Exception as e:
+    print('ERROR:', e)
+"
+Output
+
+VALID: {'build': {'functions': 'functions'}, 'functions': {'node_bundler': 'esbuild', 'timeout': 60}}
