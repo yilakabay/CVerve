@@ -14,16 +14,16 @@ exports.handler = async (event) => {
   const admin = await db.collection('admins').findOne({ phone });
   if (!admin) return { statusCode: 403, body: 'Forbidden' };
 
-  const { paymentIds } = JSON.parse(event.body);
-  if (!paymentIds || !Array.isArray(paymentIds)) return { statusCode: 400, body: 'Invalid input' };
+  const { payments } = JSON.parse(event.body);
+  if (!payments || !Array.isArray(payments)) return { statusCode: 400, body: 'Invalid input' };
 
   const pendingCollection = db.collection('pendingPayments');
   const paymentsCollection = db.collection('payments');
   const usersCollection = db.collection('users');
 
   let verifiedCount = 0;
-  for (const pid of paymentIds) {
-    const pending = await pendingCollection.findOne({ paymentId: pid, status: 'pending' });
+  for (const { id, amount } of payments) {
+    const pending = await pendingCollection.findOne({ paymentId: id, amount: amount, status: 'pending' });
     if (!pending) continue;
     // Mark as verified and add to user balance
     await paymentsCollection.insertOne({
