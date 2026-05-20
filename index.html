@@ -46,49 +46,25 @@
             document.getElementById('appDate').value = `${yyyy}-${mm}-${dd}`;
         }
 
-        function copyAccountNumber() {
-            navigator.clipboard.writeText('1000577617639').then(() => {
-                showMessage('success', 'Account number copied to clipboard!');
-            }).catch(() => showMessage('error', 'Failed to copy account number'));
-        }
-
-        function copyCBEBirrNumber() {
-            navigator.clipboard.writeText('0985576139').then(() => {
-                showMessage('success', 'CBEBirr phone number copied!');
-            }).catch(() => showMessage('error', 'Failed to copy number'));
-        }
-
         function attachEventListeners() {
             const ids = {
-                mergePdfBtn: mergePdfs,
-                downloadPdfBtn: downloadMergedPdf,
+                mergePdfBtn:       mergePdfs,
+                downloadPdfBtn:    downloadMergedPdf,
                 generateLetterBtn: generateLetter,
-                printLetterBtn: printLetter,
+                printLetterBtn:    printLetter,
             };
             Object.entries(ids).forEach(([id, fn]) => {
                 const el = document.getElementById(id);
                 if (el) el.addEventListener('click', fn);
             });
-            const cvFileInput = document.getElementById('cvFile');
-            if (cvFileInput) cvFileInput.addEventListener('change', handleCvFileSelect);
-            const jdFileInput = document.getElementById('jdFile');
-            if (jdFileInput) jdFileInput.addEventListener('change', handleJdFileSelect);
-            const pdfFileInput = document.getElementById('pdfInput');
-            if (pdfFileInput) pdfFileInput.addEventListener('change', handlePdfFileSelect);
+            document.getElementById('cvFile')?.addEventListener('change', handleCvFileSelect);
+            document.getElementById('jdFile')?.addEventListener('change', handleJdFileSelect);
+            document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
         }
 
-        function handleCvFileSelect(event) {
-            cvFilesArray = [...cvFilesArray, ...Array.from(event.target.files)];
-            updateCvFilesList(); event.target.value = '';
-        }
-        function handleJdFileSelect(event) {
-            jdFilesArray = [...jdFilesArray, ...Array.from(event.target.files)];
-            updateJdFilesList(); event.target.value = '';
-        }
-        function handlePdfFileSelect(event) {
-            pdfFilesArray = [...pdfFilesArray, ...Array.from(event.target.files)];
-            updatePdfFilesList(); event.target.value = '';
-        }
+        function handleCvFileSelect(e)  { cvFilesArray  = [...cvFilesArray,  ...Array.from(e.target.files)]; updateCvFilesList();  e.target.value = ''; }
+        function handleJdFileSelect(e)  { jdFilesArray  = [...jdFilesArray,  ...Array.from(e.target.files)]; updateJdFilesList();  e.target.value = ''; }
+        function handlePdfFileSelect(e) { pdfFilesArray = [...pdfFilesArray, ...Array.from(e.target.files)]; updatePdfFilesList(); e.target.value = ''; }
 
         function buildFileItem(file, index, removeFn) {
             const el = document.createElement('div');
@@ -111,15 +87,15 @@
 
         function updateFilesList(arr, containerId, counterId, removeFn) {
             const container = document.getElementById(containerId);
-            const counter = document.getElementById(counterId);
+            const counter   = document.getElementById(counterId);
             container.innerHTML = '';
-            counter.textContent = `${arr.length} file${arr.length !== 1 ? 's' : ''} selected`;
-            counter.className = `text-sm font-medium ${arr.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
+            counter.textContent  = `${arr.length} file${arr.length !== 1 ? 's' : ''} selected`;
+            counter.className    = `text-sm font-medium ${arr.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
             arr.forEach((file, i) => container.appendChild(buildFileItem(file, i, removeFn)));
         }
 
-        function updateCvFilesList() { updateFilesList(cvFilesArray, 'cvFilesList', 'cvFilesCounter', 'removeCvFile'); }
-        function updateJdFilesList() { updateFilesList(jdFilesArray, 'jdFilesList', 'jdFilesCounter', 'removeJdFile'); }
+        function updateCvFilesList()  { updateFilesList(cvFilesArray,  'cvFilesList',  'cvFilesCounter',  'removeCvFile'); }
+        function updateJdFilesList()  { updateFilesList(jdFilesArray,  'jdFilesList',  'jdFilesCounter',  'removeJdFile'); }
         function updatePdfFilesList() { updateFilesList(pdfFilesArray, 'pdfFilesList', 'pdfFilesCounter', 'removePdfFile'); }
 
         function removeCvFile(i)  { cvFilesArray.splice(i, 1);  updateCvFilesList(); }
@@ -134,7 +110,7 @@
 
         async function handleLogin() {
             const phoneNumber = document.getElementById('phoneNumberInput').value.trim();
-            const password = document.getElementById('passwordInput').value;
+            const password    = document.getElementById('passwordInput').value;
             if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
             if (!password)    { showMessage('error', 'Please enter your password'); return; }
             showLoadingOverlay('Logging in...');
@@ -154,12 +130,12 @@
         }
 
         async function handleRegister() {
-            const phoneNumber = document.getElementById('registerPhoneNumber').value.trim();
-            const password = document.getElementById('registerPassword').value;
+            const phoneNumber     = document.getElementById('registerPhoneNumber').value.trim();
+            const password        = document.getElementById('registerPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
             if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
             if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
-            if (!password) { showMessage('error', 'Please enter a password'); return; }
+            if (!password)    { showMessage('error', 'Please enter a password'); return; }
             if (password !== confirmPassword) { showMessage('error', 'Passwords do not match'); return; }
             if (password.length < 6) { showMessage('error', 'Password must be at least 6 characters long'); return; }
             showLoadingOverlay('Creating your account...');
@@ -188,13 +164,13 @@
         }
 
         function showMessage(type, message) {
-            const messageBox = document.getElementById('messageBox');
+            const messageBox  = document.getElementById('messageBox');
             const messageText = document.getElementById('messageText');
             const color = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-yellow-500';
             messageBox.className = `fixed inset-x-0 bottom-4 mx-auto p-4 rounded-lg shadow-lg z-50 max-w-sm ${color} text-white text-center font-bold transition-all duration-300 transform scale-0`;
             messageText.textContent = message;
             setTimeout(() => messageBox.classList.add('scale-100'), 10);
-            setTimeout(() => messageBox.classList.remove('scale-100'), 3000);
+            setTimeout(() => messageBox.classList.remove('scale-100'), 3500);
         }
 
         function showImageBasedPdfPopup(fileType) {
@@ -318,85 +294,25 @@
 
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
-            if (!letterText) {
-                showMessage('error', 'No letter to download. Generate a letter first.');
-                return;
-            }
+            if (!letterText) { showMessage('error', 'No letter to download. Generate a letter first.'); return; }
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ unit: 'pt', format: 'a4' });
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
             const mL = 72, mR = 72, mT = 72, mB = 72;
             const usableW = pageW - mL - mR;
-            const lineH = 15;
-            doc.setFont('times', 'normal');
-            doc.setFontSize(11);
-            doc.setTextColor(30, 30, 30);
+            const lineH   = 15;
+            doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
             let y = mT;
             letterText.split('\n').forEach(rawLine => {
                 const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
                 wrapped.forEach(line => {
                     if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
-                    doc.text(line, mL, y);
-                    y += lineH;
+                    doc.text(line, mL, y); y += lineH;
                 });
             });
             doc.save('application_letter.pdf');
             showMessage('success', 'Letter downloaded successfully!');
-        }
-
-        // ---------- PAYMENT POPUP ----------
-        function showTopUpForm() {
-            document.getElementById('paymentMethodPopup').style.transform = 'translateY(0)';
-        }
-        function closePaymentPopup() {
-            document.getElementById('paymentMethodPopup').style.transform = 'translateY(100%)';
-        }
-        function selectPaymentMethod(method) {
-            closePaymentPopup();
-            if (method === 'telebirr') {
-                showMessage('info', 'Telebirr payment is coming soon!');
-                return;
-            }
-            if (method === 'bank') {
-                document.getElementById('bankTransferForm').classList.remove('hidden');
-            } else if (method === 'cbebirr') {
-                document.getElementById('cbebirrForm').classList.remove('hidden');
-            }
-        }
-        function cancelPaymentForm(formId) {
-            document.getElementById(formId).classList.add('hidden');
-        }
-        async function submitPayment(method) {
-            const screenshotInput = document.getElementById(`${method}Screenshot`);
-            const file = screenshotInput.files[0];
-            if (!file) { showMessage('error', 'Please upload a payment screenshot.'); return; }
-            showLoadingOverlay('Processing payment screenshot...');
-            try {
-                const base64 = await fileToBase64(file);
-                const response = await fetch('/.netlify/functions/process-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId,
-                        screenshotData: base64,
-                        screenshotType: file.type,
-                        paymentMethod: method
-                    })
-                });
-                const data = await response.json();
-                if (response.ok && data.success) {
-                    showMessage('success', data.message || 'Payment recorded. It will be verified within 6 hours.');
-                    document.getElementById(`${method}Form`).classList.add('hidden');
-                    screenshotInput.value = '';
-                } else {
-                    showMessage('error', data.error || 'Payment submission failed.');
-                }
-            } catch (err) {
-                showMessage('error', 'Network error. Please try again.');
-            } finally {
-                hideLoadingOverlay();
-            }
         }
 
         async function updateBalance(amount) {
@@ -415,66 +331,121 @@
             return false;
         }
 
-        window.showTopUpForm = showTopUpForm;
+        // ══════════════════════════════════════════════════════════════════
+        //  PAYMENT POPUP  (new implementation)
+        // ══════════════════════════════════════════════════════════════════
+
+        let paymentPopupVisible = false;
+
+        function openPaymentPopup() {
+            document.getElementById('paymentPopupOverlay').classList.remove('hidden');
+            document.getElementById('paymentPopupSheet').classList.remove('translate-y-full');
+            paymentPopupVisible = true;
+            showPaymentMethodChoice();
+        }
+
+        function closePaymentPopup() {
+            document.getElementById('paymentPopupSheet').classList.add('translate-y-full');
+            setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300);
+            paymentPopupVisible = false;
+        }
+
+        function showPaymentMethodChoice() {
+            document.getElementById('payMethodChoice').classList.remove('hidden');
+            document.getElementById('payMethodTelebirr').classList.add('hidden');
+            document.getElementById('payMethodCBE').classList.add('hidden');
+            document.getElementById('payMethodCBEBirr').classList.add('hidden');
+        }
+
+        function selectPaymentMethod(method) {
+            document.getElementById('payMethodChoice').classList.add('hidden');
+            document.getElementById('payMethodTelebirr').classList.add('hidden');
+            document.getElementById('payMethodCBE').classList.add('hidden');
+            document.getElementById('payMethodCBEBirr').classList.add('hidden');
+
+            if (method === 'telebirr') {
+                document.getElementById('payMethodTelebirr').classList.remove('hidden');
+            } else if (method === 'cbe') {
+                document.getElementById('payMethodCBE').classList.remove('hidden');
+                document.getElementById('cbePaymentFile').value = '';
+                document.getElementById('cbeFileLabel').textContent = 'No file chosen';
+            } else if (method === 'cbebirr') {
+                document.getElementById('payMethodCBEBirr').classList.remove('hidden');
+                document.getElementById('cbebirrPaymentFile').value = '';
+                document.getElementById('cbebirrFileLabel').textContent = 'No file chosen';
+            }
+        }
+
+        function copyText(text, label) {
+            navigator.clipboard.writeText(text)
+                .then(() => showMessage('success', `${label} copied!`))
+                .catch(() => showMessage('error', 'Failed to copy'));
+        }
+
+        function updateFileLabel(inputId, labelId) {
+            const input = document.getElementById(inputId);
+            const label = document.getElementById(labelId);
+            if (input.files && input.files[0]) {
+                label.textContent = truncateFilename(input.files[0].name, 32);
+            } else {
+                label.textContent = 'No file chosen';
+            }
+        }
+
+        async function submitPayment(method) {
+            const inputId = method === 'cbe' ? 'cbePaymentFile' : 'cbebirrPaymentFile';
+            const fileInput = document.getElementById(inputId);
+            const file = fileInput.files[0];
+            if (!file) { showMessage('error', 'Please upload your payment confirmation file.'); return; }
+
+            closePaymentPopup();
+            showLoadingOverlay('Analyzing your payment receipt…');
+
+            try {
+                const fileData = await fileToBase64(file);
+                const response = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        fileData,
+                        fileType: file.type,
+                        paymentMethod: method
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
+                } else {
+                    showMessage('error', result.error || result.message || 'Payment submission failed.');
+                }
+            } catch (err) {
+                console.error('Payment submission error:', err);
+                showMessage('error', 'An unexpected error occurred. Please try again.');
+            } finally {
+                hideLoadingOverlay();
+            }
+        }
     </script>
     <style>
-        @keyframes pulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
-        @keyframes float  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-        @keyframes spin   { to{transform:rotate(360deg)} }
+        @keyframes pulse      { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+        @keyframes float      { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+        @keyframes spin       { to{transform:rotate(360deg)} }
         @keyframes pulse-ring { 0%{transform:scale(.8);opacity:1} 80%,100%{transform:scale(2);opacity:0} }
-        .animate-pulse      { animation:pulse 2s infinite; }
-        .animate-float      { animation:float 2s ease-in-out infinite; }
-        .animate-spin-slow  { animation:spin 3s linear infinite; }
-        .animate-pulse-ring { animation:pulse-ring 2s cubic-bezier(.455,.03,.515,.955) infinite; }
-        .file-input-wrapper { position:relative; display:inline-block; width:100%; }
+        .animate-pulse        { animation:pulse 2s infinite; }
+        .animate-float        { animation:float 2s ease-in-out infinite; }
+        .animate-spin-slow    { animation:spin 3s linear infinite; }
+        .animate-pulse-ring   { animation:pulse-ring 2s cubic-bezier(.455,.03,.515,.955) infinite; }
+        .file-input-wrapper   { position:relative; display:inline-block; width:100%; }
         .file-input-wrapper input[type="file"] { color:transparent; }
-        .file-count-display {
+        .file-count-display   {
             position:absolute; right:100px; top:50%; transform:translateY(-50%);
             pointer-events:none; background:white; padding:2px 8px; border-radius:12px;
             font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap;
         }
-        .payment-popup {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: white;
-            border-radius: 20px 20px 0 0;
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-            z-index: 1000;
-            transition: transform 0.3s ease;
-            transform: translateY(100%);
-        }
-        .payment-popup.open { transform: translateY(0); }
-        .payment-option {
-            display: flex;
-            align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid #e5e7eb;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .payment-option:hover { background: #f3f4f6; }
-        .payment-form-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .payment-form-card {
-            background: white;
-            border-radius: 24px;
-            max-width: 400px;
-            width: 90%;
-            padding: 24px;
-            position: relative;
-        }
+        #paymentPopupSheet    { transition: transform 0.3s ease-out; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -515,6 +486,161 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     PAYMENT POPUP — slides up from bottom
+═══════════════════════════════════════════════════════════════ -->
+<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center"
+     onclick="if(event.target===this) closePaymentPopup()">
+
+    <div id="paymentPopupSheet" class="translate-y-full bg-white rounded-t-3xl shadow-2xl w-full max-w-lg px-6 pt-4 pb-8">
+
+        <!-- Handle bar -->
+        <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
+
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-bold text-gray-800">Top Up Balance</h2>
+            <button onclick="closePaymentPopup()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <!-- ── Step 1: Choose method ── -->
+        <div id="payMethodChoice" class="space-y-3">
+            <p class="text-sm text-gray-500 mb-1">Select a payment method:</p>
+
+            <!-- Telebirr -->
+            <button onclick="selectPaymentMethod('telebirr')"
+                class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div>
+                    <span class="font-semibold text-gray-700">Telebirr</span>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+
+            <!-- Bank Transfer (CBE) -->
+            <button onclick="selectPaymentMethod('cbe')"
+                class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div>
+                    <span class="font-semibold text-gray-700">Bank Transfer (CBE)</span>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+
+            <!-- CBEBirr -->
+            <button onclick="selectPaymentMethod('cbebirr')"
+                class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div>
+                    <span class="font-semibold text-gray-700">CBEBirr</span>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- ── Telebirr → Coming Soon ── -->
+        <div id="payMethodTelebirr" class="hidden">
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg> Back
+            </button>
+            <div class="flex flex-col items-center py-8 text-center">
+                <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-700 mb-2">Coming Soon</h3>
+                <p class="text-sm text-gray-500">Telebirr payments will be available shortly. Please use Bank Transfer or CBEBirr for now.</p>
+            </div>
+        </div>
+
+        <!-- ── Bank Transfer (CBE) ── -->
+        <div id="payMethodCBE" class="hidden">
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg> Back
+            </button>
+            <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2">
+                <p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p>
+                <div class="flex items-center justify-between">
+                    <span><span class="font-medium">Account:</span> 1000577617639</span>
+                    <button onclick="copyText('1000577617639','Account number')"
+                        class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0" title="Copy account number">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p>
+                <p><span class="font-medium">Minimum:</span> 100 ETB</p>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">After transferring, upload the SMS or screenshot you received from CBE:</p>
+            <label class="block mb-3 cursor-pointer">
+                <div class="flex items-center space-x-2 border border-gray-300 rounded-xl px-4 py-2 hover:bg-gray-50 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span id="cbeFileLabel" class="text-sm text-gray-600 truncate flex-1">No file chosen</span>
+                </div>
+                <input type="file" id="cbePaymentFile" accept="image/*,application/pdf" class="hidden"
+                    onchange="updateFileLabel('cbePaymentFile','cbeFileLabel')">
+            </label>
+            <button onclick="submitPayment('cbe')"
+                class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">
+                Submit Payment
+            </button>
+        </div>
+
+        <!-- ── CBEBirr ── -->
+        <div id="payMethodCBEBirr" class="hidden">
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg> Back
+            </button>
+            <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2">
+                <p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p>
+                <div class="flex items-center justify-between">
+                    <span><span class="font-medium">Phone:</span> 0985576139</span>
+                    <button onclick="copyText('0985576139','Phone number')"
+                        class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0" title="Copy phone number">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <p><span class="font-medium">Minimum:</span> 100 ETB</p>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">After sending, upload the confirmation message you received from CBEBirr:</p>
+            <label class="block mb-3 cursor-pointer">
+                <div class="flex items-center space-x-2 border border-gray-300 rounded-xl px-4 py-2 hover:bg-gray-50 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span id="cbebirrFileLabel" class="text-sm text-gray-600 truncate flex-1">No file chosen</span>
+                </div>
+                <input type="file" id="cbebirrPaymentFile" accept="image/*,application/pdf" class="hidden"
+                    onchange="updateFileLabel('cbebirrPaymentFile','cbebirrFileLabel')">
+            </label>
+            <button onclick="submitPayment('cbebirr')"
+                class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
+                Submit Payment
+            </button>
+        </div>
+
+    </div>
+</div>
+<!-- END PAYMENT POPUP -->
+
 <!-- Login Screen -->
 <div id="loginScreen" class="fixed inset-0 bg-gray-100 flex items-center justify-center p-4">
     <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
@@ -523,13 +649,16 @@
         <div id="loginForm">
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" id="phoneNumberInput" placeholder="Enter your phone number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="tel" id="phoneNumberInput" placeholder="Enter your phone number"
+                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
             <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="password" id="passwordInput" placeholder="Enter your password"
+                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
-            <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
+            <button onclick="handleLogin()"
+                class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
             <div class="text-center">
                 <p class="text-sm text-gray-600">Don't have an account?</p>
                 <button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button>
@@ -538,17 +667,21 @@
         <div id="registerForm" class="hidden">
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)"
+                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)"
+                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
             <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                <input type="password" id="confirmPassword" placeholder="Confirm your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="password" id="confirmPassword" placeholder="Confirm your password"
+                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
-            <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
+            <button onclick="handleRegister()"
+                class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
             <div class="text-center">
                 <p class="text-sm text-gray-600">Already have an account?</p>
                 <button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Back to Login</button>
@@ -562,9 +695,12 @@
     <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
-            <button onclick="window.open('https://t.me/cverve_guide','_blank')" class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
+            <button onclick="window.open('https://t.me/cverve_guide','_blank')"
+                class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
                 <span>Guide Video</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
             </button>
         </div>
 
@@ -583,7 +719,8 @@
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
                             <div class="file-input-wrapper mt-1">
-                                <input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                <input type="file" id="pdfInput" multiple accept="application/pdf"
+                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                                 <span id="pdfFilesCounter" class="file-count-display">0 files selected</span>
                             </div>
                         </label>
@@ -609,7 +746,8 @@
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                             <div class="file-input-wrapper mt-1">
-                                <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                                 <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                             </div>
                         </label>
@@ -619,14 +757,16 @@
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
                             <div class="file-input-wrapper mt-1">
-                                <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                                 <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
                             </div>
                         </label>
                         <div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
                     </div>
                     <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
-                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..."
+                        class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                     <button id="printLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">⬇️ Download Letter as PDF</button>
                 </div>
             </div>
@@ -635,80 +775,23 @@
         <!-- Balance Tab -->
         <div id="payment-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
-                <h2 class="text-xl font-semibold mb-4 text-center">Payment & Balance</h2>
-                <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4 text-center">Payment &amp; Balance</h2>
+                <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow mb-4">
                     <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
-                    <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">Top Up</button>
+                    <button onclick="openPaymentPopup()"
+                        class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">
+                        Top Up
+                    </button>
+                </div>
+                <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800">
+                    <p class="font-semibold mb-1">How top-ups work:</p>
+                    <p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p>
                 </div>
             </div>
         </div>
+
     </div>
 </div>
 
-<!-- Payment Method Popup -->
-<div id="paymentMethodPopup" class="payment-popup" style="transform: translateY(100%);">
-    <div class="bg-white rounded-t-2xl shadow-xl">
-        <div class="p-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 class="text-lg font-semibold">Select Payment Method</h3>
-            <button onclick="closePaymentPopup()" class="text-gray-500 hover:text-gray-700">✕</button>
-        </div>
-        <div class="payment-option" onclick="selectPaymentMethod('telebirr')">
-            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">📱</div>
-            <span class="ml-3 font-medium">Telebirr (Coming Soon)</span>
-        </div>
-        <div class="payment-option" onclick="selectPaymentMethod('cbebirr')">
-            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">📞</div>
-            <span class="ml-3 font-medium">CBEBirr</span>
-        </div>
-        <div class="payment-option" onclick="selectPaymentMethod('bank')">
-            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">🏦</div>
-            <span class="ml-3 font-medium">Bank Transfer (CBE)</span>
-        </div>
-    </div>
-</div>
-
-<!-- Bank Transfer Form -->
-<div id="bankTransferForm" class="payment-form-overlay hidden">
-    <div class="payment-form-card">
-        <button onclick="cancelPaymentForm('bankTransferForm')" class="absolute top-3 right-3 text-gray-500 hover:text-gray-700">✕</button>
-        <h3 class="text-xl font-bold mb-4">Bank Transfer (CBE)</h3>
-        <div class="space-y-3">
-            <p><strong>Account Number:</strong> 1000577617639 <button onclick="copyAccountNumber()" class="text-blue-600 text-sm underline">Copy</button></p>
-            <p><strong>Account Name:</strong> YILAK ABAY ABEBE</p>
-            <div>
-                <label class="block text-sm font-medium">Payment Screenshot (or PDF)</label>
-                <input type="file" id="bankScreenshot" accept="image/*,application/pdf" class="w-full border rounded-lg p-1">
-                <p class="text-xs text-gray-500 mt-1">Upload the CBE SMS or transaction receipt. Amount will be extracted automatically.</p>
-            </div>
-            <button onclick="submitPayment('bank')" class="w-full bg-indigo-500 text-white py-2 rounded-full font-semibold mt-2">Submit Payment</button>
-        </div>
-    </div>
-</div>
-
-<!-- CBEBirr Form -->
-<div id="cbebirrForm" class="payment-form-overlay hidden">
-    <div class="payment-form-card">
-        <button onclick="cancelPaymentForm('cbebirrForm')" class="absolute top-3 right-3 text-gray-500 hover:text-gray-700">✕</button>
-        <h3 class="text-xl font-bold mb-4">CBEBirr Payment</h3>
-        <div class="space-y-3">
-            <p><strong>Phone Number:</strong> 0985576139 <button onclick="copyCBEBirrNumber()" class="text-blue-600 text-sm underline">Copy</button></p>
-            <div>
-                <label class="block text-sm font-medium">Payment Screenshot (or PDF)</label>
-                <input type="file" id="cbebirrScreenshot" accept="image/*,application/pdf" class="w-full border rounded-lg p-1">
-                <p class="text-xs text-gray-500 mt-1">Upload the CBEBirr transaction screenshot. Amount will be extracted automatically.</p>
-            </div>
-            <button onclick="submitPayment('cbebirr')" class="w-full bg-indigo-500 text-white py-2 rounded-full font-semibold mt-2">Submit Payment</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    // Ensure popup animation works
-    window.showTopUpForm = showTopUpForm;
-    window.closePaymentPopup = closePaymentPopup;
-    window.selectPaymentMethod = selectPaymentMethod;
-    window.cancelPaymentForm = cancelPaymentForm;
-    window.submitPayment = submitPayment;
-</script>
 </body>
 </html>
