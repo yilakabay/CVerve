@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - CVerve Payment Verifier</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-[Inter]">
+<div class="container mx-auto p-6 max-w-2xl">
+    <h1 class="text-3xl font-bold text-indigo-600 mb-6">Admin Payment Verifier</h1>
+
+    <!-- Registration / Login -->
+    <div id="adminAuth" class="bg-white p-6 rounded-xl shadow-md">
+        <div id="adminRegisterForm">
+            <h2 class="text-xl font-semibold mb-4">First-time Setup: Create Admin Account</h2>
+            <input type="tel" id="adminPhone" placeholder="Phone Number" class="w-full p-2 border rounded mb-2">
+            <input type="password" id="adminPassword" placeholder="Password" class="w-full p-2 border rounded mb-2">
+            <input type="password" id="adminConfirmPassword" placeholder="Confirm Password" class="w-full p-2 border rounded mb-4">
+            <button onclick="registerAdmin()" class="bg-indigo-500 text-white px-4 py-2 rounded">Register</button>
+        </div>
+        <div id="adminLoginForm" class="hidden">
+            <h2 class="text-xl font-semibold mb-4">Admin Login</h2>
+            <input type="tel" id="loginPhone" placeholder="Phone Number" class="w-full p-2 border rounded mb-2">
+            <input type="password" id="loginPassword" placeholder="Password" class="w-full p-2 border rounded mb-4">
+            <button onclick="loginAdmin()" class="bg-indigo-500 text-white px-4 py-2 rounded">Login</button>
+        </div>
+    </div>
+
+    <!-- Verification Panel (shown after login) -->
+    <div id="adminPanel" class="hidden mt-6 bg-white p-6 rounded-xl shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Verify Pending Payments</h2>
+        <p class="text-sm text-gray-600 mb-2">Enter Payment IDs (one per line):</p>
+        <textarea id="paymentIdsInput" rows="10" class="w-full border rounded p-2 font-mono text-sm" placeholder="FT123456789&#10;FT987654321"></textarea>
+        <button onclick="submitVerification()" class="bg-emerald-500 text-white px-6 py-2 rounded mt-2">Verify and Credit</button>
+        <div id="verificationResult" class="mt-4 text-sm"></div>
+        <hr class="my-4">
+        <h3 class="font-semibold">Pending Payments List</h3>
+        <div id="pendingList" class="mt-2 text-sm overflow-auto max-h-96"></div>
+    </div>
+</div>
+
+<script>
+    let adminToken = null;
+
+    async function registerAdmin() {
+        const phone = document.getElementById('adminPhone').value.trim();
+        const password = document.getElementById('adminPassword').value;
+        const confirm = document.getElementById('adminConfirmPassword').value;
+        if (!phone || !password) return alert('Phone and password required');
+        if (password !== confirm) return alert('Passwords do not match');
+        const res = await fetch('/.netlify/functions/admin-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'register', phone, password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            alert('Admin registered. Please login.');
+            document.getElementById('adminRegisterForm').classList.add('hidden');
+            document.getElementById('adminLoginForm').classList.remove('hidden');
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function loginAdmin() {
+        const phone = document.getElementById('loginPhone').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const res = await fetch('/.netlify/functions/admin-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'login', phone, password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            adminToken = data.token;
+            document.getElementById('adminAuth').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('hidden');
+            loadPendingPayments();
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function loadPendingPayments() {
+        const res = await fetch('/.netlify/functions/admin-get-pending', {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const pending = await res.json();
+        const container = document.getElementById('pendingList');
+        if (!pending.length) {
+            container.innerHTML = '<p class="text-gray-500">No pending payments.</p>';
+            return;
+        }
+        container.innerHTML = '<table class="w-full text-left border-collapse"><thead><tr><th>User</th><th>Payment ID</th><th>Amount</th><th>Method</th><th>Date</th></tr></thead><tbody>' +
+            pending.map(p => `<tr><td>${p.userId}</td><td>${p.paymentId}</td><td>${p.amount} ETB</td><td>${p.paymentMethod}</td><td>${new Date(p.createdAt).toLocaleString()}</td></tr>`).join('') +
+            '</tbody></table>';
+    }
+
+    async function submitVerification() {
+        const idsText = document.getElementById('paymentIdsInput').value;
+        const ids = idsText.split('\n').map(s => s.trim()).filter(s => s);
+        if (ids.length === 0) return alert('Enter at least one Payment ID');
+        const res = await fetch('/.netlify/functions/admin-verify-payments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+            body: JSON.stringify({ paymentIds: ids })
+        });
+        const result = await res.json();
+        document.getElementById('verificationResult').innerHTML = `<div class="bg-green-100 p-2 rounded">${result.message}</div>`;
+        loadPendingPayments();
+        document.getElementById('paymentIdsInput').value = '';
+    }
+</script>
+</body>
+</html>
