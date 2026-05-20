@@ -11,7 +11,7 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { userId, screenshotData, screenshotType, paymentMethod, expectedAmount } = JSON.parse(event.body);
+  const { userId, screenshotData, screenshotType, paymentMethod } = JSON.parse(event.body);
   if (!userId || !screenshotData) {
     return { statusCode: 400, body: JSON.stringify({ error: 'User ID and screenshot are required' }) };
   }
@@ -22,21 +22,15 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Convert base64 to buffer for OCR (only if image, PDF would need different handling)
+    // Clean base64 data
     let cleanData = screenshotData;
     if (screenshotData.includes('base64,')) cleanData = screenshotData.split('base64,')[1];
     const buffer = Buffer.from(cleanData, 'base64');
 
-    // Use Gemini to extract receipt fields
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
 
-    // For images, we can use vision; for PDF we'd need to extract text first.
-    // Since we accept both, we'll assume the screenshot is an image (user will upload image of the SMS/transaction).
-    // If PDF, we could extract text with pdf-parse, but for simplicity we'll treat as image and rely on Gemini vision.
-    // Gemini 2.5 flash supports vision. We'll send the image as base64 inline.
-
-    const prompt = `Extract the following from this payment receipt image (CBE, CBEBirr, or bank transfer):
+    const prompt = `Extract from this payment receipt image (CBE, CBEBirr, or bank transfer):
 1. Receiver name (the person/company that received the money)
 2. Payment ID (starts with "FT" or a transaction reference number)
 3. Amount (numeric value only, in ETB)
@@ -72,7 +66,6 @@ Return only JSON: {"receiver_name": "...", "payment_id": "...", "amount": number
       return { statusCode: 400, body: JSON.stringify({ error: 'Amount must be at least 100 ETB.' }) };
     }
 
-    // Check if payment ID already used (in verified payments)
     await client.connect();
     const db = client.db('cverve');
     const paymentsCollection = db.collection('payments');
@@ -81,16 +74,15 @@ Return only JSON: {"receiver_name": "...", "payment_id": "...", "amount": number
       return { statusCode: 400, body: JSON.stringify({ error: 'This payment ID has already been used.' }) };
     }
 
-    // Store pending payment (awaiting admin verification)
+    // Store pending payment
     const pendingPayments = db.collection('pendingPayments');
     await pendingPayments.insertOne({
       userId,
       paymentId: payment_id,
       amount: numericAmount,
       paymentMethod,
-      expectedAmount: expectedAmount || numericAmount,
       receiverName: receiver_name,
-      screenshotData: cleanData,   // store for admin reference
+      screenshotData: cleanData,
       status: 'pending',
       createdAt: new Date(),
     });
