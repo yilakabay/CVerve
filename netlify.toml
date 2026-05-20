@@ -1,0 +1,9 @@
+[build]
+  functions = "functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[functions]]
+  path = "/functions/*"
+  timeout = 60
