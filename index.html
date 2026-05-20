@@ -52,6 +52,12 @@
             }).catch(() => showMessage('error', 'Failed to copy account number'));
         }
 
+        function copyCBEBirrNumber() {
+            navigator.clipboard.writeText('0985576139').then(() => {
+                showMessage('success', 'CBEBirr phone number copied!');
+            }).catch(() => showMessage('error', 'Failed to copy number'));
+        }
+
         function attachEventListeners() {
             const ids = {
                 mergePdfBtn: mergePdfs,
@@ -311,7 +317,7 @@
             } finally { hideLoadingOverlay(); }
         }
 
-        // ── Download letter as PDF — no header, compact body (~2/3 of a page) ──
+        // Download letter as PDF (no print, just download)
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
             if (!letterText) {
@@ -324,17 +330,15 @@
 
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
-            const mL = 72, mR = 72, mT = 72, mB = 72;   // 1-inch margins
+            const mL = 72, mR = 72, mT = 72, mB = 72;
             const usableW = pageW - mL - mR;
-            const lineH   = 15;   // tighter line spacing (pt)
+            const lineH = 15;
 
-            // Body only — no CVerve heading, no divider
             doc.setFont('times', 'normal');
-            doc.setFontSize(11);              // slightly smaller font
+            doc.setFontSize(11);
             doc.setTextColor(30, 30, 30);
 
             let y = mT;
-
             letterText.split('\n').forEach(rawLine => {
                 const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
                 wrapped.forEach(line => {
@@ -343,35 +347,113 @@
                     y += lineH;
                 });
             });
-
             doc.save('application_letter.pdf');
             showMessage('success', 'Letter downloaded successfully!');
         }
-        // ── END ───────────────────────────────────────────────────────────────
 
-        window.showTopUpForm = () => document.getElementById('topUpForm').classList.remove('hidden');
-
-        async function confirmPayment() {
-            const screenshotFile = document.getElementById('paymentScreenshot').files[0];
-            if (!screenshotFile) { showMessage('error', 'Please upload a screenshot.'); return; }
-            showLoadingOverlay('Confirming your payment...');
-            try {
-                const response = await fetch('/.netlify/functions/process-payment', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, screenshotData: await fileToBase64(screenshotFile), screenshotType: screenshotFile.type })
-                });
-                if (!response.ok) { showMessage('error', `Payment Error: ${response.statusText}`); return; }
-                const result = await response.json();
-                if (result.success) {
-                    userBalance = result.newBalance;
-                    document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
-                    showMessage('success', 'Payment confirmed! Your balance has been updated.');
-                    document.getElementById('topUpForm').classList.add('hidden');
-                } else { showMessage('error', result.message || 'Payment failed'); }
-            } catch { showMessage('error', 'An unexpected error occurred during payment confirmation.'); }
-            finally { hideLoadingOverlay(); }
+        // ---------- PAYMENT POPUP (NEW) ----------
+        function showTopUpForm() {
+            document.getElementById('paymentMethodPopup').classList.remove('hidden');
         }
 
+        function closePaymentPopup() {
+            document.getElementById('paymentMethodPopup').classList.add('hidden');
+        }
+
+        function selectPaymentMethod(method) {
+            closePaymentPopup();
+            if (method === 'telebirr') {
+                showMessage('info', 'Telebirr payment is coming soon!');
+                return;
+            }
+            if (method === 'bank') {
+                document.getElementById('bankTransferForm').classList.remove('hidden');
+            } else if (method === 'cbebirr') {
+                document.getElementById('cbebirrForm').classList.remove('hidden');
+            }
+        }
+
+        function cancelPaymentForm(formId) {
+            document.getElementById(formId).classList.add('hidden');
+        }
+
+        async function submitBankPayment() {
+            const screenshotInput = document.getElementById('bankScreenshot');
+            const file = screenshotInput.files[0];
+            if (!file) { showMessage('error', 'Please upload a payment screenshot.'); return; }
+            const amount = parseFloat(document.getElementById('bankAmount').value);
+            if (isNaN(amount) || amount < 100) { showMessage('error', 'Amount must be at least 100 ETB.'); return; }
+
+            showLoadingOverlay('Processing payment screenshot...');
+            try {
+                const base64 = await fileToBase64(file);
+                const response = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        screenshotData: base64,
+                        screenshotType: file.type,
+                        paymentMethod: 'bank',
+                        expectedAmount: amount
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showMessage('success', data.message || 'Payment recorded. It will be verified within 6 hours.');
+                    document.getElementById('bankTransferForm').classList.add('hidden');
+                    document.getElementById('bankScreenshot').value = '';
+                    document.getElementById('bankAmount').value = '';
+                } else {
+                    showMessage('error', data.error || 'Payment submission failed.');
+                }
+            } catch (err) {
+                showMessage('error', 'Network error. Please try again.');
+            } finally {
+                hideLoadingOverlay();
+            }
+        }
+
+        async function submitCBEBirrPayment() {
+            const screenshotInput = document.getElementById('cbebirrScreenshot');
+            const file = screenshotInput.files[0];
+            if (!file) { showMessage('error', 'Please upload a payment screenshot.'); return; }
+            const amount = parseFloat(document.getElementById('cbebirrAmount').value);
+            if (isNaN(amount) || amount < 100) { showMessage('error', 'Amount must be at least 100 ETB.'); return; }
+
+            showLoadingOverlay('Processing payment screenshot...');
+            try {
+                const base64 = await fileToBase64(file);
+                const response = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        screenshotData: base64,
+                        screenshotType: file.type,
+                        paymentMethod: 'cbebirr',
+                        expectedAmount: amount
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showMessage('success', data.message || 'Payment recorded. It will be verified within 6 hours.');
+                    document.getElementById('cbebirrForm').classList.add('hidden');
+                    document.getElementById('cbebirrScreenshot').value = '';
+                    document.getElementById('cbebirrAmount').value = '';
+                } else {
+                    showMessage('error', data.error || 'Payment submission failed.');
+                }
+            } catch (err) {
+                showMessage('error', 'Network error. Please try again.');
+            } finally {
+                hideLoadingOverlay();
+            }
+        }
+
+        // ---- Manual payment verification (admin only) ----
+
+        // ---- Update balance (unchanged) ----
         async function updateBalance(amount) {
             try {
                 const response = await fetch('/.netlify/functions/update-balance', {
@@ -387,6 +469,10 @@
             } catch { /* silent */ }
             return false;
         }
+
+        // For backwards compatibility (old confirmPayment) – but we'll replace with new popup.
+        window.showTopUpForm = showTopUpForm;
+        // Override any old confirmPayment if needed
     </script>
     <style>
         @keyframes pulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
@@ -403,6 +489,58 @@
             position:absolute; right:100px; top:50%; transform:translateY(-50%);
             pointer-events:none; background:white; padding:2px 8px; border-radius:12px;
             font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap;
+        }
+        /* Payment method popup from bottom */
+        .payment-popup {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            transition: transform 0.3s ease;
+            transform: translateY(100%);
+        }
+        .payment-popup.open {
+            transform: translateY(0);
+        }
+        .payment-option {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .payment-option:hover {
+            background: #f3f4f6;
+        }
+        .payment-option img {
+            width: 32px;
+            height: 32px;
+            margin-right: 16px;
+        }
+        .payment-form-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .payment-form-card {
+            background: white;
+            border-radius: 24px;
+            max-width: 400px;
+            width: 90%;
+            padding: 24px;
+            position: relative;
         }
     </style>
 </head>
@@ -569,31 +707,91 @@
                     <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
                     <button onclick="showTopUpForm()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">Top Up</button>
                 </div>
-                <div id="topUpForm" class="hidden space-y-4">
-                    <div class="bg-yellow-50 p-4 rounded-lg text-sm text-yellow-800">
-                        <h3 class="font-bold mb-2">Payment Instructions:</h3>
-                        <p>✔️ Payment Method: Bank Transfer</p>
-                        <p>✔️ Bank: Commercial Bank of Ethiopia</p>
-                        <p class="flex items-center">✔️ Account Number: 1000577617639
-                            <button onclick="copyAccountNumber()" class="ml-2 text-blue-600 hover:text-blue-800 focus:outline-none" title="Copy account number">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                            </button>
-                        </p>
-                        <p>✔️ Account Name: YILAK ABAY ABEBE</p>
-                        <p>✔️ Amount: Minimum 30 ETB</p>
-                        <p class="mt-2">After you pay please send the screenshot of the text you received from CBE below.</p>
-                    </div>
-                    <label class="block">
-                        <span class="text-sm font-medium text-gray-700">Upload your payment screenshot</span>
-                        <input type="file" id="paymentScreenshot" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                    </label>
-                    <button id="confirmPaymentBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Confirm Payment</button>
-                </div>
             </div>
         </div>
-
     </div>
 </div>
 
+<!-- Payment Method Popup (slide from bottom) -->
+<div id="paymentMethodPopup" class="payment-popup" style="transform: translateY(100%);">
+    <div class="bg-white rounded-t-2xl shadow-xl">
+        <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 class="text-lg font-semibold">Select Payment Method</h3>
+            <button onclick="closePaymentPopup()" class="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <div class="payment-option" onclick="selectPaymentMethod('telebirr')">
+            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">📱</div>
+            <span class="ml-3 font-medium">Telebirr (Coming Soon)</span>
+        </div>
+        <div class="payment-option" onclick="selectPaymentMethod('cbebirr')">
+            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">📞</div>
+            <span class="ml-3 font-medium">CBEBirr</span>
+        </div>
+        <div class="payment-option" onclick="selectPaymentMethod('bank')">
+            <div class="w-8 h-8 flex items-center justify-center bg-indigo-100 rounded-full">🏦</div>
+            <span class="ml-3 font-medium">Bank Transfer (CBE)</span>
+        </div>
+    </div>
+</div>
+
+<!-- Bank Transfer Form -->
+<div id="bankTransferForm" class="payment-form-overlay hidden">
+    <div class="payment-form-card">
+        <button onclick="cancelPaymentForm('bankTransferForm')" class="absolute top-3 right-3 text-gray-500 hover:text-gray-700">✕</button>
+        <h3 class="text-xl font-bold mb-4">Bank Transfer (CBE)</h3>
+        <div class="space-y-3">
+            <p><strong>Account Number:</strong> 1000577617639 <button onclick="copyAccountNumber()" class="text-blue-600 text-sm underline">Copy</button></p>
+            <p><strong>Account Name:</strong> YILAK ABAY ABEBE</p>
+            <div>
+                <label class="block text-sm font-medium">Amount (ETB) <span class="text-red-500">* min 100</span></label>
+                <input type="number" id="bankAmount" min="100" step="1" class="w-full border rounded-lg p-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium">Payment Screenshot (or PDF)</label>
+                <input type="file" id="bankScreenshot" accept="image/*,application/pdf" class="w-full border rounded-lg p-1">
+                <p class="text-xs text-gray-500 mt-1">Upload the CBE SMS or transaction receipt (image or PDF).</p>
+            </div>
+            <button onclick="submitBankPayment()" class="w-full bg-indigo-500 text-white py-2 rounded-full font-semibold mt-2">Submit Payment</button>
+        </div>
+    </div>
+</div>
+
+<!-- CBEBirr Form -->
+<div id="cbebirrForm" class="payment-form-overlay hidden">
+    <div class="payment-form-card">
+        <button onclick="cancelPaymentForm('cbebirrForm')" class="absolute top-3 right-3 text-gray-500 hover:text-gray-700">✕</button>
+        <h3 class="text-xl font-bold mb-4">CBEBirr Payment</h3>
+        <div class="space-y-3">
+            <p><strong>Phone Number:</strong> 0985576139 <button onclick="copyCBEBirrNumber()" class="text-blue-600 text-sm underline">Copy</button></p>
+            <div>
+                <label class="block text-sm font-medium">Amount (ETB) <span class="text-red-500">* min 100</span></label>
+                <input type="number" id="cbebirrAmount" min="100" step="1" class="w-full border rounded-lg p-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium">Payment Screenshot (or PDF)</label>
+                <input type="file" id="cbebirrScreenshot" accept="image/*,application/pdf" class="w-full border rounded-lg p-1">
+                <p class="text-xs text-gray-500 mt-1">Upload the CBEBirr transaction screenshot or PDF.</p>
+            </div>
+            <button onclick="submitCBEBirrPayment()" class="w-full bg-indigo-500 text-white py-2 rounded-full font-semibold mt-2">Submit Payment</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Ensure popup slides up
+    function showTopUpForm() {
+        const popup = document.getElementById('paymentMethodPopup');
+        popup.style.transform = 'translateY(0)';
+        popup.classList.add('open');
+    }
+    function closePaymentPopup() {
+        const popup = document.getElementById('paymentMethodPopup');
+        popup.style.transform = 'translateY(100%)';
+        popup.classList.remove('open');
+    }
+    // Override window.showTopUpForm
+    window.showTopUpForm = showTopUpForm;
+    // Ensure any existing global functions
+</script>
 </body>
 </html>
