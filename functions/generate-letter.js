@@ -25,9 +25,8 @@ exports.handler = async (event, context) => {
     console.log("CV Text Length:", cvText.length);
     console.log("JD Text Length:", jdText.length);
 
-    // Truncate very long texts (Gemini 2.5 Flash has 1M context, but keep for safety)
     const MAX_TEXT_LENGTH = 50000;
-    const truncatedJdText = jdText.length > MAX_TEXT_LENGTH 
+    const truncatedJdText = jdText.length > MAX_TEXT_LENGTH
       ? jdText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : jdText;
     const truncatedCvText = cvText.length > MAX_TEXT_LENGTH
@@ -54,24 +53,22 @@ exports.handler = async (event, context) => {
       - Date: ${appDate}
 
       INSTRUCTIONS:
-      Write a professional application letter for the position described in the JOB DESCRIPTION section.
-      
-      CRITICAL GUIDELINES:
-      1. Use the exact company name and position title as they appear in the job description.
-      2. Write a clear subject line that mentions the specific position the user is applying for next to the company information. This is crucial and must not be skipped.
-      3. Do not use placeholders like [Company Name] or [Position Title]; use the actual names.
-      4. Format the contact information at the top: Name, Phone, Email, Address, Date (just put the values, no labels).
-      5. Address the letter to the appropriate recipient by name. If no name is provided, use "Dear Hiring Manager."
-      6. Keep the letter professional, concise, and approximately 4/5 of a page in length including the user and the company information.
-      7. Do not mention attaching a resume or other documents.
-      8. Only mention the applicant's Grade Point Average (GPA) if it is 3.0 or higher. Do not include the "/4.0" scale.
-      9. Adopt a humble and factual tone; avoid exaggeration and overpromising.
-      10. If the applicant's relevant experience is primarily from internships (and not long-term roles), focus on their soft skills and educational alignment with the position rather than the duration of their experience.
-      11. Do not use any listing or bullet points. Just plain paragraphs. About three paragraphs that state the user understands the job, fits the position, and is really interested.
-      12. Do not bold any text on the letter.
-      13. Avoid using em dashes (—).
-      
-      Now generate the application letter following all these guidelines precisely:
+      Write a short, genuine application letter for the position in the JOB DESCRIPTION above.
+
+      STRICT GUIDELINES:
+      1. Total body length: exactly 3 paragraphs. Each paragraph is 3-4 sentences maximum. The entire letter body must fit in roughly two thirds of an A4 page — no more.
+      2. Header block (no labels): Name, Phone, Email, Address, Date — each on its own line.
+      3. Then a subject line naming the exact position and company.
+      4. Then "Dear Hiring Manager" (or recipient name if given in the JD).
+      5. Paragraph 1: State the position you are applying for and one or two specific reasons you are a strong fit, drawn directly from the CV and JD. Be factual and concrete, not generic.
+      6. Paragraph 2: Express genuine interest in the company/role in one sentence, then close with availability and contact info in one sentence.
+      7. Close with "Sincerely," then the applicant's name.
+      8. Tone: natural, humble, and direct — write like a real person, not a template. Avoid corporate filler phrases such as "I am excited to apply", "I am confident", "leverage my skills", "dynamic team", or any similar buzzwords.
+      9. No bullet points, no bold text, no em dashes, no placeholders.
+      10. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
+      11. Do not mention attaching documents.
+
+      Generate the letter now:
     `;
 
     const result = await model.generateContent(prompt);
