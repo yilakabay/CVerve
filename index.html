@@ -311,7 +311,7 @@
             } finally { hideLoadingOverlay(); }
         }
 
-        // ── FIXED: Download letter as a real PDF using jsPDF ──────────────────
+        // ── Download letter as PDF — no header, compact body (~2/3 of a page) ──
         function printLetter() {
             const letterText = document.getElementById('applicationLetter').value;
             if (!letterText) {
@@ -322,35 +322,19 @@
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ unit: 'pt', format: 'a4' });
 
-            const pageW  = doc.internal.pageSize.getWidth();
-            const pageH  = doc.internal.pageSize.getHeight();
-            const mL = 60, mR = 60, mT = 60, mB = 60;
+            const pageW = doc.internal.pageSize.getWidth();
+            const pageH = doc.internal.pageSize.getHeight();
+            const mL = 72, mR = 72, mT = 72, mB = 72;   // 1-inch margins
             const usableW = pageW - mL - mR;
-            const lineH   = 17; // pt
+            const lineH   = 15;   // tighter line spacing (pt)
 
-            // Header
-            doc.setFont('times', 'bold');
-            doc.setFontSize(20);
-            doc.setTextColor(79, 70, 229);
-            doc.text('CVerve', pageW / 2, mT, { align: 'center' });
-
-            doc.setFont('times', 'italic');
-            doc.setFontSize(11);
-            doc.setTextColor(100, 100, 100);
-            doc.text('Professional Application Letter', pageW / 2, mT + 18, { align: 'center' });
-
-            doc.setDrawColor(200, 200, 200);
-            doc.setLineWidth(0.5);
-            doc.line(mL, mT + 28, pageW - mR, mT + 28);
-
-            // Body
+            // Body only — no CVerve heading, no divider
             doc.setFont('times', 'normal');
-            doc.setFontSize(12);
+            doc.setFontSize(11);              // slightly smaller font
             doc.setTextColor(30, 30, 30);
 
-            let y = mT + 48;
+            let y = mT;
 
-            // Split on newlines, then wrap each line to page width
             letterText.split('\n').forEach(rawLine => {
                 const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
                 wrapped.forEach(line => {
@@ -363,7 +347,7 @@
             doc.save('application_letter.pdf');
             showMessage('success', 'Letter downloaded successfully!');
         }
-        // ── END FIX ───────────────────────────────────────────────────────────
+        // ── END ───────────────────────────────────────────────────────────────
 
         window.showTopUpForm = () => document.getElementById('topUpForm').classList.remove('hidden');
 
