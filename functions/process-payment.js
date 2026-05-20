@@ -1,3 +1,7 @@
+// functions/process-payment.js
+// Handles payment submission: extracts text from uploaded file,
+// uses Gemini to parse payment details, validates, and stores as "pending".
+
 const { MongoClient } = require('mongodb');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const pdfParse = require('pdf-parse');
@@ -6,332 +10,231 @@ const tesseract = require('tesseract.js');
 const sharp = require('sharp');
 
 const uri = process.env.MONGODB_URI;
-let cachedClient = null;
+const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ─────────────────────────────────────────────────────────────────
-// 1. MONGODB CONNECTION (reuse across warm invocations)
-// ─────────────────────────────────────────────────────────────────
-async function getMongoClient() {
-  if (cachedClient && cachedClient.topology && cachedClient.topology.isConnected()) {
-    return cachedClient;
+// ── Text extraction (mirrors extract-text.js logic) ─────────────────────────
+
+async function extractTextFromImage(imageBuffer) {
+  let processedBuffer;
+  try {
+    processedBuffer = await sharp(imageBuffer).grayscale().normalize().sharpen().toBuffer();
+  } catch {
+    processedBuffer = imageBuffer;
   }
-  cachedClient = new MongoClient(uri, {
-    maxPoolSize: 10,
-    minPoolSize: 1,
-    maxIdleTimeMS: 30000,
-    serverSelectionTimeoutMS: 5000,
-  });
-  await cachedClient.connect();
-  return cachedClient;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// 2. EXTRACT TEXT FROM PAYMENT FILE
-// ─────────────────────────────────────────────────────────────────
-async function extractTextFromPaymentFile(base64Data, mimeType) {
-  const buffer = Buffer.from(base64Data, 'base64');
-
-  if (mimeType.includes('pdf')) {
-    const data = await pdfParse(buffer);
-    if (data.text && data.text.trim().length > 0) return data.text;
-    throw new Error('PDF contains no extractable text');
-  }
-
-  if (mimeType.includes('word') || mimeType.includes('document')) {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  }
-
-  if (mimeType.includes('image')) {
-    let processedBuffer;
-    try {
-      processedBuffer = await sharp(buffer)
-        .grayscale()
-        .normalize()
-        .sharpen()
-        .toBuffer();
-    } catch {
-      processedBuffer = buffer;
-    }
-    const { data: { text } } = await tesseract.recognize(processedBuffer, 'eng');
+  try {
+    const { data: { text } } = await tesseract.recognize(processedBuffer, 'eng', { logger: () => {} });
     if (text && text.trim().length > 0) return text;
     throw new Error('No text found in image');
+  } catch {
+    const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
+    return text || '[No text extracted]';
   }
+}
 
+async function extractTextFromFile(base64Data, mimeType) {
+  const buffer = Buffer.from(base64Data, 'base64');
+  if (mimeType.includes('pdf')) {
+    try {
+      const data = await pdfParse(buffer);
+      if (data.text && data.text.trim().length > 0) return data.text;
+      // image-based PDF → fall through to OCR
+      return await extractTextFromImage(buffer);
+    } catch {
+      return await extractTextFromImage(buffer);
+    }
+  } else if (mimeType.includes('word') || mimeType.includes('document')) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  } else if (mimeType.includes('image')) {
+    return await extractTextFromImage(buffer);
+  }
   throw new Error('Unsupported file type: ' + mimeType);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// 3. GEMINI CALL WITH RETRY (handles 503 + logs real errors)
-// ─────────────────────────────────────────────────────────────────
-async function callGeminiWithRetry(model, prompt, retries = 3, initialDelay = 1000) {
+// ── Gemini extraction with retry + fallback ──────────────────────────────────
+
+async function extractPaymentDetailsWithGemini(text) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Missing Gemini API key');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const prompt = `
+Analyze the following payment confirmation text and extract exactly:
+1. receiver_name – the name of the person or account that received the money
+2. payment_id   – the transaction/reference ID (usually starts with "FT", but include whatever ID is present)
+3. amount       – numeric value only (no currency symbols)
+
+Respond ONLY with a valid JSON object with keys: receiver_name, payment_id, amount.
+If a field is not found, set its value to null.
+
+Payment text:
+${text}
+  `.trim();
+
+  const models = ['gemini-1.5-flash', 'gemini-1.5-pro'];
   let lastError;
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      return result;
-    } catch (err) {
-      lastError = err;
-
-      // Always log the real error for debugging
-      console.error(`Gemini attempt ${attempt}/${retries} failed — status: ${err.status ?? 'unknown'}, message: ${err.message}`);
-
-      const status = err.status ?? 0;
-      const msg = err.message ?? '';
-
-      // Only retry on 503 (overloaded) or network errors
-      const shouldRetry =
-        status === 503 ||
-        msg.includes('503') ||
-        msg.includes('UNAVAILABLE') ||
-        msg.includes('fetch failed');
-
-      if (shouldRetry && attempt < retries) {
-        const delay = initialDelay * Math.pow(2, attempt - 1);
-        console.log(`Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
+  for (const modelName of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const raw = result.response.text().replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(raw);
+        console.log(`Gemini (${modelName}) extracted:`, parsed);
+        return parsed;
+      } catch (err) {
+        console.error(`Gemini attempt failed (${modelName}, attempt ${attempt + 1}):`, err.message);
+        lastError = err;
+        await new Promise(r => setTimeout(r, 1000));
       }
-
-      // For auth/rate limit/not-found errors, fail immediately — no point retrying
-      break;
     }
   }
-
-  throw lastError;
+  throw new Error('Gemini extraction failed after retries: ' + lastError.message);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// 4. MAIN HANDLER
-// ─────────────────────────────────────────────────────────────────
+// ── Validation helpers ───────────────────────────────────────────────────────
+
+function isValidReceiverName(name) {
+  if (!name) return false;
+  const normalized = name.trim().toLowerCase();
+  return normalized === 'yilak abay' || normalized === 'yilak abay abebe';
+}
+
+// ── Handler ──────────────────────────────────────────────────────────────────
+
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
-
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: 'Method Not Allowed' };
+    return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  // ── Parse request body ──
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON in request body' }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { userId, screenshotData, screenshotType, paymentMethod } = body;
+  const { userId, fileData, fileType, paymentMethod } = body;
 
-  if (!userId || !screenshotData) {
+  if (!userId || !fileData || !fileType) {
     return {
       statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'User ID and screenshot are required' }),
+      body: JSON.stringify({ error: 'userId, fileData, and fileType are required' })
     };
   }
 
-  // ── Check env vars upfront ──
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    console.error('GEMINI_API_KEY environment variable is not set');
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Server configuration error. Please contact support.' }),
-    };
-  }
-
-  if (!uri) {
-    console.error('MONGODB_URI environment variable is not set');
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Server configuration error. Please contact support.' }),
-    };
-  }
-
-  // ── Clean base64 ──
-  let cleanData = screenshotData;
-  if (screenshotData.includes('base64,')) {
-    cleanData = screenshotData.split('base64,')[1];
-  }
-
-  // ── Step 1: Extract text from file ──
-  let extractedText;
   try {
-    extractedText = await extractTextFromPaymentFile(cleanData, screenshotType);
-    console.log(`Extracted text length: ${extractedText.length}`);
-
-    if (!extractedText || extractedText.trim().length < 20) {
-      throw new Error('Extracted text too short to be a valid receipt');
+    // 1. Extract text from uploaded file
+    console.log('Extracting text from payment file, mimeType:', fileType);
+    let extractedText;
+    try {
+      extractedText = await extractTextFromFile(fileData, fileType);
+    } catch (err) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Could not read your file. Please upload a clear screenshot or PDF of the payment confirmation.' })
+      };
     }
-  } catch (extractError) {
-    console.error('Text extraction failed:', extractError.message);
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({
-        error: 'Could not read payment receipt. Please upload a clear image or PDF of the transaction confirmation.',
-      }),
-    };
-  }
 
-  // ── Step 2: Parse with Gemini ──
-  let extracted;
-  try {
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    if (!extractedText || extractedText.trim().length < 5) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'No readable text found in the uploaded file. Please upload a clearer image or PDF.' })
+      };
+    }
 
-    // gemini-2.0-flash is current, stable, and fast
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    console.log('Extracted text length:', extractedText.length);
 
-    const prompt = `
-You are a payment receipt parser. Extract the following from the text below.
-
-Text:
-${extractedText}
-
-Return ONLY valid JSON with no markdown, no backticks, no explanation:
-{"receiver_name": "...", "payment_id": "...", "amount": number}
-
-Rules:
-- receiver_name: must be exactly "Yilak Abay" or "Yilak Abay Abebe" (case insensitive). If not found, use null.
-- payment_id: a transaction reference. For CBE it often starts with "FT". If multiple, pick the one that looks like a transaction ID. Use null if none.
-- amount: numeric value in ETB (e.g. 100). Ignore currency symbols. Use null if not found.
-`;
-
-    const result = await callGeminiWithRetry(model, prompt);
-    const responseText = result.response.text();
-
-    console.log('Gemini raw response:', responseText);
-
-    // Strip markdown fences if present
-    const clean = responseText.replace(/```json|```/g, '').trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON object found in Gemini response');
-
-    extracted = JSON.parse(jsonMatch[0]);
-  } catch (geminiError) {
-    console.error('Gemini error:', geminiError.status, geminiError.message);
-
-    // Give a specific message for known error types
-    const status = geminiError.status ?? 0;
-    const msg = geminiError.message ?? '';
-
-    if (status === 401 || msg.includes('API_KEY') || msg.includes('authentication')) {
+    // 2. Use Gemini to parse payment details
+    let extracted;
+    try {
+      extracted = await extractPaymentDetailsWithGemini(extractedText);
+    } catch (err) {
       return {
         statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Payment service authentication error. Please contact support.' }),
+        body: JSON.stringify({ error: 'Failed to analyze payment details. Please try again in a moment.' })
       };
     }
 
-    if (status === 429 || msg.includes('quota') || msg.includes('RATE_LIMIT')) {
-      return {
-        statusCode: 429,
-        headers,
-        body: JSON.stringify({ error: 'Payment verification is busy. Please try again in a minute.' }),
-      };
-    }
+    const { receiver_name, payment_id, amount } = extracted;
 
-    if (msg.includes('No JSON')) {
+    // 3. Validate receiver name
+    if (!isValidReceiverName(receiver_name)) {
       return {
         statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Could not parse payment details. Please ensure the receipt is complete and readable.' }),
+        body: JSON.stringify({
+          error: `Payment validation failed: The receiver name "${receiver_name || 'not found'}" does not match the expected account holder. Please make sure you sent money to the correct account.`
+        })
       };
     }
 
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Payment verification service temporarily unavailable. Please try again in a few minutes.' }),
-    };
-  }
+    // 4. Validate amount
+    const numericAmount = parseFloat(String(amount).replace(/[^\d.]/g, ''));
+    if (isNaN(numericAmount) || numericAmount < 100) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: `Payment validation failed: The detected amount (${amount ?? 'not found'} ETB) is below the minimum of 100 ETB. Please top up with at least 100 ETB.`
+        })
+      };
+    }
 
-  // ── Step 3: Validate extracted fields ──
-  const { receiver_name, payment_id, amount } = extracted;
+    // 5. Validate payment ID
+    if (!payment_id) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Payment validation failed: Could not find a transaction ID in the uploaded file. Please upload the original payment confirmation.' })
+      };
+    }
 
-  if (!receiver_name || !payment_id || amount === undefined || amount === null) {
-    console.error('Missing fields in extracted data:', extracted);
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({
-        error: 'Missing required fields (receiver name, payment ID, or amount). Please upload a complete transaction receipt.',
-      }),
-    };
-  }
-
-  const validNames = ['yilak abay', 'yilak abay abebe'];
-  if (!validNames.includes(receiver_name.toLowerCase().trim())) {
-    console.error('Receiver name mismatch:', receiver_name);
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Payment receiver name mismatch. Please ensure you paid to the correct account.' }),
-    };
-  }
-
-  const numericAmount = parseFloat(amount);
-  if (isNaN(numericAmount) || numericAmount < 100) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Amount must be at least 100 ETB.' }),
-    };
-  }
-
-  // ── Step 4: Store in MongoDB ──
-  try {
-    const client = await getMongoClient();
+    // 6. Check for duplicate payment ID
+    await client.connect();
     const db = client.db('cverve');
+    const pendingCol = db.collection('pending_payments');
+    const verifiedCol = db.collection('payments');
 
-    // Check for duplicate payment ID
-    const existing = await db.collection('payments').findOne({ paymentId: payment_id });
-    if (existing) {
+    const alreadyPending  = await pendingCol.findOne({ paymentId: payment_id });
+    const alreadyVerified = await verifiedCol.findOne({ paymentId: payment_id });
+
+    if (alreadyPending || alreadyVerified) {
       return {
         statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'This payment ID has already been used.' }),
+        body: JSON.stringify({ error: 'This payment ID has already been submitted or used. Please do not resubmit the same transaction.' })
       };
     }
 
-    await db.collection('pendingPayments').insertOne({
-      userId,
+    // 7. Store as pending
+    await pendingCol.insertOne({
       paymentId: payment_id,
+      userId,
       amount: numericAmount,
-      paymentMethod,
       receiverName: receiver_name,
-      screenshotData: cleanData,
-      extractedText: extractedText.substring(0, 500),
+      paymentMethod: paymentMethod || 'unknown',
       status: 'pending',
-      createdAt: new Date(),
+      submittedAt: new Date()
     });
-  } catch (dbError) {
-    console.error('MongoDB error:', dbError.message);
+
+    console.log('Payment stored as pending:', payment_id, 'amount:', numericAmount, 'user:', userId);
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        success: true,
+        pending: true,
+        message: 'Payment recorded. Awaiting admin verification (within 6 hours).',
+        paymentId: payment_id,
+        amount: numericAmount
+      })
+    };
+
+  } catch (error) {
+    console.error('Payment processing error:', error);
     return {
       statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Database error. Please try again.' }),
+      body: JSON.stringify({ error: 'An unexpected error occurred. Please try again.' })
     };
   }
-
-  return {
-    statusCode: 200,
-    headers,
-    body: JSON.stringify({
-      success: true,
-      message: 'Payment recorded. Awaiting admin verification (within 6 hours).',
-    }),
-  };
 };
