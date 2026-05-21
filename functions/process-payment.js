@@ -12,13 +12,15 @@ const sharp = require('sharp');
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ── Text extraction (mirrors extract-text.js logic) ─────────────────────────
+// ── Text extraction (exact same logic as extract-text.js) ───────────────────
 
 async function extractTextFromImage(imageBuffer) {
   let processedBuffer;
   try {
     processedBuffer = await sharp(imageBuffer).grayscale().normalize().sharpen().toBuffer();
-  } catch {
+    console.log('Image pre-processing successful');
+  } catch (processError) {
+    console.log('Image pre-processing failed, using original:', processError.message);
     processedBuffer = imageBuffer;
   }
   try {
@@ -26,20 +28,30 @@ async function extractTextFromImage(imageBuffer) {
     if (text && text.trim().length > 0) return text;
     throw new Error('No text found in image');
   } catch {
-    const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
-    return text || '[No text extracted]';
+    try {
+      const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
+      return text || '[No text extracted]';
+    } catch (fallbackError) {
+      throw new Error('Could not extract text from image: ' + fallbackError.message);
+    }
   }
 }
 
 async function extractTextFromFile(base64Data, mimeType) {
   const buffer = Buffer.from(base64Data, 'base64');
+
   if (mimeType.includes('pdf')) {
     try {
       const data = await pdfParse(buffer);
-      if (data.text && data.text.trim().length > 0) return data.text;
-      // image-based PDF → fall through to OCR
+      if (data.text && data.text.trim().length > 0) {
+        console.log('PDF text extracted, length:', data.text.length);
+        return data.text;
+      }
+      // image-based PDF → fall through to OCR on the raw buffer
+      console.log('PDF has no text layer, attempting OCR...');
       return await extractTextFromImage(buffer);
-    } catch {
+    } catch (err) {
+      console.log('PDF parse failed, attempting OCR:', err.message);
       return await extractTextFromImage(buffer);
     }
   } else if (mimeType.includes('word') || mimeType.includes('document')) {
@@ -127,12 +139,13 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // 1. Extract text from uploaded file
+    // 1. Extract text from uploaded file (same path as CV/JD extraction)
     console.log('Extracting text from payment file, mimeType:', fileType);
     let extractedText;
     try {
       extractedText = await extractTextFromFile(fileData, fileType);
     } catch (err) {
+      console.error('Text extraction failed:', err.message);
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Could not read your file. Please upload a clear screenshot or PDF of the payment confirmation.' })
