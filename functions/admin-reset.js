@@ -10,9 +10,9 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
-  // Simple secret check so strangers can't hit this endpoint
+  // Hardcoded one-time secret — DELETE THIS FILE after use
   const secret = (event.queryStringParameters || {}).secret;
-  if (secret !== process.env.ADMIN_SECRET) {
+  if (secret !== 'cverve-reset-now') {
     return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 
