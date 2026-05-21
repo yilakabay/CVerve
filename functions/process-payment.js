@@ -83,13 +83,13 @@ Payment text:
 ${text}
   `.trim();
 
-  const models = ['gemini-1.5-flash', 'gemini-1.5-pro'];
+  const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
   let lastError;
 
   for (const modelName of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const model = genAI.getGenerativeModel({ model: modelName });
+        const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: 'v1beta' });
         const result = await model.generateContent(prompt);
         const raw = result.response.text().replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(raw);
