@@ -462,7 +462,7 @@
         let mergedPdf = null;
         async function mergePdfs() {
             if (pdfFilesArray.length < 2) { showMessage('error', 'Please select at least two PDF files to merge.'); return; }
-            const cost = 1.05;
+            const cost = 3;
             if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); return; }
             showLoadingOverlay('Merging PDFs...');
             try {
@@ -705,6 +705,11 @@
                 return;
             }
 
+            if (userBalance < 15) {
+                showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.');
+                return;
+            }
+
             let cvTextForLetter = null;
             let jdText = null;
 
@@ -895,7 +900,7 @@
                     document.getElementById('printLetterBtn').classList.remove('hidden');
                     document.getElementById('mergeWithCvBtn').classList.remove('hidden');
                     showMessage('success', 'Application letter generated successfully!');
-                    await updateBalance(-2.95);
+                    await updateBalance(-15);
                 } else {
                     showMessage('error', 'Could not generate letter. Please try again.');
                 }
