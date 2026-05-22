@@ -17,9 +17,10 @@
         let pdfFilesArray = [];
 
         // Profile storage related
-        let storedProfile = null;           // { fullName, phone, email, address, cvText }
+        let storedProfile = null;           // { fullName, phone, email, address, cvText, cvFilename }
         let usingStoredCv = false;          // whether we are using saved CV text (no upload needed)
         let storedCvText = null;
+        let storedCvFilename = null;
 
         function isValidPhoneNumber(phone) {
             const phoneRegex = /^(09|07)\d{8}$/;
@@ -74,7 +75,8 @@
             // If user uploads new CV files, we are no longer using stored CV only
             if (cvFilesArray.length > 0) {
                 usingStoredCv = false;
-                document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
             }
         }
         function handleJdFileSelect(e)  { jdFilesArray = [...jdFilesArray, ...Array.from(e.target.files)]; updateJdFilesList(); e.target.value = ''; }
@@ -116,12 +118,18 @@
             cvFilesArray.splice(i, 1);
             updateCvFilesList();
             if (cvFilesArray.length === 0 && storedProfile && storedProfile.cvText) {
-                // Optionally re-enable stored CV usage
+                // Re-enable stored CV usage
                 usingStoredCv = true;
-                document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+                document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+            } else if (cvFilesArray.length === 0 && !storedProfile) {
+                usingStoredCv = false;
+                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
             } else {
                 usingStoredCv = false;
-                document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
             }
         }
         function removeJdFile(i)  { jdFilesArray.splice(i, 1); updateJdFilesList(); }
@@ -272,16 +280,24 @@
                     storedProfile = data.profile;
                     if (storedProfile.cvText) {
                         storedCvText = storedProfile.cvText;
+                        storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
                         usingStoredCv = true;
-                        document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                        document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
+                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+                    } else {
+                        usingStoredCv = false;
+                        document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                        document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
                     }
-                    // Show autofill hint
                     document.getElementById('autofillHint')?.classList.remove('hidden');
                 } else {
                     storedProfile = null;
                     storedCvText = null;
+                    storedCvFilename = null;
                     usingStoredCv = false;
-                    document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
                     document.getElementById('autofillHint')?.classList.add('hidden');
                 }
             } catch(e) { console.error('Load profile error', e); }
@@ -300,8 +316,11 @@
                     storedProfile = data.profile;
                     if (storedProfile.cvText) {
                         storedCvText = storedProfile.cvText;
+                        storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
                         usingStoredCv = true;
-                        document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                        document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
+                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
                     }
                     showMessage('success', 'Profile saved for future autofill.');
                     return true;
@@ -323,8 +342,10 @@
                 if (res.ok) {
                     storedProfile = null;
                     storedCvText = null;
+                    storedCvFilename = null;
                     usingStoredCv = false;
-                    document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
                     document.getElementById('autofillHint')?.classList.add('hidden');
                     showMessage('success', 'Stored profile deleted.');
                     return true;
@@ -332,9 +353,32 @@
             } catch(e) { showMessage('error', 'Could not delete profile'); return false; }
         }
 
-        async function updateProfileWithCurrentData(fullName, phone, email, address, cvText) {
-            const profileData = { fullName, phone, email, address, cvText };
+        async function updateProfileWithCurrentData(fullName, phone, email, address, cvText, cvFilename = null) {
+            const profileData = { fullName, phone, email, address, cvText, cvFilename: cvFilename || storedCvFilename };
             return await saveProfileToServer(profileData);
+        }
+
+        function replaceStoredCv() {
+            // Clear stored CV usage and show file input
+            usingStoredCv = false;
+            storedCvText = null;
+            storedCvFilename = null;
+            // Optionally update profile on server to remove cvText
+            if (storedProfile) {
+                updateProfileWithCurrentData(
+                    storedProfile.fullName,
+                    storedProfile.phone,
+                    storedProfile.email,
+                    storedProfile.address,
+                    null, // cvText = null
+                    null
+                );
+            }
+            document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+            document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+            cvFilesArray = [];
+            updateCvFilesList();
+            showMessage('success', 'You can now upload new CV files.');
         }
 
         function autofillForm() {
@@ -348,12 +392,14 @@
             document.getElementById('address').value = storedProfile.address || '';
             if (storedProfile.cvText) {
                 storedCvText = storedProfile.cvText;
+                storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
                 usingStoredCv = true;
-                // Clear any manually uploaded CV files to avoid confusion
                 cvFilesArray = [];
                 updateCvFilesList();
-                document.getElementById('cvStoredBadge').classList.remove('hidden');
-                showMessage('success', 'Form autofilled with stored data (CV text included). You can still upload new CV files if needed.');
+                document.getElementById('cvStoredBadgeContainer').classList.remove('hidden');
+                document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
+                document.getElementById('cvFileInputContainer').classList.add('hidden');
+                showMessage('success', 'Form autofilled with stored data (CV text included). Click Replace if you need to upload a different CV.');
             } else {
                 showMessage('info', 'Form autofilled, but no CV text was stored. Please upload CV files.');
             }
@@ -380,9 +426,10 @@
                 showMessage('error', 'All fields are required.');
                 return;
             }
-            // Keep existing CV text if present
+            // Keep existing CV text and filename if present
             const cvText = storedProfile.cvText || null;
-            await updateProfileWithCurrentData(fullName, phone, email, address, cvText);
+            const cvFilename = storedProfile.cvFilename || null;
+            await updateProfileWithCurrentData(fullName, phone, email, address, cvText, cvFilename);
             closeEditProfileModal();
             // Also update form fields if currently visible
             document.getElementById('fullName').value = fullName;
@@ -398,6 +445,7 @@
         async function requestDeleteProfile() {
             if (confirm('Are you sure you want to delete your stored profile (name, contact, and CV text)? This cannot be undone.')) {
                 await deleteProfileFromServer();
+                closeEditProfileModal();
             }
         }
 
@@ -488,7 +536,14 @@
             if (!storedProfile && cvTextForLetter) {
                 const shouldSave = confirm('Do you want to store your information (Name, Phone, Email, Address and CV content) for next time? You can use Autofill later.');
                 if (shouldSave) {
-                    await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter);
+                    // Determine filename from first uploaded CV file or from storedCvFilename
+                    let cvFilename = null;
+                    if (cvFilesArray.length > 0 && cvFilesArray[0]) {
+                        cvFilename = cvFilesArray[0].name;
+                    } else if (storedCvFilename) {
+                        cvFilename = storedCvFilename;
+                    }
+                    await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename);
                 }
             } else if (storedProfile) {
                 // Optional: detect if user manually changed any field compared to stored profile
@@ -498,7 +553,13 @@
                 if (changed) {
                     const updateStored = confirm('It looks like you changed your personal information or CV. Would you like to update your stored autofill profile with the new data?');
                     if (updateStored) {
-                        await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter);
+                        let cvFilename = null;
+                        if (cvFilesArray.length > 0 && cvFilesArray[0]) {
+                            cvFilename = cvFilesArray[0].name;
+                        } else if (storedCvFilename) {
+                            cvFilename = storedCvFilename;
+                        }
+                        await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename);
                     }
                 }
             }
@@ -823,7 +884,7 @@
             </div>
         </div>
 
-        <!-- Letter Tab WITH AUTOFILL BUTTONS -->
+        <!-- Letter Tab WITH AUTOFILL BUTTONS AND REPLACE CV -->
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <div class="flex justify-between items-center mb-2">
@@ -846,17 +907,34 @@
                     <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="date"  id="appDate"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    
+                    <!-- CV Section with dynamic display -->
                     <div class="file-input-container">
                         <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
-                            <div class="file-input-wrapper mt-1">
-                                <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
+                            <span class="text-sm font-medium text-gray-700">Your CV (text will be extracted)</span>
+                            <!-- Container for stored CV display (visible when using stored CV) -->
+                            <div id="cvStoredBadgeContainer" class="hidden mt-1">
+                                <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
+                                    <div class="flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        <span class="text-sm text-indigo-800">Using stored CV: <span id="cvStoredFilename" class="font-mono"></span></span>
+                                    </div>
+                                    <button onclick="replaceStoredCv()" class="text-xs bg-white text-indigo-600 border border-indigo-300 rounded-full px-2 py-0.5 hover:bg-indigo-100 transition">
+                                        Replace
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Container for file input (visible when not using stored CV) -->
+                            <div id="cvFileInputContainer">
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                                <div id="cvFilesList" class="max-h-32 overflow-y-auto mt-2"></div>
                             </div>
                         </label>
-                        <div id="cvFilesList" class="max-h-32 overflow-y-auto"></div>
-                        <div id="cvStoredBadge" class="hidden text-xs text-indigo-600 mt-1 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Using stored CV text. Upload new files to replace.</div>
                     </div>
+
                     <div class="file-input-container">
                         <label class="block"><span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span><div class="file-input-wrapper mt-1"><input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="jdFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
                     </div>
