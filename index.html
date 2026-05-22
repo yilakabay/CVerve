@@ -22,6 +22,56 @@
         let storedCvText = null;
         let storedCvFilename = null;
 
+        // ── IndexedDB for persisting CV PDF binary ────────────────────────────
+        const CV_DB_NAME = 'cverve_cv_store';
+        const CV_STORE   = 'cv_pdfs';
+
+        function openCvDb() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(CV_DB_NAME, 1);
+                req.onupgradeneeded = e => e.target.result.createObjectStore(CV_STORE);
+                req.onsuccess = e => resolve(e.target.result);
+                req.onerror   = e => reject(e.target.error);
+            });
+        }
+
+        async function saveCvPdfToDb(uid, arrayBuffer, filename) {
+            try {
+                const db = await openCvDb();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(CV_STORE, 'readwrite');
+                    tx.objectStore(CV_STORE).put({ data: arrayBuffer, filename }, uid);
+                    tx.oncomplete = resolve;
+                    tx.onerror    = e => reject(e.target.error);
+                });
+            } catch(e) { console.error('saveCvPdfToDb error', e); }
+        }
+
+        async function loadCvPdfFromDb(uid) {
+            try {
+                const db = await openCvDb();
+                return new Promise((resolve, reject) => {
+                    const tx  = db.transaction(CV_STORE, 'readonly');
+                    const req = tx.objectStore(CV_STORE).get(uid);
+                    req.onsuccess = e => resolve(e.target.result || null);
+                    req.onerror   = e => reject(e.target.error);
+                });
+            } catch(e) { console.error('loadCvPdfFromDb error', e); return null; }
+        }
+
+        async function deleteCvPdfFromDb(uid) {
+            try {
+                const db = await openCvDb();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(CV_STORE, 'readwrite');
+                    tx.objectStore(CV_STORE).delete(uid);
+                    tx.oncomplete = resolve;
+                    tx.onerror    = e => reject(e.target.error);
+                });
+            } catch(e) { console.error('deleteCvPdfFromDb error', e); }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         function isValidPhoneNumber(phone) {
             const phoneRegex = /^(09|07)\d{8}$/;
             return phoneRegex.test(phone);
@@ -343,6 +393,8 @@
                     storedCvText = null;
                     storedCvFilename = null;
                     usingStoredCv = false;
+                    // Also remove the stored PDF from IndexedDB
+                    await deleteCvPdfFromDb(userId);
                     document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
                     document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
                     document.getElementById('autofillHint')?.classList.add('hidden');
@@ -491,6 +543,15 @@
                     };
                     cvTextForLetter = await extract(cvFilesData, 'cv');
                     if (cvTextForLetter === null) { hideLoadingOverlay(); return; }
+
+                    // ── Save CV PDF binary to IndexedDB for later merging ──
+                    const pdfCvFiles = cvFilesArray.filter(f => f.type === 'application/pdf');
+                    if (pdfCvFiles.length > 0 && userId) {
+                        const firstPdfBuffer = await pdfCvFiles[0].arrayBuffer();
+                        await saveCvPdfToDb(userId, firstPdfBuffer, pdfCvFiles[0].name);
+                    }
+                    // ─────────────────────────────────────────────────────
+
                 } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
                 finally { hideLoadingOverlay(); }
             }
@@ -601,7 +662,7 @@
         }
 
         // --------------------------------------------------------------
-        // NEW: Merge letter with CV PDFs
+        // Merge letter with CV PDFs — uses IndexedDB if no file uploaded
         // --------------------------------------------------------------
         async function mergeLetterWithCv() {
             const letterText = document.getElementById('applicationLetter').value;
@@ -610,16 +671,34 @@
                 return;
             }
 
-            // Check if we have any CV files that are PDFs
+            // Determine CV PDF source: freshly uploaded files OR stored PDF in IndexedDB
+            let cvPdfSources = []; // array of ArrayBuffer
+
             const cvPdfFiles = cvFilesArray.filter(file => file.type === 'application/pdf');
-            if (cvPdfFiles.length === 0) {
-                showMessage('error', 'No PDF CV files found. Please upload at least one CV file in PDF format.');
+
+            if (cvPdfFiles.length > 0) {
+                // Use freshly uploaded PDFs
+                for (const f of cvPdfFiles) {
+                    cvPdfSources.push(await f.arrayBuffer());
+                }
+            } else if (usingStoredCv && userId) {
+                // Try to load stored PDF from IndexedDB
+                showLoadingOverlay('Loading stored CV PDF...');
+                const stored = await loadCvPdfFromDb(userId);
+                hideLoadingOverlay();
+                if (stored && stored.data) {
+                    cvPdfSources.push(stored.data);
+                }
+            }
+
+            if (cvPdfSources.length === 0) {
+                showMessage('error', 'No CV PDF found. Please upload a PDF CV file and generate a letter first, or upload your CV PDF now.');
                 return;
             }
 
             showLoadingOverlay('Merging letter with CV PDFs...');
             try {
-                const { jsPDF } = window.jspdf;
+                const { jsPDF }       = window.jspdf;
                 const { PDFDocument } = window.PDFLib;
 
                 // 1. Create PDF from letter text
@@ -636,45 +715,32 @@
                 letterText.split('\n').forEach(rawLine => {
                     const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
                     wrapped.forEach(line => {
-                        if (y + lineH > pageH - mB) {
-                            doc.addPage();
-                            y = mT;
-                        }
+                        if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
                         doc.text(line, mL, y);
                         y += lineH;
                     });
                 });
                 const letterPdfBytes = doc.output('arraybuffer');
 
-                // 2. Load letter PDF and CV PDFs into pdf-lib
+                // 2. Merge letter + CV(s) using pdf-lib
                 const mergedPdfDoc = await PDFDocument.create();
                 const letterPdfDoc = await PDFDocument.load(letterPdfBytes);
-                const letterPages = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
-                for (const page of letterPages) {
-                    mergedPdfDoc.addPage(page);
-                }
+                const letterPages  = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
+                for (const page of letterPages) mergedPdfDoc.addPage(page);
 
-                // 3. Add each CV PDF
-                for (const cvFile of cvPdfFiles) {
-                    const cvPdfBytes = await cvFile.arrayBuffer();
-                    const cvPdfDoc = await PDFDocument.load(cvPdfBytes);
-                    const cvPages = await mergedPdfDoc.copyPages(cvPdfDoc, cvPdfDoc.getPageIndices());
-                    for (const page of cvPages) {
-                        mergedPdfDoc.addPage(page);
-                    }
+                for (const cvBytes of cvPdfSources) {
+                    const cvPdfDoc = await PDFDocument.load(cvBytes);
+                    const cvPages  = await mergedPdfDoc.copyPages(cvPdfDoc, cvPdfDoc.getPageIndices());
+                    for (const page of cvPages) mergedPdfDoc.addPage(page);
                 }
 
                 const mergedPdfBytes = await mergedPdfDoc.save();
                 const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'letter_with_cv.pdf';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showMessage('success', 'Letter merged with CV PDFs and downloaded.');
+                const url  = URL.createObjectURL(blob);
+                const a    = Object.assign(document.createElement('a'), { href: url, download: 'letter_with_cv.pdf' });
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(url);
+                showMessage('success', 'Letter merged with CV and downloaded.');
             } catch (err) {
                 console.error('Merge error:', err);
                 showMessage('error', 'Failed to merge letter with CV. Please try again.');
@@ -699,7 +765,7 @@
             return false;
         }
 
-        // ---------- Payment Popup (unchanged) ----------
+        // ---------- Payment Popup ----------
         let paymentPopupVisible = false;
 
         function openPaymentPopup() {
@@ -846,7 +912,7 @@
     </div>
 </div>
 
-<!-- PAYMENT POPUP (unchanged) -->
+<!-- PAYMENT POPUP -->
 <div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center"
      onclick="if(event.target===this) closePaymentPopup()">
     <div id="paymentPopupSheet" class="translate-y-full bg-white rounded-t-3xl shadow-2xl w-full max-w-lg px-6 pt-4 pb-8">
@@ -899,7 +965,7 @@
     </div>
 </div>
 
-<!-- Login Screen (unchanged) -->
+<!-- Login Screen -->
 <div id="loginScreen" class="fixed inset-0 bg-gray-100 flex items-center justify-center p-4">
     <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
         <h1 class="text-3xl font-bold text-center text-indigo-600 mb-2">CVerve</h1>
@@ -934,7 +1000,7 @@
             <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Balance</button>
         </div>
 
-        <!-- PDF Merger Tab (unchanged) -->
+        <!-- PDF Merger Tab -->
         <div id="merger-content" class="tab-content">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
@@ -946,7 +1012,7 @@
             </div>
         </div>
 
-        <!-- Letter Tab WITH AUTOFILL BUTTONS AND REPLACE CV + TWO BUTTONS -->
+        <!-- Letter Tab -->
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <div class="flex justify-between items-center mb-2">
@@ -969,7 +1035,7 @@
                     <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="date"  id="appDate"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    
+
                     <!-- CV Section with dynamic display -->
                     <div class="file-input-container">
                         <label class="block">
@@ -1001,14 +1067,14 @@
                     <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
                     <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                     <div class="flex gap-3">
-                        <button id="printLetterBtn" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">⬇️ Download as PDF</button>
-                        <button id="mergeWithCvBtn" class="flex-1 bg-amber-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-amber-600 transition-colors shadow-md">📄 Merge with my CV (PDF only)</button>
+                        <button id="printLetterBtn" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download as PDF</button>
+                        <button id="mergeWithCvBtn" class="flex-1 bg-amber-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-amber-600 transition-colors shadow-md">Merge with my CV (PDF only)</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Balance Tab (unchanged) -->
+        <!-- Balance Tab -->
         <div id="payment-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">Payment &amp; Balance</h2>
