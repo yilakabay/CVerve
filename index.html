@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         let userId = null;
         let userBalance = 0;
@@ -40,6 +41,34 @@
             const bytes  = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             return bytes.buffer;
+        }
+
+        /**
+         * Use PDF.js to render every page of a PDF file to a PNG blob.
+         * Returns an array of { data: base64, type: 'image/png' } objects
+         * ready to send straight to the extract-text endpoint as image files.
+         */
+        async function rasterisePdfToImageFiles(file) {
+            // Configure PDF.js worker (use CDN-matched worker)
+            if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const imageFiles = [];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page    = await pdf.getPage(pageNum);
+                const scale   = 2.0; // 2× for decent OCR resolution
+                const viewport = page.getViewport({ scale });
+                const canvas  = document.createElement('canvas');
+                canvas.width  = viewport.width;
+                canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                const base64 = canvas.toDataURL('image/png').split(',')[1];
+                imageFiles.push({ data: base64, type: 'image/png' });
+            }
+            return imageFiles;
         }
 
         /**
@@ -695,7 +724,7 @@
                         return out;
                     };
                     const cvFilesData = await toData(cvFilesArray);
-                    const extract = async (files, fileType) => {
+                    const callExtract = async (files, fileType) => {
                         const res = await fetch('/.netlify/functions/extract-text', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ files, fileType })
@@ -704,11 +733,43 @@
                         try { data = await res.json(); } catch { data = {}; }
                         if (!res.ok) {
                             const msg = data.error || data.message || `HTTP ${res.status}`;
-                            throw new Error(`${fileType.toUpperCase()} extraction failed: ${msg}`);
+                            throw Object.assign(new Error(msg), { status: res.status });
                         }
                         return data.extractedText;
                     };
-                    cvTextForLetter = await extract(cvFilesData, 'cv');
+
+                    // First attempt — normal extraction
+                    let cvExtractionError = null;
+                    try {
+                        cvTextForLetter = await callExtract(cvFilesData, 'cv');
+                    } catch (e) {
+                        cvExtractionError = e;
+                    }
+
+                    // If failed and any file is a PDF → rasterise client-side, retry as images
+                    if (cvExtractionError) {
+                        const pdfFiles = cvFilesArray.filter(f => f.type === 'application/pdf');
+                        if (pdfFiles.length > 0) {
+                            showLoadingOverlay('PDF has embedded images — rasterising for OCR…');
+                            try {
+                                const imageFiles = [];
+                                for (const pf of pdfFiles) {
+                                    const imgs = await rasterisePdfToImageFiles(pf);
+                                    imageFiles.push(...imgs);
+                                }
+                                // Also keep any non-PDF files in their original form
+                                const nonPdfData = cvFilesData.filter(fd => !fd.type.includes('pdf'));
+                                const retryFiles = [...imageFiles, ...nonPdfData];
+                                cvTextForLetter = await callExtract(retryFiles, 'cv');
+                                cvExtractionError = null;
+                            } catch (retryErr) {
+                                cvExtractionError = retryErr;
+                            }
+                        }
+                    }
+                    if (cvExtractionError) {
+                        throw new Error('CV extraction failed: ' + cvExtractionError.message);
+                    }
 
                     // ── Convert & stage CV as PDF for MongoDB ─────────────────────
                     window._stagedCvPdf = null;
@@ -745,7 +806,7 @@
                     return out;
                 };
                 const jdFilesData = await toData(jdFilesArray);
-                const extract = async (files, fileType) => {
+                const callExtractJd = async (files, fileType) => {
                     const res = await fetch('/.netlify/functions/extract-text', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ files, fileType })
@@ -754,11 +815,40 @@
                     try { data = await res.json(); } catch { data = {}; }
                     if (!res.ok) {
                         const msg = data.error || data.message || `HTTP ${res.status}`;
-                        throw new Error(`${fileType.toUpperCase()} extraction failed: ${msg}`);
+                        throw Object.assign(new Error(msg), { status: res.status });
                     }
                     return data.extractedText;
                 };
-                jdText = await extract(jdFilesData, 'jd');
+
+                let jdExtractionError = null;
+                try {
+                    jdText = await callExtractJd(jdFilesData, 'jd');
+                } catch (e) {
+                    jdExtractionError = e;
+                }
+
+                if (jdExtractionError) {
+                    const pdfFiles = jdFilesArray.filter(f => f.type === 'application/pdf');
+                    if (pdfFiles.length > 0) {
+                        showLoadingOverlay('JD PDF has embedded images — rasterising for OCR…');
+                        try {
+                            const imageFiles = [];
+                            for (const pf of pdfFiles) {
+                                const imgs = await rasterisePdfToImageFiles(pf);
+                                imageFiles.push(...imgs);
+                            }
+                            const nonPdfData = jdFilesData.filter(fd => !fd.type.includes('pdf'));
+                            const retryFiles = [...imageFiles, ...nonPdfData];
+                            jdText = await callExtractJd(retryFiles, 'jd');
+                            jdExtractionError = null;
+                        } catch (retryErr) {
+                            jdExtractionError = retryErr;
+                        }
+                    }
+                }
+                if (jdExtractionError) {
+                    throw new Error('JD extraction failed: ' + jdExtractionError.message);
+                }
             } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
             finally { hideLoadingOverlay(); }
 
