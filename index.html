@@ -121,28 +121,47 @@
             document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
         }
 
-        // ── CV file select: PDF-only + 2 MB guard ────────────────────────────
+        // ── CV file select: Image / Word / PDF accepted ──────────────────────
+        // PDFs within size limit are also stored for letter-merging.
+        // Images and Word docs are accepted for text extraction only.
         function handleCvFileSelect(e) {
             const newFiles = Array.from(e.target.files);
             e.target.value = '';
 
+            const ALLOWED_TYPES = [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff'
+            ];
+
             const rejected = [];
             const accepted = [];
+            const nonPdfWarnings = [];
 
             for (const f of newFiles) {
-                if (f.type !== 'application/pdf') {
-                    rejected.push(`"${f.name}" is not a PDF and was skipped.`);
+                const isPdf  = f.type === 'application/pdf';
+                const isWord = f.type === 'application/msword' || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                const isImage = f.type.startsWith('image/');
+
+                if (!isPdf && !isWord && !isImage) {
+                    rejected.push(`"${f.name}" is not a supported type (use PDF, Word, or image).`);
                     continue;
                 }
-                if (f.size > CV_MAX_BYTES) {
-                    rejected.push(`"${f.name}" exceeds ${CV_MAX_MB} MB and was not saved.`);
+                // Only enforce the 2 MB size limit for PDFs (they get stored)
+                if (isPdf && f.size > CV_MAX_BYTES) {
+                    rejected.push(`"${f.name}" exceeds ${CV_MAX_MB} MB — PDF CVs larger than this cannot be stored for merging.`);
                     continue;
                 }
                 accepted.push(f);
+                if (!isPdf) {
+                    nonPdfWarnings.push(f.name);
+                }
             }
 
-            if (rejected.length > 0) {
-                showMessage('error', rejected.join(' '));
+            if (rejected.length > 0) showMessage('error', rejected.join(' '));
+            if (nonPdfWarnings.length > 0) {
+                showMessage('info', `"${nonPdfWarnings.join('", "')}" will be used for text extraction only — not stored for CV merging (PDF required for that).`);
             }
 
             cvFilesArray = [...cvFilesArray, ...accepted];
@@ -586,12 +605,15 @@
                         const firstPdfBuffer = await pdfCvFiles[0].arrayBuffer();
                         const result = prepareCvPdfForServer(firstPdfBuffer, pdfCvFiles[0].name);
                         if (result.tooLarge) {
-                            showMessage('error', `CV file exceeds ${CV_MAX_MB} MB — it will not be saved for merging.`);
+                            showMessage('error', `CV PDF exceeds ${CV_MAX_MB} MB — it will not be saved for merging.`);
                         } else if (result.notPdf) {
                             showMessage('error', 'Only PDF files can be stored for merging.');
                         } else {
                             window._stagedCvPdf = { base64: result.base64, filename: result.filename };
                         }
+                    } else if (pdfCvFiles.length === 0) {
+                        // Non-PDF CV: text extracted fine but merge-with-CV won't be available
+                        showMessage('info', 'CV text extracted. Note: "Merge with CV" requires a PDF — upload a PDF CV if you need that feature.');
                     }
                     // ──────────────────────────────────────────────────────────────
 
@@ -1082,7 +1104,7 @@
                     <!-- CV Section with dynamic display -->
                     <div class="file-input-container">
                         <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Your CV (PDF only, max 2 MB)</span>
+                            <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF · PDF stored for merging, max 2 MB)</span>
                             <div id="cvStoredBadgeContainer" class="hidden mt-1">
                                 <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
                                     <div class="flex items-center gap-2">
@@ -1096,7 +1118,7 @@
                             </div>
                             <div id="cvFileInputContainer">
                                 <div class="file-input-wrapper mt-1">
-                                    <input type="file" id="cvFile" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <input type="file" id="cvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                                     <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                                 </div>
                                 <div id="cvFilesList" class="max-h-32 overflow-y-auto mt-2"></div>
