@@ -44,18 +44,130 @@
 
         /**
          * Validate and encode a CV PDF ArrayBuffer for MongoDB storage.
-         * Returns { success, base64, filename } or { success:false, tooLarge, notPdf }.
+         * Returns { success, base64, filename } or { success:false, tooLarge }.
          */
         function prepareCvPdfForServer(arrayBuffer, filename) {
             if (arrayBuffer.byteLength > CV_MAX_BYTES) {
                 return { success: false, tooLarge: true };
             }
             const base64 = arrayBufferToBase64(arrayBuffer);
-            // PDF magic bytes (%PDF-) in base64 always start with "JVBERi0"
-            if (!base64.startsWith('JVBERi0')) {
-                return { success: false, notPdf: true };
-            }
             return { success: true, base64, filename };
+        }
+
+        /**
+         * Convert an image File into a PDF ArrayBuffer using pdf-lib.
+         * Each image is embedded as a full A4 page (fitted, centred).
+         */
+        async function imageFileToPdfBuffer(imageFile) {
+            const { PDFDocument } = window.PDFLib;
+            const imgBuffer = await imageFile.arrayBuffer();
+            const imgBytes  = new Uint8Array(imgBuffer);
+            const pdfDoc    = await PDFDocument.create();
+
+            let embeddedImg;
+            const t = imageFile.type;
+            if (t === 'image/jpeg' || t === 'image/jpg') {
+                embeddedImg = await pdfDoc.embedJpg(imgBytes);
+            } else if (t === 'image/png') {
+                embeddedImg = await pdfDoc.embedPng(imgBytes);
+            } else {
+                // For gif/bmp/webp/tiff: draw onto a canvas first → PNG → embed
+                embeddedImg = await (async () => {
+                    const blob   = new Blob([imgBytes], { type: t });
+                    const url    = URL.createObjectURL(blob);
+                    const img    = await new Promise((res, rej) => {
+                        const i = new Image();
+                        i.onload  = () => res(i);
+                        i.onerror = rej;
+                        i.src = url;
+                    });
+                    URL.revokeObjectURL(url);
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    const pngBlob   = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                    const pngBuffer = await pngBlob.arrayBuffer();
+                    return pdfDoc.embedPng(new Uint8Array(pngBuffer));
+                })();
+            }
+
+            const A4_W = 595.28, A4_H = 841.89;
+            const page  = pdfDoc.addPage([A4_W, A4_H]);
+            const scale = Math.min(A4_W / embeddedImg.width, A4_H / embeddedImg.height, 1);
+            const w = embeddedImg.width  * scale;
+            const h = embeddedImg.height * scale;
+            page.drawImage(embeddedImg, {
+                x: (A4_W - w) / 2,
+                y: (A4_H - h) / 2,
+                width: w, height: h
+            });
+            const pdfBytes = await pdfDoc.save();
+            return pdfBytes.buffer;
+        }
+
+        /**
+         * Convert extracted plain text (from Word) into a PDF ArrayBuffer using jsPDF.
+         */
+        function textToPdfBuffer(text, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc   = new jsPDF({ unit: 'pt', format: 'a4' });
+            const pageW = doc.internal.pageSize.getWidth();
+            const pageH = doc.internal.pageSize.getHeight();
+            const mL = 60, mR = 60, mT = 60, mB = 60;
+            const usableW = pageW - mL - mR;
+            const lineH   = 13;
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(10);
+            doc.setTextColor(30, 30, 30);
+            let y = mT;
+            for (const rawLine of text.split('\n')) {
+                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
+                for (const line of wrapped) {
+                    if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
+                    doc.text(line, mL, y);
+                    y += lineH;
+                }
+            }
+            return doc.output('arraybuffer');
+        }
+
+        /**
+         * Given cvFilesArray, produce a single merged PDF ArrayBuffer ready to store.
+         * - Native PDFs  → merged as-is via pdf-lib
+         * - Image files  → each converted to an image-based PDF page via pdf-lib
+         * - Word files   → text extracted server-side, then rendered to PDF via jsPDF
+         * Returns { buffer, filename } or throws.
+         */
+        async function buildCvPdfBuffer(cvFiles, extractedCvText) {
+            const { PDFDocument } = window.PDFLib;
+            const merged = await PDFDocument.create();
+
+            for (const f of cvFiles) {
+                if (f.type === 'application/pdf') {
+                    const srcDoc    = await PDFDocument.load(await f.arrayBuffer());
+                    const pages     = await merged.copyPages(srcDoc, srcDoc.getPageIndices());
+                    pages.forEach(p => merged.addPage(p));
+
+                } else if (f.type.startsWith('image/')) {
+                    const imgPdfBuf = await imageFileToPdfBuffer(f);
+                    const imgDoc    = await PDFDocument.load(imgPdfBuf);
+                    const pages     = await merged.copyPages(imgDoc, imgDoc.getPageIndices());
+                    pages.forEach(p => merged.addPage(p));
+
+                } else {
+                    // Word / other text-extractable → use the already-extracted text
+                    const text    = extractedCvText || '[No text extracted]';
+                    const txtBuf  = textToPdfBuffer(text, f.name);
+                    const txtDoc  = await PDFDocument.load(txtBuf);
+                    const pages   = await merged.copyPages(txtDoc, txtDoc.getPageIndices());
+                    pages.forEach(p => merged.addPage(p));
+                }
+            }
+
+            const pdfBytes = await merged.save();
+            const baseName = cvFiles[0]?.name.replace(/\.[^.]+$/, '') || 'cv';
+            return { buffer: pdfBytes.buffer, filename: baseName + '_converted.pdf' };
         }
 
         /** Fetch the stored CV PDF from MongoDB. Returns ArrayBuffer or null. */
@@ -598,22 +710,22 @@
                     cvTextForLetter = await extract(cvFilesData, 'cv');
                     if (cvTextForLetter === null) { hideLoadingOverlay(); return; }
 
-                    // ── Stage CV PDF for MongoDB (saved alongside profile below) ──
-                    const pdfCvFiles = cvFilesArray.filter(f => f.type === 'application/pdf');
+                    // ── Convert & stage CV as PDF for MongoDB ─────────────────────
                     window._stagedCvPdf = null;
-                    if (pdfCvFiles.length > 0 && userId) {
-                        const firstPdfBuffer = await pdfCvFiles[0].arrayBuffer();
-                        const result = prepareCvPdfForServer(firstPdfBuffer, pdfCvFiles[0].name);
-                        if (result.tooLarge) {
-                            showMessage('error', `CV PDF exceeds ${CV_MAX_MB} MB — it will not be saved for merging.`);
-                        } else if (result.notPdf) {
-                            showMessage('error', 'Only PDF files can be stored for merging.');
-                        } else {
-                            window._stagedCvPdf = { base64: result.base64, filename: result.filename };
+                    if (userId && cvFilesArray.length > 0) {
+                        try {
+                            showLoadingOverlay('Converting CV to PDF for storage…');
+                            const { buffer, filename } = await buildCvPdfBuffer(cvFilesArray, cvTextForLetter);
+                            const result = prepareCvPdfForServer(buffer, filename);
+                            if (result.tooLarge) {
+                                showMessage('info', `Converted CV exceeds ${CV_MAX_MB} MB — it will not be saved for merging, but the letter will still generate.`);
+                            } else {
+                                window._stagedCvPdf = { base64: result.base64, filename: result.filename };
+                            }
+                        } catch (convErr) {
+                            console.error('CV→PDF conversion failed:', convErr);
+                            showMessage('info', 'Could not convert CV to PDF for storage — letter will still generate.');
                         }
-                    } else if (pdfCvFiles.length === 0) {
-                        // Non-PDF CV: text extracted fine but merge-with-CV won't be available
-                        showMessage('info', 'CV text extracted. Note: "Merge with CV" requires a PDF — upload a PDF CV if you need that feature.');
                     }
                     // ──────────────────────────────────────────────────────────────
 
@@ -727,7 +839,7 @@
         }
 
         // --------------------------------------------------------------
-        // Merge letter with CV PDFs — loads stored PDF from MongoDB
+        // Merge letter with CV PDFs — converts any CV type on the fly
         // --------------------------------------------------------------
         async function mergeLetterWithCv() {
             const letterText = document.getElementById('applicationLetter').value;
@@ -736,16 +848,22 @@
                 return;
             }
 
-            // Determine CV PDF source: freshly uploaded files OR stored PDF from MongoDB
+            // Determine CV PDF source: convert fresh files OR load stored PDF from MongoDB
             let cvPdfSources = []; // array of ArrayBuffer
 
-            const cvPdfFiles = cvFilesArray.filter(file => file.type === 'application/pdf');
-
-            if (cvPdfFiles.length > 0) {
-                // Use freshly uploaded PDFs
-                for (const f of cvPdfFiles) {
-                    cvPdfSources.push(await f.arrayBuffer());
+            if (cvFilesArray.length > 0) {
+                // Convert all uploaded CV files (any type) into one merged PDF
+                showLoadingOverlay('Converting CV to PDF…');
+                try {
+                    const storedText = document.getElementById('applicationLetter').value; // reuse extracted text if Word
+                    const { buffer } = await buildCvPdfBuffer(cvFilesArray, storedCvText || storedText);
+                    cvPdfSources.push(buffer);
+                } catch (e) {
+                    hideLoadingOverlay();
+                    showMessage('error', 'Could not convert CV to PDF. Please try again.');
+                    return;
                 }
+                hideLoadingOverlay();
             } else if (usingStoredCv && userId) {
                 // Load stored CV PDF from MongoDB
                 showLoadingOverlay('Loading stored CV PDF...');
@@ -757,7 +875,7 @@
             }
 
             if (cvPdfSources.length === 0) {
-                showMessage('error', 'No CV PDF found. Please upload a PDF CV file and generate a letter first, or upload your CV PDF now.');
+                showMessage('error', 'No CV found. Please upload a CV file and generate a letter first.');
                 return;
             }
 
@@ -1104,7 +1222,7 @@
                     <!-- CV Section with dynamic display -->
                     <div class="file-input-container">
                         <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF · PDF stored for merging, max 2 MB)</span>
+                            <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF — all converted &amp; stored for merging)</span>
                             <div id="cvStoredBadgeContainer" class="hidden mt-1">
                                 <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
                                     <div class="flex items-center gap-2">
