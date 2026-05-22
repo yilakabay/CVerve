@@ -702,13 +702,11 @@
                         });
                         if (!res.ok) {
                             const err = await res.json();
-                            if (err.error && err.error.includes('image-based')) { showImageBasedPdfPopup(fileType); hideLoadingOverlay(); return null; }
                             throw new Error(`${fileType.toUpperCase()} extraction failed: ${err.error}`);
                         }
                         return (await res.json()).extractedText;
                     };
                     cvTextForLetter = await extract(cvFilesData, 'cv');
-                    if (cvTextForLetter === null) { hideLoadingOverlay(); return; }
 
                     // ── Convert & stage CV as PDF for MongoDB ─────────────────────
                     window._stagedCvPdf = null;
@@ -752,13 +750,11 @@
                     });
                     if (!res.ok) {
                         const err = await res.json();
-                        if (err.error && err.error.includes('image-based')) { showImageBasedPdfPopup(fileType); hideLoadingOverlay(); return null; }
                         throw new Error(`${fileType.toUpperCase()} extraction failed: ${err.error}`);
                     }
                     return (await res.json()).extractedText;
                 };
                 jdText = await extract(jdFilesData, 'jd');
-                if (jdText === null) { hideLoadingOverlay(); return; }
             } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
             finally { hideLoadingOverlay(); }
 
