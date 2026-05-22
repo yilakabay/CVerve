@@ -1,93 +1,155 @@
 const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
+const mammoth  = require('mammoth');
 const tesseract = require('tesseract.js');
-const sharp = require('sharp');
+const sharp    = require('sharp');
 
-// Function to extract text from different file types
-async function extractTextFromFile(base64Data, mimeType) {
-  try {
-    const buffer = Buffer.from(base64Data, 'base64');
-    
-    if (mimeType.includes('pdf')) {
-      return await extractTextFromPDF(buffer);
-    } else if (mimeType.includes('word') || mimeType.includes('document')) {
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value;
-    } else if (mimeType.includes('image')) {
-      return await extractTextFromImage(buffer);
-    } else {
-      throw new Error('Unsupported file type: ' + mimeType);
-    }
-  } catch (error) {
-    console.error('Text extraction error:', error);
-    throw new Error('Failed to extract text from file: ' + error.message);
-  }
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Simplified function for PDFs - ONLY use pdf-parse, no OCR attempts
-async function extractTextFromPDF(pdfBuffer) {
+/**
+ * Try to rasterise a PDF page with sharp (works when libvips has poppler).
+ * Returns an array of PNG Buffers (one per page), or null if unsupported.
+ */
+async function rasterisePdfWithSharp(pdfBuffer, dpi = 200) {
   try {
-    console.log('Extracting text from PDF using pdf-parse...');
-    
-    const data = await pdfParse(pdfBuffer);
-    
-    // Check if we got meaningful text
-    if (data.text && data.text.trim().length > 0) {
-      console.log(`Successfully extracted ${data.text.length} characters from PDF`);
-      return data.text;
-    } else {
-      throw new Error('PDF appears to be image-based or contains no extractable text');
-    }
-  } catch (error) {
-    console.log('PDF extraction failed:', error.message);
-    throw new Error('Could not extract text from PDF. If this is an image-based PDF, please convert it to images (JPG/PNG) and upload those instead.');
-  }
-}
-
-// Function for image OCR
-async function extractTextFromImage(imageBuffer) {
-  try {
-    console.log('Processing image with OCR...');
-    
-    // Pre-process image to improve OCR accuracy
-    let processedBuffer;
-    try {
-      processedBuffer = await sharp(imageBuffer)
+    const pages = await sharp(pdfBuffer, { density: dpi })
+      .png()
+      .toBuffer({ resolveWithObject: true });
+    // sharp returns a single buffer when it can read the PDF as one image;
+    // for multi-page we need to iterate via page option
+    const meta = await sharp(pdfBuffer, { density: dpi }).metadata();
+    const pageCount = meta.pages || 1;
+    const buffers = [];
+    for (let p = 0; p < pageCount; p++) {
+      const buf = await sharp(pdfBuffer, { density: dpi, page: p })
         .grayscale()
         .normalize()
         .sharpen()
+        .png()
         .toBuffer();
-      console.log('Image pre-processing successful');
-    } catch (processError) {
-      console.log('Image pre-processing failed, using original image:', processError.message);
-      processedBuffer = imageBuffer;
+      buffers.push(buf);
     }
-    
-    const { data: { text } } = await tesseract.recognize(processedBuffer, 'eng', {
-      logger: m => console.log(m)
+    return buffers;
+  } catch (e) {
+    console.log('sharp PDF rasterise failed (poppler not available?):', e.message);
+    return null;
+  }
+}
+
+/**
+ * OCR a single image buffer with tesseract.
+ */
+async function ocrImageBuffer(imageBuffer) {
+  let processed = imageBuffer;
+  try {
+    processed = await sharp(imageBuffer)
+      .grayscale()
+      .normalize()
+      .sharpen()
+      .toBuffer();
+  } catch (e) { /* use original if sharp fails */ }
+
+  const { data: { text } } = await tesseract.recognize(processed, 'eng', {
+    logger: m => { if (m.status === 'recognizing text') console.log(`OCR progress: ${(m.progress * 100).toFixed(0)}%`); }
+  });
+  return text || '';
+}
+
+/**
+ * Extract text from a PDF buffer.
+ * Strategy:
+ *   1. pdf-parse  → fast text extraction for text-based PDFs
+ *   2. sharp rasterise + tesseract OCR  → for image-based PDFs (when libvips/poppler available)
+ *   3. tesseract directly on raw PDF buffer → last-resort fallback
+ */
+async function extractTextFromPDF(pdfBuffer) {
+  // ── Step 1: try pdf-parse ─────────────────────────────────────────────────
+  try {
+    console.log('Step 1: trying pdf-parse text extraction…');
+    const data = await pdfParse(pdfBuffer);
+    if (data.text && data.text.trim().length > 50) {
+      console.log(`pdf-parse succeeded: ${data.text.length} chars`);
+      return data.text;
+    }
+    console.log('pdf-parse returned little/no text — falling back to OCR');
+  } catch (e) {
+    console.log('pdf-parse threw:', e.message, '— falling back to OCR');
+  }
+
+  // ── Step 2: sharp rasterise → per-page OCR ───────────────────────────────
+  console.log('Step 2: trying sharp PDF rasterisation + OCR…');
+  const pageBuffers = await rasterisePdfWithSharp(pdfBuffer);
+  if (pageBuffers && pageBuffers.length > 0) {
+    console.log(`Rasterised ${pageBuffers.length} page(s) — running OCR…`);
+    const texts = [];
+    for (let i = 0; i < pageBuffers.length; i++) {
+      console.log(`OCR page ${i + 1}/${pageBuffers.length}`);
+      try {
+        const t = await ocrImageBuffer(pageBuffers[i]);
+        texts.push(t);
+      } catch (e) {
+        console.error(`OCR failed on page ${i + 1}:`, e.message);
+      }
+    }
+    const combined = texts.join('\n\n').trim();
+    if (combined.length > 0) {
+      console.log(`Step 2 succeeded: ${combined.length} chars from ${pageBuffers.length} pages`);
+      return combined;
+    }
+  }
+
+  // ── Step 3: feed raw PDF buffer directly to tesseract ───────────────────
+  console.log('Step 3: passing raw PDF buffer directly to tesseract…');
+  try {
+    const { data: { text } } = await tesseract.recognize(pdfBuffer, 'eng', {
+      logger: m => { if (m.status === 'recognizing text') console.log(`OCR: ${(m.progress * 100).toFixed(0)}%`); }
     });
-    
     if (text && text.trim().length > 0) {
-      console.log('Successfully extracted text from image');
+      console.log(`Step 3 succeeded: ${text.length} chars`);
       return text;
-    } else {
-      throw new Error('No text found in image');
     }
+  } catch (e) {
+    console.error('Step 3 tesseract direct failed:', e.message);
+  }
+
+  throw new Error('Could not extract text from this PDF. The file may be encrypted, corrupted, or contain only non-readable content.');
+}
+
+// ── Image OCR ─────────────────────────────────────────────────────────────────
+async function extractTextFromImage(imageBuffer) {
+  try {
+    console.log('Processing image with OCR…');
+    const text = await ocrImageBuffer(imageBuffer);
+    if (text && text.trim().length > 0) return text;
+    throw new Error('No text found in image');
   } catch (error) {
     console.error('Image OCR failed:', error.message);
-    
-    // Fallback: try without pre-processing
+    // Fallback without pre-processing
     try {
-      console.log('Trying OCR without pre-processing...');
       const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
       return text || '[No text could be extracted from the image]';
-    } catch (fallbackError) {
-      console.error('Fallback OCR also failed:', fallbackError.message);
+    } catch (e) {
       throw new Error('Could not extract text from image. The image may be too low quality or contain no text.');
     }
   }
 }
 
+// ── Router ────────────────────────────────────────────────────────────────────
+async function extractTextFromFile(base64Data, mimeType) {
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  if (mimeType.includes('pdf')) {
+    return await extractTextFromPDF(buffer);
+  } else if (mimeType.includes('word') || mimeType.includes('document')) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  } else if (mimeType.includes('image')) {
+    return await extractTextFromImage(buffer);
+  } else {
+    throw new Error('Unsupported file type: ' + mimeType);
+  }
+}
+
+// ── Netlify handler ───────────────────────────────────────────────────────────
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
@@ -98,35 +160,27 @@ exports.handler = async (event, context) => {
   let requestBody;
   try {
     requestBody = JSON.parse(event.body);
-  } catch (parseError) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: 'Invalid JSON in request body' })
-    };
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON in request body' }) };
   }
 
   const { files, fileType } = requestBody;
 
   try {
     if (!files || !Array.isArray(files) || files.length === 0) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Files are required and must be an array' })
-      };
+      return { statusCode: 400, body: JSON.stringify({ error: 'Files are required and must be an array' }) };
     }
 
-    console.log(`Starting text extraction for ${fileType} files. Number of files: ${files.length}`);
+    console.log(`Starting text extraction for ${fileType} (${files.length} file(s))`);
 
     let combinedText = '';
     let successfulFiles = 0;
-    
-    // Process files sequentially to avoid memory issues
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      console.log(`Processing file ${i + 1} of ${files.length}, type: ${file.type}`);
-      
+      console.log(`Processing file ${i + 1}/${files.length}, type: ${file.type}`);
+
       if (!file.data || !file.type) {
-        console.log(`Skipping file ${i + 1} - missing data or type`);
         combinedText += `[File ${i + 1}: Missing data or type]\n\n`;
         continue;
       }
@@ -136,47 +190,40 @@ exports.handler = async (event, context) => {
         if (text && text.trim().length > 0) {
           combinedText += text + '\n\n';
           successfulFiles++;
-          console.log(`Successfully extracted ${text.length} characters from file ${i + 1}`);
+          console.log(`File ${i + 1}: extracted ${text.length} chars`);
         } else {
-          console.log(`No text extracted from file ${i + 1}`);
           combinedText += `[File ${i + 1}: No text could be extracted]\n\n`;
         }
       } catch (error) {
-        console.error(`Error processing file ${i + 1}:`, error.message);
+        console.error(`File ${i + 1} error:`, error.message);
         combinedText += `[File ${i + 1}: ${error.message}]\n\n`;
       }
     }
 
-    console.log(`Processing complete. Successfully processed ${successfulFiles} out of ${files.length} files. Total characters: ${combinedText.length}`);
-
-    // If no text was extracted from any file, return a specific error
     if (combinedText.trim().length === 0 || successfulFiles === 0) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ 
-          error: 'Could not extract text from any of the provided files. Please ensure your files contain readable text and are in supported formats (PDF, Word, Images). For image-based PDFs, convert to images (JPG/PNG) and upload those instead.' 
+        body: JSON.stringify({
+          error: 'Could not extract text from any of the provided files. The files may be encrypted, corrupted, or contain only non-readable content.'
         })
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         success: true,
         extractedText: combinedText,
-        fileType: fileType,
+        fileType,
         filesProcessed: files.length,
-        successfulFiles: successfulFiles
+        successfulFiles
       })
     };
   } catch (error) {
     console.error('Extraction error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: `Extraction failed: ${error.message}`,
-        suggestion: 'For image-based PDFs, please convert to images (JPG/PNG) and upload those instead.'
-      })
+      body: JSON.stringify({ error: `Extraction failed: ${error.message}` })
     };
   }
 };
