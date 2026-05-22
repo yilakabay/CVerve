@@ -33,8 +33,6 @@ exports.handler = async (event, context) => {
       ? cvText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : cvText;
 
-    console.log("Sending request to Gemini 2.5 Flash...");
-
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
 
@@ -71,20 +69,47 @@ exports.handler = async (event, context) => {
       Generate the letter now:
     `;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const letterText = response.text();
+    // Retry logic: up to 3 attempts with 3-second delay between each
+    const MAX_ATTEMPTS = 3;
+    const RETRY_DELAY_MS = 3000;
+    let lastError;
 
-    console.log("Letter generated successfully");
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        console.log(`Sending request to Gemini 2.5 Flash (attempt ${attempt} of ${MAX_ATTEMPTS})...`);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const letterText = response.text();
+        console.log("Letter generated successfully on attempt", attempt);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ letterText })
+        };
+      } catch (err) {
+        lastError = err;
+        console.error(`Gemini attempt ${attempt} failed:`, err.message);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ letterText })
-    };
+        // Only retry on 503 (high demand) or 429 (rate limit); fail fast on other errors
+        const isRetryable = err.message.includes('503') || err.message.includes('503 Service Unavailable') ||
+                            err.message.includes('high demand') || err.message.includes('429') ||
+                            err.message.includes('quota');
+
+        if (!isRetryable || attempt === MAX_ATTEMPTS) break;
+
+        console.log(`Waiting ${RETRY_DELAY_MS / 1000}s before retry...`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+
+    // All attempts failed
+    throw lastError;
+
   } catch (error) {
     console.error('Letter generation error:', error);
     let errorMessage = 'Failed to generate letter. ';
-    if (error.message.includes('timeout')) {
+    if (error.message.includes('503') || error.message.includes('high demand')) {
+      errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
+    } else if (error.message.includes('timeout')) {
       errorMessage += 'The AI request took too long. Please try again.';
     } else {
       errorMessage += error.message || 'An unexpected error occurred.';
