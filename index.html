@@ -23,7 +23,7 @@
         let storedCvFilename = null;
 
         // ── MongoDB CV PDF helpers (IndexedDB removed) ────────────────────────
-        const CV_MAX_MB    = 2;
+        const CV_MAX_MB    = 6;
         const CV_MAX_BYTES = CV_MAX_MB * 1024 * 1024;
 
         /** ArrayBuffer → base64 string */
@@ -260,7 +260,7 @@
                     rejected.push(`"${f.name}" is not a supported type (use PDF, Word, or image).`);
                     continue;
                 }
-                // Only enforce the 2 MB size limit for PDFs (they get stored)
+                // Only enforce the 6 MB size limit for PDFs (they get stored)
                 if (isPdf && f.size > CV_MAX_BYTES) {
                     rejected.push(`"${f.name}" exceeds ${CV_MAX_MB} MB — PDF CVs larger than this cannot be stored for merging.`);
                     continue;
