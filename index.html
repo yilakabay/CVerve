@@ -17,8 +17,8 @@
         let pdfFilesArray = [];
 
         // Profile storage related
-        let storedProfile = null;           // { fullName, phone, email, address, cvText, cvFilename }
-        let usingStoredCv = false;          // whether we are using saved CV text (no upload needed)
+        let storedProfile = null;
+        let usingStoredCv = false;
         let storedCvText = null;
         let storedCvFilename = null;
 
@@ -58,6 +58,7 @@
                 downloadPdfBtn:    downloadMergedPdf,
                 generateLetterBtn: generateLetter,
                 printLetterBtn:    printLetter,
+                mergeWithCvBtn:    mergeLetterWithCv
             };
             Object.entries(ids).forEach(([id, fn]) => {
                 const el = document.getElementById(id);
@@ -72,7 +73,6 @@
             cvFilesArray = [...cvFilesArray, ...Array.from(e.target.files)];
             updateCvFilesList();
             e.target.value = '';
-            // If user uploads new CV files, we are no longer using stored CV only
             if (cvFilesArray.length > 0) {
                 usingStoredCv = false;
                 document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
@@ -118,7 +118,6 @@
             cvFilesArray.splice(i, 1);
             updateCvFilesList();
             if (cvFilesArray.length === 0 && storedProfile && storedProfile.cvText) {
-                // Re-enable stored CV usage
                 usingStoredCv = true;
                 document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
                 document.getElementById('cvFileInputContainer')?.classList.add('hidden');
@@ -359,18 +358,16 @@
         }
 
         function replaceStoredCv() {
-            // Clear stored CV usage and show file input
             usingStoredCv = false;
             storedCvText = null;
             storedCvFilename = null;
-            // Optionally update profile on server to remove cvText
             if (storedProfile) {
                 updateProfileWithCurrentData(
                     storedProfile.fullName,
                     storedProfile.phone,
                     storedProfile.email,
                     storedProfile.address,
-                    null, // cvText = null
+                    null,
                     null
                 );
             }
@@ -426,12 +423,10 @@
                 showMessage('error', 'All fields are required.');
                 return;
             }
-            // Keep existing CV text and filename if present
             const cvText = storedProfile.cvText || null;
             const cvFilename = storedProfile.cvFilename || null;
             await updateProfileWithCurrentData(fullName, phone, email, address, cvText, cvFilename);
             closeEditProfileModal();
-            // Also update form fields if currently visible
             document.getElementById('fullName').value = fullName;
             document.getElementById('phone').value = phone;
             document.getElementById('email').value = email;
@@ -450,7 +445,7 @@
         }
 
         // --------------------------------------------------------------
-        // Modified generateLetter with "save profile on first use" popup
+        // Letter Generation (with save profile logic)
         // --------------------------------------------------------------
         async function generateLetter() {
             const fullName = document.getElementById('fullName').value;
@@ -466,7 +461,6 @@
             let cvTextForLetter = null;
             let jdText = null;
 
-            // 1. Extract CV text (either from stored or from uploaded files)
             if (usingStoredCv && storedCvText && cvFilesArray.length === 0) {
                 cvTextForLetter = storedCvText;
                 showMessage('info', 'Using stored CV text. No need to re-upload.');
@@ -475,7 +469,6 @@
                     showMessage('error', 'Please upload at least one CV file or use autofill.');
                     return;
                 }
-                // Extract from uploaded CV files
                 showLoadingOverlay('Extracting CV text...');
                 try {
                     const toData = async (arr) => {
@@ -502,7 +495,6 @@
                 finally { hideLoadingOverlay(); }
             }
 
-            // 2. Extract JD text (always from uploaded JD files)
             if (jdFilesArray.length === 0) {
                 showMessage('error', 'Please upload at least one Job Description file.');
                 return;
@@ -532,11 +524,9 @@
             } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
             finally { hideLoadingOverlay(); }
 
-            // 3. Check if we should ask to save profile (only if no stored profile yet)
             if (!storedProfile && cvTextForLetter) {
                 const shouldSave = confirm('Do you want to store your information (Name, Phone, Email, Address and CV content) for next time? You can use Autofill later.');
                 if (shouldSave) {
-                    // Determine filename from first uploaded CV file or from storedCvFilename
                     let cvFilename = null;
                     if (cvFilesArray.length > 0 && cvFilesArray[0]) {
                         cvFilename = cvFilesArray[0].name;
@@ -546,7 +536,6 @@
                     await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename);
                 }
             } else if (storedProfile) {
-                // Optional: detect if user manually changed any field compared to stored profile
                 const changed = (fullName !== storedProfile.fullName) || (phone !== storedProfile.phone) ||
                                 (email !== storedProfile.email) || (address !== storedProfile.address) ||
                                 (cvFilesArray.length > 0 && !usingStoredCv);
@@ -564,7 +553,6 @@
                 }
             }
 
-            // 4. Generate letter
             showLoadingOverlay('Generating application letter...');
             try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
@@ -577,6 +565,7 @@
                 if (letterText) {
                     document.getElementById('applicationLetter').value = letterText;
                     document.getElementById('printLetterBtn').classList.remove('hidden');
+                    document.getElementById('mergeWithCvBtn').classList.remove('hidden');
                     showMessage('success', 'Application letter generated successfully!');
                     await updateBalance(-2.95);
                 } else {
@@ -609,6 +598,89 @@
             });
             doc.save('application_letter.pdf');
             showMessage('success', 'Letter downloaded successfully!');
+        }
+
+        // --------------------------------------------------------------
+        // NEW: Merge letter with CV PDFs
+        // --------------------------------------------------------------
+        async function mergeLetterWithCv() {
+            const letterText = document.getElementById('applicationLetter').value;
+            if (!letterText) {
+                showMessage('error', 'No letter to merge. Generate a letter first.');
+                return;
+            }
+
+            // Check if we have any CV files that are PDFs
+            const cvPdfFiles = cvFilesArray.filter(file => file.type === 'application/pdf');
+            if (cvPdfFiles.length === 0) {
+                showMessage('error', 'No PDF CV files found. Please upload at least one CV file in PDF format.');
+                return;
+            }
+
+            showLoadingOverlay('Merging letter with CV PDFs...');
+            try {
+                const { jsPDF } = window.jspdf;
+                const { PDFDocument } = window.PDFLib;
+
+                // 1. Create PDF from letter text
+                const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+                const pageW = doc.internal.pageSize.getWidth();
+                const pageH = doc.internal.pageSize.getHeight();
+                const mL = 72, mR = 72, mT = 72, mB = 72;
+                const usableW = pageW - mL - mR;
+                const lineH = 15;
+                doc.setFont('times', 'normal');
+                doc.setFontSize(11);
+                doc.setTextColor(30, 30, 30);
+                let y = mT;
+                letterText.split('\n').forEach(rawLine => {
+                    const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
+                    wrapped.forEach(line => {
+                        if (y + lineH > pageH - mB) {
+                            doc.addPage();
+                            y = mT;
+                        }
+                        doc.text(line, mL, y);
+                        y += lineH;
+                    });
+                });
+                const letterPdfBytes = doc.output('arraybuffer');
+
+                // 2. Load letter PDF and CV PDFs into pdf-lib
+                const mergedPdfDoc = await PDFDocument.create();
+                const letterPdfDoc = await PDFDocument.load(letterPdfBytes);
+                const letterPages = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
+                for (const page of letterPages) {
+                    mergedPdfDoc.addPage(page);
+                }
+
+                // 3. Add each CV PDF
+                for (const cvFile of cvPdfFiles) {
+                    const cvPdfBytes = await cvFile.arrayBuffer();
+                    const cvPdfDoc = await PDFDocument.load(cvPdfBytes);
+                    const cvPages = await mergedPdfDoc.copyPages(cvPdfDoc, cvPdfDoc.getPageIndices());
+                    for (const page of cvPages) {
+                        mergedPdfDoc.addPage(page);
+                    }
+                }
+
+                const mergedPdfBytes = await mergedPdfDoc.save();
+                const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'letter_with_cv.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showMessage('success', 'Letter merged with CV PDFs and downloaded.');
+            } catch (err) {
+                console.error('Merge error:', err);
+                showMessage('error', 'Failed to merge letter with CV. Please try again.');
+            } finally {
+                hideLoadingOverlay();
+            }
         }
 
         async function updateBalance(amount) {
@@ -672,16 +744,6 @@
             navigator.clipboard.writeText(text)
                 .then(() => showMessage('success', `${label} copied!`))
                 .catch(() => showMessage('error', 'Failed to copy'));
-        }
-
-        function updateFileLabel(inputId, labelId) {
-            const input = document.getElementById(inputId);
-            const label = document.getElementById(labelId);
-            if (input.files && input.files[0]) {
-                label.textContent = truncateFilename(input.files[0].name, 32);
-            } else {
-                label.textContent = 'No file chosen';
-            }
         }
 
         async function submitPayment(method) {
@@ -884,7 +946,7 @@
             </div>
         </div>
 
-        <!-- Letter Tab WITH AUTOFILL BUTTONS AND REPLACE CV -->
+        <!-- Letter Tab WITH AUTOFILL BUTTONS AND REPLACE CV + TWO BUTTONS -->
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <div class="flex justify-between items-center mb-2">
@@ -912,7 +974,6 @@
                     <div class="file-input-container">
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Your CV (text will be extracted)</span>
-                            <!-- Container for stored CV display (visible when using stored CV) -->
                             <div id="cvStoredBadgeContainer" class="hidden mt-1">
                                 <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
                                     <div class="flex items-center gap-2">
@@ -924,7 +985,6 @@
                                     </button>
                                 </div>
                             </div>
-                            <!-- Container for file input (visible when not using stored CV) -->
                             <div id="cvFileInputContainer">
                                 <div class="file-input-wrapper mt-1">
                                     <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
@@ -940,7 +1000,10 @@
                     </div>
                     <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
                     <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                    <button id="printLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">⬇️ Download Letter as PDF</button>
+                    <div class="flex gap-3">
+                        <button id="printLetterBtn" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">⬇️ Download as PDF</button>
+                        <button id="mergeWithCvBtn" class="flex-1 bg-amber-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-amber-600 transition-colors shadow-md">📄 Merge with my CV (PDF only)</button>
+                    </div>
                 </div>
             </div>
         </div>
