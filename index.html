@@ -367,12 +367,12 @@
                 document.getElementById('payMethodTelebirr').classList.remove('hidden');
             } else if (method === 'cbe') {
                 document.getElementById('payMethodCBE').classList.remove('hidden');
-                document.getElementById('cbePaymentFile').value = '';
-                document.getElementById('cbeFileLabel').textContent = 'No file chosen';
+                document.getElementById('cbeTxId').value = '';
+                document.getElementById('cbeAmount').value = '';
             } else if (method === 'cbebirr') {
                 document.getElementById('payMethodCBEBirr').classList.remove('hidden');
-                document.getElementById('cbebirrPaymentFile').value = '';
-                document.getElementById('cbebirrFileLabel').textContent = 'No file chosen';
+                document.getElementById('cbebirrTxId').value = '';
+                document.getElementById('cbebirrAmount').value = '';
             }
         }
 
@@ -393,25 +393,23 @@
         }
 
         async function submitPayment(method) {
-            const inputId = method === 'cbe' ? 'cbePaymentFile' : 'cbebirrPaymentFile';
-            const fileInput = document.getElementById(inputId);
-            const file = fileInput.files[0];
-            if (!file) { showMessage('error', 'Please upload your payment confirmation file.'); return; }
+            const txIdInput  = method === 'cbe' ? 'cbeTxId'     : 'cbebirrTxId';
+            const amtInput   = method === 'cbe' ? 'cbeAmount'   : 'cbebirrAmount';
+
+            const paymentId = document.getElementById(txIdInput).value.trim();
+            const amount    = document.getElementById(amtInput).value.trim();
+
+            if (!paymentId) { showMessage('error', 'Please enter the Transaction ID.'); return; }
+            if (!amount)    { showMessage('error', 'Please enter the amount.'); return; }
 
             closePaymentPopup();
-            showLoadingOverlay('Analyzing your payment receipt…');
+            showLoadingOverlay('Submitting payment…');
 
             try {
-                const fileData = await fileToBase64(file);
                 const response = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId,
-                        fileData,
-                        fileType: file.type,
-                        paymentMethod: method
-                    })
+                    body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method })
                 });
 
                 const result = await response.json();
@@ -583,17 +581,13 @@
                 <p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p>
                 <p><span class="font-medium">Minimum:</span> 100 ETB</p>
             </div>
-            <p class="text-xs text-gray-500 mb-3">After transferring, upload the SMS or screenshot you received from CBE:</p>
-            <label class="block mb-3 cursor-pointer">
-                <div class="flex items-center space-x-2 border border-gray-300 rounded-xl px-4 py-2 hover:bg-gray-50 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    <span id="cbeFileLabel" class="text-sm text-gray-600 truncate flex-1">No file chosen</span>
-                </div>
-                <input type="file" id="cbePaymentFile" accept="image/*,application/pdf" class="hidden"
-                    onchange="updateFileLabel('cbePaymentFile','cbeFileLabel')">
-            </label>
+            <p class="text-xs text-gray-500 mb-3">After transferring, enter your transaction details below:</p>
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)"
+                    class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
+                <input type="number" id="cbeAmount" placeholder="Amount"
+                    class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
             <button onclick="submitPayment('cbe')"
                 class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">
                 Submit Payment
@@ -620,17 +614,13 @@
                 </div>
                 <p><span class="font-medium">Minimum:</span> 100 ETB</p>
             </div>
-            <p class="text-xs text-gray-500 mb-3">After sending, upload the confirmation message you received from CBEBirr:</p>
-            <label class="block mb-3 cursor-pointer">
-                <div class="flex items-center space-x-2 border border-gray-300 rounded-xl px-4 py-2 hover:bg-gray-50 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    <span id="cbebirrFileLabel" class="text-sm text-gray-600 truncate flex-1">No file chosen</span>
-                </div>
-                <input type="file" id="cbebirrPaymentFile" accept="image/*,application/pdf" class="hidden"
-                    onchange="updateFileLabel('cbebirrPaymentFile','cbebirrFileLabel')">
-            </label>
+            <p class="text-xs text-gray-500 mb-3">After sending, enter your transaction details below:</p>
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)"
+                    class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono">
+                <input type="number" id="cbebirrAmount" placeholder="Amount"
+                    class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            </div>
             <button onclick="submitPayment('cbebirr')"
                 class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
                 Submit Payment
