@@ -34,7 +34,6 @@ exports.handler = async (event, context) => {
       if (!existing) {
         return { statusCode: 200, body: JSON.stringify({ profile: null }) };
       }
-      // Remove _id for cleaner response
       const { _id, ...profileData } = existing;
       return { statusCode: 200, body: JSON.stringify({ profile: profileData }) };
     }
@@ -44,7 +43,7 @@ exports.handler = async (event, context) => {
       if (!profile || typeof profile !== 'object') {
         return { statusCode: 400, body: JSON.stringify({ error: 'profile object required' }) };
       }
-      const { fullName, phone, email, address, cvText } = profile;
+      const { fullName, phone, email, address, cvText, cvFilename } = profile;
       if (!fullName || !phone || !email || !address) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields (fullName, phone, email, address)' }) };
       }
@@ -56,6 +55,7 @@ exports.handler = async (event, context) => {
         email,
         address,
         cvText: cvText || null,
+        cvFilename: cvFilename || null,
         updatedAt: new Date()
       };
 
