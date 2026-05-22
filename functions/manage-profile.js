@@ -3,7 +3,7 @@ const { MongoClient } = require('mongodb');
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-const CV_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const CV_MAX_BYTES = 6 * 1024 * 1024; // 6 MB
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
@@ -70,7 +70,7 @@ exports.handler = async (event, context) => {
           return {
             statusCode: 413,
             body: JSON.stringify({
-              error: 'CV file exceeds the 2 MB limit and was not saved. Your profile details were saved without the CV file.'
+              error: 'CV file exceeds the 6 MB limit and was not saved. Your profile details were saved without the CV file.'
             })
           };
         }
