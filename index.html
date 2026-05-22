@@ -700,11 +700,13 @@
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ files, fileType })
                         });
+                        let data;
+                        try { data = await res.json(); } catch { data = {}; }
                         if (!res.ok) {
-                            const err = await res.json();
-                            throw new Error(`${fileType.toUpperCase()} extraction failed: ${err.error}`);
+                            const msg = data.error || data.message || `HTTP ${res.status}`;
+                            throw new Error(`${fileType.toUpperCase()} extraction failed: ${msg}`);
                         }
-                        return (await res.json()).extractedText;
+                        return data.extractedText;
                     };
                     cvTextForLetter = await extract(cvFilesData, 'cv');
 
@@ -748,11 +750,13 @@
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ files, fileType })
                     });
+                    let data;
+                    try { data = await res.json(); } catch { data = {}; }
                     if (!res.ok) {
-                        const err = await res.json();
-                        throw new Error(`${fileType.toUpperCase()} extraction failed: ${err.error}`);
+                        const msg = data.error || data.message || `HTTP ${res.status}`;
+                        throw new Error(`${fileType.toUpperCase()} extraction failed: ${msg}`);
                     }
-                    return (await res.json()).extractedText;
+                    return data.extractedText;
                 };
                 jdText = await extract(jdFilesData, 'jd');
             } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
