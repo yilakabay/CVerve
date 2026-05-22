@@ -16,6 +16,11 @@
         let jdFilesArray = [];
         let pdfFilesArray = [];
 
+        // Profile storage related
+        let storedProfile = null;           // { fullName, phone, email, address, cvText }
+        let usingStoredCv = false;          // whether we are using saved CV text (no upload needed)
+        let storedCvText = null;
+
         function isValidPhoneNumber(phone) {
             const phoneRegex = /^(09|07)\d{8}$/;
             return phoneRegex.test(phone);
@@ -35,7 +40,7 @@
         function toggleLoginScreen(show) {
             document.getElementById('loginScreen').classList.toggle('hidden', !show);
             document.getElementById('mainApp').classList.toggle('hidden', show);
-            if (!show) { attachEventListeners(); setCurrentDate(); }
+            if (!show) { attachEventListeners(); setCurrentDate(); loadStoredProfileFromServer(); }
         }
 
         function setCurrentDate() {
@@ -62,8 +67,17 @@
             document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
         }
 
-        function handleCvFileSelect(e)  { cvFilesArray  = [...cvFilesArray,  ...Array.from(e.target.files)]; updateCvFilesList();  e.target.value = ''; }
-        function handleJdFileSelect(e)  { jdFilesArray  = [...jdFilesArray,  ...Array.from(e.target.files)]; updateJdFilesList();  e.target.value = ''; }
+        function handleCvFileSelect(e)  {
+            cvFilesArray = [...cvFilesArray, ...Array.from(e.target.files)];
+            updateCvFilesList();
+            e.target.value = '';
+            // If user uploads new CV files, we are no longer using stored CV only
+            if (cvFilesArray.length > 0) {
+                usingStoredCv = false;
+                document.getElementById('cvStoredBadge')?.classList.add('hidden');
+            }
+        }
+        function handleJdFileSelect(e)  { jdFilesArray = [...jdFilesArray, ...Array.from(e.target.files)]; updateJdFilesList(); e.target.value = ''; }
         function handlePdfFileSelect(e) { pdfFilesArray = [...pdfFilesArray, ...Array.from(e.target.files)]; updatePdfFilesList(); e.target.value = ''; }
 
         function buildFileItem(file, index, removeFn) {
@@ -98,8 +112,19 @@
         function updateJdFilesList()  { updateFilesList(jdFilesArray,  'jdFilesList',  'jdFilesCounter',  'removeJdFile'); }
         function updatePdfFilesList() { updateFilesList(pdfFilesArray, 'pdfFilesList', 'pdfFilesCounter', 'removePdfFile'); }
 
-        function removeCvFile(i)  { cvFilesArray.splice(i, 1);  updateCvFilesList(); }
-        function removeJdFile(i)  { jdFilesArray.splice(i, 1);  updateJdFilesList(); }
+        function removeCvFile(i)  {
+            cvFilesArray.splice(i, 1);
+            updateCvFilesList();
+            if (cvFilesArray.length === 0 && storedProfile && storedProfile.cvText) {
+                // Optionally re-enable stored CV usage
+                usingStoredCv = true;
+                document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+            } else {
+                usingStoredCv = false;
+                document.getElementById('cvStoredBadge')?.classList.add('hidden');
+            }
+        }
+        function removeJdFile(i)  { jdFilesArray.splice(i, 1); updateJdFilesList(); }
         function removePdfFile(i) { pdfFilesArray.splice(i, 1); updatePdfFilesList(); }
 
         function showLoadingOverlay(message) {
@@ -231,28 +256,217 @@
             });
         }
 
+        // --------------------------------------------------------------
+        // Profile Management (MongoDB)
+        // --------------------------------------------------------------
+        async function loadStoredProfileFromServer() {
+            if (!userId) return;
+            try {
+                const res = await fetch('/.netlify/functions/manage-profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, action: 'get' })
+                });
+                const data = await res.json();
+                if (res.ok && data.profile) {
+                    storedProfile = data.profile;
+                    if (storedProfile.cvText) {
+                        storedCvText = storedProfile.cvText;
+                        usingStoredCv = true;
+                        document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+                    }
+                    // Show autofill hint
+                    document.getElementById('autofillHint')?.classList.remove('hidden');
+                } else {
+                    storedProfile = null;
+                    storedCvText = null;
+                    usingStoredCv = false;
+                    document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                    document.getElementById('autofillHint')?.classList.add('hidden');
+                }
+            } catch(e) { console.error('Load profile error', e); }
+        }
+
+        async function saveProfileToServer(profileData) {
+            if (!userId) return false;
+            try {
+                const res = await fetch('/.netlify/functions/manage-profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, action: 'save', profile: profileData })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    storedProfile = data.profile;
+                    if (storedProfile.cvText) {
+                        storedCvText = storedProfile.cvText;
+                        usingStoredCv = true;
+                        document.getElementById('cvStoredBadge')?.classList.remove('hidden');
+                    }
+                    showMessage('success', 'Profile saved for future autofill.');
+                    return true;
+                } else {
+                    showMessage('error', data.error || 'Failed to save profile');
+                    return false;
+                }
+            } catch(e) { showMessage('error', 'Network error while saving'); return false; }
+        }
+
+        async function deleteProfileFromServer() {
+            if (!userId) return false;
+            try {
+                const res = await fetch('/.netlify/functions/manage-profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, action: 'delete' })
+                });
+                if (res.ok) {
+                    storedProfile = null;
+                    storedCvText = null;
+                    usingStoredCv = false;
+                    document.getElementById('cvStoredBadge')?.classList.add('hidden');
+                    document.getElementById('autofillHint')?.classList.add('hidden');
+                    showMessage('success', 'Stored profile deleted.');
+                    return true;
+                } else { throw new Error(); }
+            } catch(e) { showMessage('error', 'Could not delete profile'); return false; }
+        }
+
+        async function updateProfileWithCurrentData(fullName, phone, email, address, cvText) {
+            const profileData = { fullName, phone, email, address, cvText };
+            return await saveProfileToServer(profileData);
+        }
+
+        function autofillForm() {
+            if (!storedProfile) {
+                showMessage('error', 'No saved profile found. Generate a letter first and choose to save.');
+                return;
+            }
+            document.getElementById('fullName').value = storedProfile.fullName || '';
+            document.getElementById('phone').value = storedProfile.phone || '';
+            document.getElementById('email').value = storedProfile.email || '';
+            document.getElementById('address').value = storedProfile.address || '';
+            if (storedProfile.cvText) {
+                storedCvText = storedProfile.cvText;
+                usingStoredCv = true;
+                // Clear any manually uploaded CV files to avoid confusion
+                cvFilesArray = [];
+                updateCvFilesList();
+                document.getElementById('cvStoredBadge').classList.remove('hidden');
+                showMessage('success', 'Form autofilled with stored data (CV text included). You can still upload new CV files if needed.');
+            } else {
+                showMessage('info', 'Form autofilled, but no CV text was stored. Please upload CV files.');
+            }
+        }
+
+        function showEditProfileModal() {
+            if (!storedProfile) {
+                showMessage('error', 'No stored profile to edit.');
+                return;
+            }
+            document.getElementById('editFullName').value = storedProfile.fullName || '';
+            document.getElementById('editPhone').value = storedProfile.phone || '';
+            document.getElementById('editEmail').value = storedProfile.email || '';
+            document.getElementById('editAddress').value = storedProfile.address || '';
+            document.getElementById('editProfileModal').classList.remove('hidden');
+        }
+
+        async function saveEditedProfile() {
+            const fullName = document.getElementById('editFullName').value.trim();
+            const phone = document.getElementById('editPhone').value.trim();
+            const email = document.getElementById('editEmail').value.trim();
+            const address = document.getElementById('editAddress').value.trim();
+            if (!fullName || !phone || !email || !address) {
+                showMessage('error', 'All fields are required.');
+                return;
+            }
+            // Keep existing CV text if present
+            const cvText = storedProfile.cvText || null;
+            await updateProfileWithCurrentData(fullName, phone, email, address, cvText);
+            closeEditProfileModal();
+            // Also update form fields if currently visible
+            document.getElementById('fullName').value = fullName;
+            document.getElementById('phone').value = phone;
+            document.getElementById('email').value = email;
+            document.getElementById('address').value = address;
+        }
+
+        function closeEditProfileModal() {
+            document.getElementById('editProfileModal').classList.add('hidden');
+        }
+
+        async function requestDeleteProfile() {
+            if (confirm('Are you sure you want to delete your stored profile (name, contact, and CV text)? This cannot be undone.')) {
+                await deleteProfileFromServer();
+            }
+        }
+
+        // --------------------------------------------------------------
+        // Modified generateLetter with "save profile on first use" popup
+        // --------------------------------------------------------------
         async function generateLetter() {
             const fullName = document.getElementById('fullName').value;
             const phone    = document.getElementById('phone').value;
             const email    = document.getElementById('email').value;
             const address  = document.getElementById('address').value;
             const appDate  = document.getElementById('appDate').value;
-            if (!fullName || !phone || !email || !address || !appDate || cvFilesArray.length === 0 || jdFilesArray.length === 0) {
-                showMessage('error', 'Please fill all fields and upload at least one file for both CV and Job Description.');
+            if (!fullName || !phone || !email || !address || !appDate) {
+                showMessage('error', 'Please fill all personal fields.');
                 return;
             }
-            const cost = 2.95;
-            if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); return; }
-            showLoadingOverlay('Preparing your files...');
+
+            let cvTextForLetter = null;
+            let jdText = null;
+
+            // 1. Extract CV text (either from stored or from uploaded files)
+            if (usingStoredCv && storedCvText && cvFilesArray.length === 0) {
+                cvTextForLetter = storedCvText;
+                showMessage('info', 'Using stored CV text. No need to re-upload.');
+            } else {
+                if (cvFilesArray.length === 0) {
+                    showMessage('error', 'Please upload at least one CV file or use autofill.');
+                    return;
+                }
+                // Extract from uploaded CV files
+                showLoadingOverlay('Extracting CV text...');
+                try {
+                    const toData = async (arr) => {
+                        const out = [];
+                        for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type });
+                        return out;
+                    };
+                    const cvFilesData = await toData(cvFilesArray);
+                    const extract = async (files, fileType) => {
+                        const res = await fetch('/.netlify/functions/extract-text', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ files, fileType })
+                        });
+                        if (!res.ok) {
+                            const err = await res.json();
+                            if (err.error && err.error.includes('image-based')) { showImageBasedPdfPopup(fileType); hideLoadingOverlay(); return null; }
+                            throw new Error(`${fileType.toUpperCase()} extraction failed: ${err.error}`);
+                        }
+                        return (await res.json()).extractedText;
+                    };
+                    cvTextForLetter = await extract(cvFilesData, 'cv');
+                    if (cvTextForLetter === null) { hideLoadingOverlay(); return; }
+                } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
+                finally { hideLoadingOverlay(); }
+            }
+
+            // 2. Extract JD text (always from uploaded JD files)
+            if (jdFilesArray.length === 0) {
+                showMessage('error', 'Please upload at least one Job Description file.');
+                return;
+            }
+            showLoadingOverlay('Extracting job description...');
             try {
                 const toData = async (arr) => {
                     const out = [];
                     for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type });
                     return out;
                 };
-                const cvFilesData = await toData(cvFilesArray);
                 const jdFilesData = await toData(jdFilesArray);
-
                 const extract = async (files, fileType) => {
                     const res = await fetch('/.netlify/functions/extract-text', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -265,15 +479,36 @@
                     }
                     return (await res.json()).extractedText;
                 };
+                jdText = await extract(jdFilesData, 'jd');
+                if (jdText === null) { hideLoadingOverlay(); return; }
+            } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
+            finally { hideLoadingOverlay(); }
 
-                const cvText = await extract(cvFilesData, 'cv');
-                if (cvText === null) return;
-                const jdText = await extract(jdFilesData, 'jd');
-                if (jdText === null) return;
+            // 3. Check if we should ask to save profile (only if no stored profile yet)
+            if (!storedProfile && cvTextForLetter) {
+                const shouldSave = confirm('Do you want to store your information (Name, Phone, Email, Address and CV content) for next time? You can use Autofill later.');
+                if (shouldSave) {
+                    await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter);
+                }
+            } else if (storedProfile) {
+                // Optional: detect if user manually changed any field compared to stored profile
+                const changed = (fullName !== storedProfile.fullName) || (phone !== storedProfile.phone) ||
+                                (email !== storedProfile.email) || (address !== storedProfile.address) ||
+                                (cvFilesArray.length > 0 && !usingStoredCv);
+                if (changed) {
+                    const updateStored = confirm('It looks like you changed your personal information or CV. Would you like to update your stored autofill profile with the new data?');
+                    if (updateStored) {
+                        await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter);
+                    }
+                }
+            }
 
+            // 4. Generate letter
+            showLoadingOverlay('Generating application letter...');
+            try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText, jdText })
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText })
                 });
                 if (!letterResponse.ok) throw new Error(`Letter generation failed: ${(await letterResponse.json()).error}`);
 
@@ -282,7 +517,7 @@
                     document.getElementById('applicationLetter').value = letterText;
                     document.getElementById('printLetterBtn').classList.remove('hidden');
                     showMessage('success', 'Application letter generated successfully!');
-                    await updateBalance(-cost);
+                    await updateBalance(-2.95);
                 } else {
                     showMessage('error', 'Could not generate letter. Please try again.');
                 }
@@ -331,10 +566,7 @@
             return false;
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        //  PAYMENT POPUP  (new implementation)
-        // ══════════════════════════════════════════════════════════════════
-
+        // ---------- Payment Popup (unchanged) ----------
         let paymentPopupVisible = false;
 
         function openPaymentPopup() {
@@ -362,7 +594,6 @@
             document.getElementById('payMethodTelebirr').classList.add('hidden');
             document.getElementById('payMethodCBE').classList.add('hidden');
             document.getElementById('payMethodCBEBirr').classList.add('hidden');
-
             if (method === 'telebirr') {
                 document.getElementById('payMethodTelebirr').classList.remove('hidden');
             } else if (method === 'cbe') {
@@ -395,25 +626,19 @@
         async function submitPayment(method) {
             const txIdInput  = method === 'cbe' ? 'cbeTxId'     : 'cbebirrTxId';
             const amtInput   = method === 'cbe' ? 'cbeAmount'   : 'cbebirrAmount';
-
             const paymentId = document.getElementById(txIdInput).value.trim();
             const amount    = document.getElementById(amtInput).value.trim();
-
             if (!paymentId) { showMessage('error', 'Please enter the Transaction ID.'); return; }
             if (!amount)    { showMessage('error', 'Please enter the amount.'); return; }
-
             closePaymentPopup();
             showLoadingOverlay('Submitting payment…');
-
             try {
                 const response = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method })
                 });
-
                 const result = await response.json();
-
                 if (response.ok && result.success) {
                     showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
                 } else {
@@ -422,9 +647,7 @@
             } catch (err) {
                 console.error('Payment submission error:', err);
                 showMessage('error', 'An unexpected error occurred. Please try again.');
-            } finally {
-                hideLoadingOverlay();
-            }
+            } finally { hideLoadingOverlay(); }
         }
     </script>
     <style>
@@ -484,198 +707,92 @@
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     PAYMENT POPUP — slides up from bottom
-═══════════════════════════════════════════════════════════════ -->
+<!-- Edit Profile Modal -->
+<div id="editProfileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-xl max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold mb-4">Edit Stored Information</h3>
+        <input type="text" id="editFullName" placeholder="Full Name" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="tel" id="editPhone" placeholder="Phone Number" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="email" id="editEmail" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="text" id="editAddress" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-4">
+        <div class="flex gap-2">
+            <button onclick="saveEditedProfile()" class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold">Save Changes</button>
+            <button onclick="closeEditProfileModal()" class="flex-1 bg-gray-300 text-gray-800 py-2 rounded-full font-semibold">Cancel</button>
+        </div>
+        <button onclick="requestDeleteProfile()" class="w-full text-red-600 text-sm mt-3 underline">Delete stored profile completely</button>
+    </div>
+</div>
+
+<!-- PAYMENT POPUP (unchanged) -->
 <div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center"
      onclick="if(event.target===this) closePaymentPopup()">
-
     <div id="paymentPopupSheet" class="translate-y-full bg-white rounded-t-3xl shadow-2xl w-full max-w-lg px-6 pt-4 pb-8">
-
-        <!-- Handle bar -->
         <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
-
-        <!-- Header -->
         <div class="flex items-center justify-between mb-5">
             <h2 class="text-lg font-bold text-gray-800">Top Up Balance</h2>
             <button onclick="closePaymentPopup()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
-
-        <!-- ── Step 1: Choose method ── -->
         <div id="payMethodChoice" class="space-y-3">
             <p class="text-sm text-gray-500 mb-1">Select a payment method:</p>
-
-            <!-- Telebirr -->
-            <button onclick="selectPaymentMethod('telebirr')"
-                class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div>
-                    <span class="font-semibold text-gray-700">Telebirr</span>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                </svg>
+            <button onclick="selectPaymentMethod('telebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div><span class="font-semibold text-gray-700">Telebirr</span></div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
-
-            <!-- Bank Transfer (CBE) -->
-            <button onclick="selectPaymentMethod('cbe')"
-                class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div>
-                    <span class="font-semibold text-gray-700">Bank Transfer (CBE)</span>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                </svg>
+            <button onclick="selectPaymentMethod('cbe')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div><span class="font-semibold text-gray-700">Bank Transfer (CBE)</span></div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
-
-            <!-- CBEBirr -->
-            <button onclick="selectPaymentMethod('cbebirr')"
-                class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div>
-                    <span class="font-semibold text-gray-700">CBEBirr</span>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                </svg>
+            <button onclick="selectPaymentMethod('cbebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors">
+                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div><span class="font-semibold text-gray-700">CBEBirr</span></div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
         </div>
-
-        <!-- ── Telebirr → Coming Soon ── -->
         <div id="payMethodTelebirr" class="hidden">
-            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                </svg> Back
-            </button>
-            <div class="flex flex-col items-center py-8 text-center">
-                <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <h3 class="text-xl font-bold text-gray-700 mb-2">Coming Soon</h3>
-                <p class="text-sm text-gray-500">Telebirr payments will be available shortly. Please use Bank Transfer or CBEBirr for now.</p>
-            </div>
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
+            <div class="flex flex-col items-center py-8 text-center"><div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3 class="text-xl font-bold text-gray-700 mb-2">Coming Soon</h3><p class="text-sm text-gray-500">Telebirr payments will be available shortly.</p></div>
         </div>
-
-        <!-- ── Bank Transfer (CBE) ── -->
         <div id="payMethodCBE" class="hidden">
-            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                </svg> Back
-            </button>
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
             <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2">
                 <p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p>
-                <div class="flex items-center justify-between">
-                    <span><span class="font-medium">Account:</span> 1000577617639</span>
-                    <button onclick="copyText('1000577617639','Account number')"
-                        class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0" title="Copy account number">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                        </svg>
-                    </button>
-                </div>
-                <p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p>
-                <p><span class="font-medium">Minimum:</span> 100 ETB</p>
+                <div class="flex items-center justify-between"><span><span class="font-medium">Account:</span> 1000577617639</span><button onclick="copyText('1000577617639','Account number')" class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0" title="Copy account number"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div>
+                <p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p><p><span class="font-medium">Minimum:</span> 100 ETB</p>
             </div>
             <p class="text-xs text-gray-500 mb-3">After transferring, enter your transaction details below:</p>
-            <div class="flex gap-2 mb-3">
-                <input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)"
-                    class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
-                <input type="number" id="cbeAmount" placeholder="Amount"
-                    class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <button onclick="submitPayment('cbe')"
-                class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">
-                Submit Payment
-            </button>
+            <div class="flex gap-2 mb-3"><input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"><input type="number" id="cbeAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <button onclick="submitPayment('cbe')" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Submit Payment</button>
         </div>
-
-        <!-- ── CBEBirr ── -->
         <div id="payMethodCBEBirr" class="hidden">
-            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                </svg> Back
-            </button>
+            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
             <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2">
                 <p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p>
-                <div class="flex items-center justify-between">
-                    <span><span class="font-medium">Phone:</span> 0985576139</span>
-                    <button onclick="copyText('0985576139','Phone number')"
-                        class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0" title="Copy phone number">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                        </svg>
-                    </button>
-                </div>
+                <div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0" title="Copy phone number"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div>
                 <p><span class="font-medium">Minimum:</span> 100 ETB</p>
             </div>
             <p class="text-xs text-gray-500 mb-3">After sending, enter your transaction details below:</p>
-            <div class="flex gap-2 mb-3">
-                <input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)"
-                    class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono">
-                <input type="number" id="cbebirrAmount" placeholder="Amount"
-                    class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            </div>
-            <button onclick="submitPayment('cbebirr')"
-                class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
-                Submit Payment
-            </button>
+            <div class="flex gap-2 mb-3"><input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"><input type="number" id="cbebirrAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
+            <button onclick="submitPayment('cbebirr')" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">Submit Payment</button>
         </div>
-
     </div>
 </div>
-<!-- END PAYMENT POPUP -->
 
-<!-- Login Screen -->
+<!-- Login Screen (unchanged) -->
 <div id="loginScreen" class="fixed inset-0 bg-gray-100 flex items-center justify-center p-4">
     <div class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
         <h1 class="text-3xl font-bold text-center text-indigo-600 mb-2">CVerve</h1>
         <p class="text-sm text-center text-gray-500 mb-6">Login to access your account</p>
         <div id="loginForm">
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" id="phoneNumberInput" placeholder="Enter your phone number"
-                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <div class="mb-6">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" id="passwordInput" placeholder="Enter your password"
-                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <button onclick="handleLogin()"
-                class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
-            <div class="text-center">
-                <p class="text-sm text-gray-600">Don't have an account?</p>
-                <button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button>
-            </div>
+            <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="tel" id="phoneNumberInput" placeholder="Enter your phone number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
+            <div class="text-center"><p class="text-sm text-gray-600">Don't have an account?</p><button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button></div>
         </div>
         <div id="registerForm" class="hidden">
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)"
-                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)"
-                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <div class="mb-6">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                <input type="password" id="confirmPassword" placeholder="Confirm your password"
-                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <button onclick="handleRegister()"
-                class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
-            <div class="text-center">
-                <p class="text-sm text-gray-600">Already have an account?</p>
-                <button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Back to Login</button>
-            </div>
+            <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label><input type="password" id="confirmPassword" placeholder="Confirm your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
+            <div class="text-center"><p class="text-sm text-gray-600">Already have an account?</p><button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Back to Login</button></div>
         </div>
     </div>
 </div>
@@ -685,13 +802,7 @@
     <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-3xl font-bold text-indigo-600">CVerve</h1>
-            <button onclick="window.open('https://t.me/cverve_guide','_blank')"
-                class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150">
-                <span>Guide Video</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                </svg>
-            </button>
+            <button onclick="window.open('https://t.me/cverve_guide','_blank')" class="flex items-center space-x-1 text-orange-600 font-bold border-2 border-orange-600 rounded-lg px-3 py-1 text-sm hover:bg-orange-50 transition duration-150"><span>Guide Video</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
         </div>
 
         <div class="flex border-b border-gray-200 mb-4">
@@ -700,88 +811,71 @@
             <button id="payment-button" onclick="switchTab('payment')" class="tab-button w-1/3 py-2 text-center text-sm font-semibold text-gray-600">Balance</button>
         </div>
 
-        <!-- PDF Merger Tab -->
+        <!-- PDF Merger Tab (unchanged) -->
         <div id="merger-content" class="tab-content">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
                 <div class="space-y-4">
-                    <div class="file-input-container">
-                        <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span>
-                            <div class="file-input-wrapper mt-1">
-                                <input type="file" id="pdfInput" multiple accept="application/pdf"
-                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                <span id="pdfFilesCounter" class="file-count-display">0 files selected</span>
-                            </div>
-                        </label>
-                        <div id="pdfFilesList" class="max-h-32 overflow-y-auto"></div>
-                    </div>
+                    <div class="file-input-container"><label class="block"><span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span><div class="file-input-wrapper mt-1"><input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="pdfFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="pdfFilesList" class="max-h-32 overflow-y-auto"></div></div>
                     <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Merge PDFs</button>
                     <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download Merged PDF</button>
                 </div>
             </div>
         </div>
 
-        <!-- Letter Tab -->
+        <!-- Letter Tab WITH AUTOFILL BUTTONS -->
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
-                <h2 class="text-xl font-semibold mb-4 text-center">Application Letter Writer</h2>
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-xl font-semibold text-center">Application Letter Writer</h2>
+                    <div class="flex gap-1">
+                        <button onclick="autofillForm()" class="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-1 hover:bg-indigo-200 flex items-center gap-1 transition" title="Autofill with saved data">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            Autofill
+                        </button>
+                        <button onclick="showEditProfileModal()" class="text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-1 hover:bg-gray-200 flex items-center gap-1 transition" title="Edit stored information">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            Edit
+                        </button>
+                    </div>
+                </div>
+                <div id="autofillHint" class="text-xs text-green-600 bg-green-50 p-1 rounded hidden mb-2 text-center">Saved profile available – click Autofill</div>
                 <div class="space-y-4">
                     <input type="text"  id="fullName" placeholder="Full Name"     class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="tel"   id="phone"    placeholder="Phone Number"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <input type="date"  id="appDate"                              class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="date"  id="appDate"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <div class="file-input-container">
                         <label class="block">
                             <span class="text-sm font-medium text-gray-700">Upload Your CV Files (Image, PDF, Word)</span>
                             <div class="file-input-wrapper mt-1">
-                                <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                <input type="file" id="cvFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
                                 <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
                             </div>
                         </label>
                         <div id="cvFilesList" class="max-h-32 overflow-y-auto"></div>
+                        <div id="cvStoredBadge" class="hidden text-xs text-indigo-600 mt-1 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Using stored CV text. Upload new files to replace.</div>
                     </div>
                     <div class="file-input-container">
-                        <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span>
-                            <div class="file-input-wrapper mt-1">
-                                <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
-                            </div>
-                        </label>
-                        <div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
+                        <label class="block"><span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span><div class="file-input-wrapper mt-1"><input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="jdFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
                     </div>
                     <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
-                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..."
-                        class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                     <button id="printLetterBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">⬇️ Download Letter as PDF</button>
                 </div>
             </div>
         </div>
 
-        <!-- Balance Tab -->
+        <!-- Balance Tab (unchanged) -->
         <div id="payment-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">Payment &amp; Balance</h2>
-                <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow mb-4">
-                    <span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span>
-                    <button onclick="openPaymentPopup()"
-                        class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">
-                        Top Up
-                    </button>
-                </div>
-                <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800">
-                    <p class="font-semibold mb-1">How top-ups work:</p>
-                    <p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p>
-                </div>
+                <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow mb-4"><span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span><button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">Top Up</button></div>
+                <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800"><p class="font-semibold mb-1">How top-ups work:</p><p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p></div>
             </div>
         </div>
-
     </div>
 </div>
-
 </body>
 </html>
