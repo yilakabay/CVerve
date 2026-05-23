@@ -115,8 +115,8 @@
             const { jsPDF } = window.jspdf;
             const doc   = new jsPDF({ unit: 'pt', format: 'a4' });
             const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-            const mL = 60, mR = 60, mT = 60, mB = 60, lineH = 13;
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+            const mL = 60, mR = 60, mT = 60, mB = 60, lineH = 8;
+            doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
             let y = mT;
             for (const rawLine of text.split('\n')) {
                 const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR);
@@ -301,16 +301,12 @@
             const btnFile   = document.getElementById('jdBtnFile');
             const jdLabel   = document.getElementById('jdLabelText');
             const jdUploadBtn = document.getElementById('jdUploadBtn');
-            // Main form
             if (urlPanel)  urlPanel.classList.toggle('hidden',  mode !== 'url');
             if (filePanel) filePanel.classList.toggle('hidden', mode !== 'file');
             if (btnUrl)  { btnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  btnUrl.classList.toggle('text-white', mode === 'url');  btnUrl.classList.toggle('text-gray-500', mode !== 'url');  btnUrl.classList.toggle('bg-white', mode !== 'url'); }
             if (btnFile) { btnFile.classList.toggle('bg-indigo-500', mode === 'file'); btnFile.classList.toggle('text-white', mode === 'file'); btnFile.classList.toggle('text-gray-500', mode !== 'file'); btnFile.classList.toggle('bg-white', mode !== 'file'); }
-            // Update label
             if (jdLabel) jdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
-            // Show/hide upload btn
             if (jdUploadBtn) jdUploadBtn.classList.toggle('hidden', mode !== 'file');
-            // Sidebar mirrors
             const sbUrlPanel  = document.getElementById('sbJdUrlPanel');
             const sbFilePanel = document.getElementById('sbJdFilePanel');
             const sbBtnUrl    = document.getElementById('sbJdBtnUrl');
@@ -323,7 +319,6 @@
             if (sbBtnFile) { sbBtnFile.classList.toggle('bg-indigo-500', mode === 'file'); sbBtnFile.classList.toggle('text-white', mode === 'file'); sbBtnFile.classList.toggle('text-gray-500', mode !== 'file'); sbBtnFile.classList.toggle('bg-white', mode !== 'file'); }
             if (sbJdLabel) sbJdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
             if (sbJdUploadBtn) sbJdUploadBtn.classList.toggle('hidden', mode !== 'file');
-            // Sync URL value
             const urlVal = document.getElementById('jdUrlInput')?.value || document.getElementById('sbJdUrlInput')?.value || '';
             jdUrl = urlVal.trim();
         }
@@ -537,7 +532,6 @@
         }
 
         // ── GENERATION PROGRESS UI ────────────────────────────────────────────
-        // CHANGE 2: Updated steps — 4 steps, no "init" step
         const STEPS = [
             { id: 'step-cv',   label: 'Organising your CV...' },
             { id: 'step-jd',   label: 'Analysing the job description...' },
@@ -564,7 +558,6 @@
                 row.id = step.id;
                 row.className = 'flex items-center gap-2';
 
-                // CHANGE 3: chevron inline with each step, right-pointing, toggles on click
                 const chevronBtn = document.createElement('button');
                 chevronBtn.id = `${step.id}-chevron`;
                 chevronBtn.className = 'step-chevron flex-shrink-0 w-4 h-4 flex items-center justify-center opacity-0 pointer-events-none transition-all duration-200';
@@ -596,7 +589,6 @@
             if (icon) { icon.className = 'step-icon w-5 h-5 rounded-full bg-emerald-500 flex-shrink-0 flex items-center justify-center'; icon.innerHTML = `<svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2 6l3 3 5-5"/></svg>`; }
             if (label) { label.className = 'step-label text-sm text-emerald-600'; label.style.background=''; label.style.webkitBackgroundClip=''; label.style.webkitTextFillColor=''; label.style.backgroundClip=''; label.style.opacity=1; label.textContent = step.label; }
             if (line) { line.className = 'w-px h-3 bg-emerald-400 ml-[9px]'; }
-            // hide chevron on done steps
             if (chevronBtn) { chevronBtn.style.opacity = '0'; chevronBtn.style.pointerEvents = 'none'; }
         }
 
@@ -612,7 +604,6 @@
                 startDotAnimation(step.id, step.label);
                 startFadeAnimation(step.id);
             }
-            // CHANGE 3: show chevron on the active step
             if (chevronBtn) {
                 chevronBtn.style.opacity = '1';
                 chevronBtn.style.pointerEvents = 'auto';
@@ -620,7 +611,6 @@
             }
         }
 
-        // CHANGE 3: update all visible chevrons to reflect expanded state
         function updateChevronRotation() {
             STEPS.forEach(step => {
                 const svg = document.getElementById(`${step.id}-chevron-svg`);
@@ -656,7 +646,6 @@
             const label = document.getElementById(`${stepId}-label`); if (label) label.style.opacity = 1;
         }
 
-        // CHANGE 4: top indicator uses identical dot+label animation as step list
         let topDotAnimFrame = null;
         let topFadeAnimFrame = null;
 
@@ -665,16 +654,11 @@
             const label = document.getElementById('currentStepText');
             const dot = document.getElementById('currentStepDot');
             if (!label || !dot) return;
-
-            // Dot: pulsing orange, same as step list
             dot.className = 'w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 animate-pulse-dot';
-
-            // Label: gradient text with colored dot animation
             label.style.background = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
             label.style.webkitBackgroundClip = 'text';
             label.style.webkitTextFillColor = 'transparent';
             label.style.backgroundClip = 'text';
-
             let dotCount = 0;
             topDotAnimFrame = setInterval(() => {
                 dotCount = (dotCount + 1) % 4;
@@ -682,8 +666,6 @@
                 const coloredDots = Array.from({length: dotCount}, (_, i) => `<span style="color:${colors[i%3]};-webkit-text-fill-color:${colors[i%3]}">\u2022</span>`).join('');
                 label.innerHTML = text + coloredDots;
             }, 400);
-
-            // Fade animation same timing as step list
             let dir = -1, opacity = 1;
             topFadeAnimFrame = setInterval(() => {
                 opacity += dir * 0.04;
@@ -698,7 +680,6 @@
             if (topFadeAnimFrame) { clearInterval(topFadeAnimFrame); topFadeAnimFrame = null; }
         }
 
-        // CHANGE 1: top indicator shows ✔ and stops animating when done
         function setTopIndicatorDone() {
             stopTopIndicatorAnimation();
             const label = document.getElementById('currentStepText');
@@ -725,7 +706,6 @@
             for (let i = 0; i < idx; i++) setStepDone(i);
             if (idx < STEPS.length) setStepActive(idx);
             currentStep = idx;
-            // CHANGE 4: update top indicator with matching animation
             if (STEPS[idx]) {
                 startTopIndicatorAnimation(STEPS[idx].label);
             }
@@ -733,7 +713,6 @@
 
         function completeAllSteps() {
             STEPS.forEach((_, i) => setStepDone(i));
-            // CHANGE 1: stop animation and show checkmark on top indicator
             setTopIndicatorDone();
         }
 
@@ -754,7 +733,6 @@
         function hideSidebar() {
             const sidebar = document.getElementById('editSidebar');
             sidebar.classList.add('-translate-x-full'); sidebar.classList.remove('translate-x-0');
-            // sync back to main form
             document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
             document.getElementById('phone').value    = document.getElementById('sb-phone').value;
             document.getElementById('email').value    = document.getElementById('sb-email').value;
@@ -783,7 +761,6 @@
             generateLetter();
         }
 
-        // CHANGE 3: toggleProgressDetail — chevron now inline, update its rotation
         function toggleProgressDetail() {
             progressExpanded = !progressExpanded;
             const detail = document.getElementById('progressDetail');
@@ -791,37 +768,29 @@
             updateChevronRotation();
         }
 
-        // ── Edit popup ────────────────────────────────────────────────────────
         // ── Rich Text Editor ──────────────────────────────────────────────────
-        // State stored as HTML in lastGeneratedLetterHtml; plain text in lastGeneratedLetterText
         let lastGeneratedLetterHtml = null;
 
         function textToHtmlWithLinks(text, phone, email) {
-            // Escape HTML, then auto-link phone and email
             const escaped = text
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             let html = escaped;
-            // Auto-link email
             if (email) {
                 const safeEmail = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 html = html.replace(new RegExp(safeEmail, 'g'),
                     `<a href="mailto:${email}">${email}</a>`);
             }
-            // Auto-link phone
             if (phone) {
                 const safePhone = phone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 html = html.replace(new RegExp(safePhone, 'g'),
                     `<a href="tel:${phone}">${phone}</a>`);
             }
-            // FIX: Convert to block divs — one per line — so alignment is scoped
-            // per paragraph and long lines wrap within the page width
             return html.split(/\n/).map(line =>
                 `<div style="text-align:left;">${line === '' ? '<br>' : line}</div>`
             ).join('');
         }
 
         function editorHtmlToPlainText(html) {
-            // Convert <br> to newlines, strip tags
             return html
                 .replace(/<br\s*\/?>/gi, '\n')
                 .replace(/<\/p>/gi, '\n')
@@ -831,7 +800,6 @@
                 .replace(/&nbsp;/g, ' ');
         }
 
-        // ── Editor selection preservation ──────────────────────────────────────
         let _savedRange = null;
 
         function saveEditorSelection() {
@@ -853,7 +821,6 @@
 
         function openEditPopup() {
             const div = document.getElementById('editLetterDiv');
-            // Set default paragraph separator to div (fixes alignment scope bug)
             document.execCommand('defaultParagraphSeparator', false, 'div');
             if (lastGeneratedLetterHtml) {
                 div.innerHTML = lastGeneratedLetterHtml;
@@ -865,7 +832,6 @@
             }
             document.getElementById('editLetterPopup').classList.remove('hidden');
             div.focus();
-            // Position cursor at end
             const range = document.createRange();
             range.selectNodeContents(div);
             range.collapse(false);
@@ -896,24 +862,14 @@
             document.execCommand('fontSize', false, size);
             document.getElementById('editLetterDiv').focus();
             updateToolbarState();
-            // Update label display
             const labels = {'1':'8pt','2':'10pt','3':'12pt','4':'14pt','5':'18pt','6':'24pt','7':'36pt'};
             const btn = document.getElementById('tbFontSizeBtn');
             if (btn) btn.querySelector('span').textContent = labels[size] || '12pt';
         }
 
-        function applyFont(fontFamily, label) {
-            restoreEditorSelection();
-            document.execCommand('fontName', false, fontFamily);
-            document.getElementById('editLetterDiv').focus();
-            updateToolbarState();
-            const btn = document.getElementById('tbFontBtn');
-            if (btn) btn.querySelector('span').textContent = label;
-        }
-
-        // Map browser fontSize (1-7) and computed px to pt labels
+        // Map browser fontSize (1-7) to pt labels and actual pt values for PDF
         const _fontSizeMap = {'1':'8pt','2':'10pt','3':'12pt','4':'14pt','5':'18pt','6':'24pt','7':'36pt'};
-        // execCommand fontSize maps: 1=8,2=10,3=12,4=14,5=18,6=24,7=36 (in px on screen)
+        const _fontSizePt  = {'1':8,   '2':10,   '3':11,   '4':14,   '5':18,   '6':24,   '7':36};
         const _pxToPt = {'8':'8pt','10':'10pt','13':'12pt','16':'14pt','24':'18pt','32':'24pt','48':'36pt'};
 
         function updateToolbarState() {
@@ -923,43 +879,25 @@
             document.getElementById('tbAlignC').classList.toggle('active', document.queryCommandState('justifyCenter'));
             document.getElementById('tbAlignR').classList.toggle('active', document.queryCommandState('justifyRight'));
 
-            // FIX 4: Read actual font size at current cursor position
             try {
-                const sizeVal = document.queryCommandValue('fontSize'); // returns '1'-'7' or ''
+                const sizeVal = document.queryCommandValue('fontSize');
                 const sizeBtn = document.getElementById('tbFontSizeBtn');
                 if (sizeBtn) {
                     let label = '';
                     if (sizeVal && _fontSizeMap[sizeVal]) {
                         label = _fontSizeMap[sizeVal];
                     } else {
-                        // Fallback: read computed style of the element at cursor
                         const sel = window.getSelection();
                         if (sel && sel.rangeCount > 0) {
                             let node = sel.getRangeAt(0).startContainer;
                             if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
                             const computed = window.getComputedStyle(node);
-                            const pxStr = computed.fontSize; // e.g. "13.3333px"
+                            const pxStr = computed.fontSize;
                             const px = Math.round(parseFloat(pxStr));
                             label = _pxToPt[String(px)] || (Math.round(px * 0.75) + 'pt');
                         }
                     }
                     if (label) sizeBtn.querySelector('span').textContent = label;
-                }
-            } catch(e) {}
-
-            // FIX 4: Read actual font family at cursor
-            try {
-                const fontBtn = document.getElementById('tbFontBtn');
-                if (fontBtn) {
-                    const sel = window.getSelection();
-                    if (sel && sel.rangeCount > 0) {
-                        let node = sel.getRangeAt(0).startContainer;
-                        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-                        const ff = window.getComputedStyle(node).fontFamily;
-                        // Clean up CSS font-family string (strip quotes, take first)
-                        const first = ff.split(',')[0].replace(/['"]/g,'').trim();
-                        if (first) fontBtn.querySelector('span').textContent = first;
-                    }
                 }
             } catch(e) {}
         }
@@ -1009,16 +947,13 @@
         function downloadEditedLetter() { downloadLetterAsPdf(); }
         async function mergeEditedWithCv() { await mergeLetterTextWithCv(); closeEditPopup(); }
 
-        // FIX 1: Remove hyperlink — works on clicked link or selected text containing link
         function removeLink() {
             const div = document.getElementById('editLetterDiv');
             div.focus();
-            // First try: if cursor is inside an <a>, select the whole link text then unlink
             const sel = window.getSelection();
             if (sel && sel.rangeCount > 0) {
                 let node = sel.getRangeAt(0).startContainer;
                 if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-                // Walk up to find anchor
                 let anchor = null;
                 let el = node;
                 while (el && el !== div) {
@@ -1026,7 +961,6 @@
                     el = el.parentElement;
                 }
                 if (anchor) {
-                    // Select the entire link text
                     const range = document.createRange();
                     range.selectNodeContents(anchor);
                     sel.removeAllRanges();
@@ -1038,42 +972,40 @@
             updateToolbarState();
         }
 
-        // ── Letter utilities ─────────────────────────────────────────────────
-        // Render the rich HTML editor content (or plain text) to a jsPDF document
-        // with clickable tel: / mailto: links for phone and email.
+        // ── Letter PDF rendering ──────────────────────────────────────────────
+        // FIX 2: Font size is now carried through the segment pipeline from <font size="N"> tags.
+        // FIX 3: lineH reduced to 8 (half of original 16) for narrower paragraph gaps.
+
         function renderHtmlToPdf(doc, html, mL, mR, mT, mB) {
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
             const maxW  = pageW - mL - mR;
-            const lineH = 16;
+            const lineH = 8; // FIX 3: was 16, now 8 (half gap)
 
             let y = mT;
-
-            // Parse into blocks, each block has {align, segments[]}
             const blocks = parseHtmlBlocks(html);
 
             for (const block of blocks) {
                 const align = block.align || 'left';
-                // Word-wrap each block into PDF lines
                 const pdfLines = wrapBlockToPdfLines(doc, block.segments, maxW);
                 for (const lineSegs of pdfLines) {
                     if (y > pageH - mB) { doc.addPage(); y = mT; }
                     if (lineSegs.length === 0) { y += lineH; continue; }
                     renderPdfLine(doc, lineSegs, mL, y, maxW, align, pageW);
-                    y += lineH;
+                    // FIX 3: use the max font size in the line to scale the line height
+                    const maxPt = lineSegs.reduce((mx, s) => Math.max(mx, s.fontSize || 11), 11);
+                    y += Math.max(lineH, maxPt * 0.6);
                 }
             }
             return y;
         }
 
-        // Parse HTML into an array of blocks. Each block = one paragraph/div/line.
-        // Each block: { align: 'left'|'center'|'right', segments: [{text,bold,italic,href}] }
         function parseHtmlBlocks(html) {
             const parser = new DOMParser();
             const doc2 = parser.parseFromString(`<body>${html}</body>`, 'text/html');
             const root = doc2.body;
             const blocks = [];
-            collectBlocks(root, blocks, { bold: false, italic: false, href: null }, 'left');
+            collectBlocks(root, blocks, { bold: false, italic: false, href: null, fontSize: 11 }, 'left');
             return blocks;
         }
 
@@ -1087,11 +1019,31 @@
             return null;
         }
 
+        // FIX 2: parse <font size="N"> to extract jsPDF font size (pt)
+        function getFontSizeFromNode(node, parentFontSize) {
+            if (node.nodeType !== Node.ELEMENT_NODE) return parentFontSize;
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'font') {
+                const sizeAttr = node.getAttribute('size');
+                if (sizeAttr && _fontSizePt[sizeAttr]) return _fontSizePt[sizeAttr];
+            }
+            // Also check inline style for font-size
+            const style = node.getAttribute('style') || '';
+            const m = style.match(/font-size\s*:\s*([\d.]+)(px|pt|em)/i);
+            if (m) {
+                const val = parseFloat(m[1]);
+                const unit = m[2].toLowerCase();
+                if (unit === 'pt') return val;
+                if (unit === 'px') return Math.round(val * 0.75);
+                if (unit === 'em') return Math.round(val * 11);
+            }
+            return parentFontSize;
+        }
+
         function collectBlocks(node, blocks, style, parentAlign) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent;
                 if (text) {
-                    // Append to last block or create one
                     if (blocks.length === 0) blocks.push({ align: parentAlign, segments: [] });
                     blocks[blocks.length-1].segments.push({ text, ...style });
                 }
@@ -1108,42 +1060,35 @@
                 const href = node.getAttribute('href') || null;
                 newStyle.href = href;
             }
+            // FIX 2: inherit font size from <font size="N"> or style
+            newStyle.fontSize = getFontSizeFromNode(node, style.fontSize || 11);
 
-            // Block-level: each gets its own block
             const isBlock = ['p','div','h1','h2','h3','h4','h5','h6','li','br','tr'].includes(tag);
 
             if (tag === 'br') {
-                blocks.push({ align, segments: [] }); // empty line
+                blocks.push({ align, segments: [] });
                 return;
             }
 
             if (isBlock) {
-                // Start a new block
                 const block = { align, segments: [] };
                 blocks.push(block);
-                const prevLen = blocks.length;
                 for (const child of node.childNodes) collectBlocks(child, blocks, newStyle, align);
-                // If nothing was added inside, the block is blank (keep it)
-                // After block ends, next sibling starts fresh — don't add extra br, traversal handles it
             } else {
-                // Inline: append to current block
                 if (blocks.length === 0) blocks.push({ align, segments: [] });
                 for (const child of node.childNodes) collectBlocks(child, blocks, newStyle, align);
             }
         }
 
-        // Word-wrap a block's segments into multiple PDF lines, each line = array of seg-chunks
         function wrapBlockToPdfLines(doc, segments, maxW) {
-            if (segments.length === 0) return [[]]; // blank line
+            if (segments.length === 0) return [[]];
 
-            // Step 1: flatten all segments into an array of tokens {text, seg}
-            // where each token is one word or one space run, preserving seg style.
             const tokens = [];
             for (const seg of segments) {
                 const fontStyle = seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal';
+                const fontSize = seg.fontSize || 11; // FIX 2: use segment's font size
                 doc.setFont('times', fontStyle);
-                doc.setFontSize(11);
-                // Split on whitespace boundaries, keep the pieces
+                doc.setFontSize(fontSize);
                 const parts = seg.text.split(/(\s+)/);
                 for (const part of parts) {
                     if (part === '') continue;
@@ -1152,25 +1097,20 @@
                 }
             }
 
-            // Step 2: greedily pack tokens into lines
             const lines = [];
-            let currentLine = [];   // [{text, w, seg}]
+            let currentLine = [];
             let currentW = 0;
 
             for (const tok of tokens) {
-                // Pure whitespace token: add to current line only if not at start of line
                 const isSpace = /^\s+$/.test(tok.text);
                 if (isSpace) {
                     if (currentLine.length > 0) {
-                        // Only add if the next word will fit; otherwise just skip it (don't start a line with space)
                         currentLine.push(tok);
                         currentW += tok.w;
                     }
                     continue;
                 }
-                // Word token: does it fit on current line?
                 if (currentW + tok.w > maxW && currentLine.length > 0) {
-                    // Flush current line (trim trailing spaces)
                     while (currentLine.length > 0 && /^\s+$/.test(currentLine[currentLine.length-1].text)) {
                         currentLine.pop();
                     }
@@ -1181,7 +1121,6 @@
                 currentLine.push(tok);
                 currentW += tok.w;
             }
-            // Flush last line
             while (currentLine.length > 0 && /^\s+$/.test(currentLine[currentLine.length-1].text)) {
                 currentLine.pop();
             }
@@ -1190,15 +1129,13 @@
             return lines.length > 0 ? lines : [[]];
         }
 
-        // Merge adjacent tokens with same style into combined seg chunks for renderPdfLine
         function buildLineSegs(tokens) {
             if (tokens.length === 0) return [];
             const segs = [];
             let cur = { ...tokens[0].seg, text: tokens[0].text };
             for (let i = 1; i < tokens.length; i++) {
                 const tok = tokens[i];
-                // Same style = merge
-                if (tok.seg.bold === cur.bold && tok.seg.italic === cur.italic && tok.seg.href === cur.href) {
+                if (tok.seg.bold === cur.bold && tok.seg.italic === cur.italic && tok.seg.href === cur.href && tok.seg.fontSize === cur.fontSize) {
                     cur.text += tok.text;
                 } else {
                     segs.push(cur);
@@ -1213,15 +1150,15 @@
             if (!segs || !segs.length) return;
             if (!pageW) pageW = doc.internal.pageSize.getWidth();
 
-            // Measure total width
             let totalW = 0;
             const measured = segs.map(s => {
                 const fontStyle = s.bold && s.italic ? 'bolditalic' : s.bold ? 'bold' : s.italic ? 'italic' : 'normal';
+                const fontSize = s.fontSize || 11; // FIX 2: use segment's font size
                 doc.setFont('times', fontStyle);
-                doc.setFontSize(11);
+                doc.setFontSize(fontSize);
                 const w = doc.getTextWidth(s.text);
                 totalW += w;
-                return { ...s, w, fontStyle };
+                return { ...s, w, fontStyle, fontSize };
             });
 
             let x = mL;
@@ -1230,9 +1167,9 @@
 
             for (const seg of measured) {
                 doc.setFont('times', seg.fontStyle);
-                doc.setFontSize(11);
+                doc.setFontSize(seg.fontSize); // FIX 2: apply actual font size
                 if (seg.href) {
-                    doc.setTextColor(67, 56, 202); // indigo
+                    doc.setTextColor(67, 56, 202);
                     doc.textWithLink(seg.text, x, y, { url: seg.href });
                 } else {
                     doc.setTextColor(30, 30, 30);
@@ -1250,7 +1187,6 @@
             if (lastGeneratedLetterHtml) {
                 renderHtmlToPdf(doc, lastGeneratedLetterHtml, mL, mR, mT, mB);
             } else if (lastGeneratedLetterText) {
-                // Fallback: plain text with auto-links
                 const phone = document.getElementById('phone')?.value || '';
                 const email = document.getElementById('email')?.value || '';
                 const html  = textToHtmlWithLinks(lastGeneratedLetterText, phone, email);
@@ -1349,7 +1285,6 @@
             const appDate        = document.getElementById('appDate').value;
             const targetPosition = (document.getElementById('targetPosition')?.value || '').trim();
 
-            // Clear previous errors
             clearAllErrors();
 
             let hasError = false;
@@ -1386,7 +1321,6 @@
             generationStopped = false;
             generationAbortController = new AbortController();
 
-            // Switch to generation view
             document.getElementById('letterFormFields').classList.add('hidden');
             document.getElementById('generationView').classList.remove('hidden');
             document.getElementById('letterResult').classList.add('hidden');
@@ -1395,14 +1329,12 @@
             progressExpanded = false;
             document.getElementById('progressDetail').classList.add('hidden');
 
-            // Reset top indicator
             const topDot = document.getElementById('currentStepDot');
             const topLabel = document.getElementById('currentStepText');
             if (topDot) { topDot.style.width = ''; topDot.style.height = ''; topDot.innerHTML = ''; topDot.className = 'w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 animate-pulse-dot'; }
             if (topLabel) { topLabel.className = 'text-sm font-medium'; topLabel.style.background=''; topLabel.style.webkitBackgroundClip=''; topLabel.style.webkitTextFillColor=''; topLabel.style.backgroundClip=''; topLabel.style.opacity=1; }
 
             buildProgressUI();
-            // CHANGE 2: step 0 = CV step
             advanceStep(0);
 
             let cvTextForLetter = null, jdText = null;
@@ -1444,12 +1376,11 @@
 
             if (generationStopped) return;
 
-            // ── JD — step 1 ───────────────────────────────────────────────────
+            // ── JD ────────────────────────────────────────────────────────────
             advanceStep(1);
             try {
                 if (jdInputMode === 'url') {
-                    // URL mode: pass the URL to generate-letter; server fetches and extracts text
-                    jdText = '__URL__'; // sentinel — actual fetch happens server-side
+                    jdText = '__URL__';
                 } else {
                     const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
                     const jdFilesData = await toData(jdFilesArray);
@@ -1488,7 +1419,7 @@
 
             if (generationStopped) return;
 
-            // ── Generate — step 2 ─────────────────────────────────────────────
+            // ── Generate ──────────────────────────────────────────────────────
             advanceStep(2);
             try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
@@ -1501,10 +1432,9 @@
                 if (!letterText) throw new Error('Could not generate letter. Please try again.');
                 if (generationStopped) return;
                 lastGeneratedLetterText = letterText;
-                lastGeneratedLetterHtml = null; // will be built fresh on first edit open
+                lastGeneratedLetterHtml = null;
                 await updateBalance(-15);
 
-                // Done — step 3, then complete all
                 advanceStep(3);
                 await new Promise(r => setTimeout(r, 300));
                 completeAllSteps();
@@ -1693,7 +1623,7 @@
             <span class="font-semibold text-gray-700 text-sm">Edit Letter</span>
             <button onclick="closeEditPopup()" class="text-gray-400 hover:text-gray-600 text-xl leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
         </div>
-        <!-- Toolbar -->
+        <!-- Toolbar — CHANGE 1: Font family dropdown removed; only size + formatting remain -->
         <div id="editorToolbar" class="flex flex-wrap items-center gap-1 px-4 py-2 border-b border-gray-100 bg-gray-50">
             <!-- Undo / Redo -->
             <button onclick="editorCmd('undo')" title="Undo" class="toolbar-btn">
@@ -1708,32 +1638,11 @@
             <button onclick="editorCmd('italic')" title="Italic" id="tbItalic" class="toolbar-btn italic text-sm">I</button>
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
 
-            <!-- Font Family — custom dropdown -->
-            <div class="custom-dropdown">
-                <button id="tbFontBtn" class="custom-dropdown-btn" onclick="toggleDropdown('fontMenu', event)" title="Font family">
-                    <span>Times New Roman</span>
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-                <div id="fontMenu" class="custom-dropdown-menu hidden">
-                    <div class="custom-dropdown-item" style="font-family:'Times New Roman',serif" onclick="applyFont('Times New Roman','Times New Roman');closeAllDropdowns()">Times New Roman</div>
-                    <div class="custom-dropdown-item" style="font-family:Arial,sans-serif" onclick="applyFont('Arial','Arial');closeAllDropdowns()">Arial</div>
-                    <div class="custom-dropdown-item" style="font-family:Calibri,sans-serif" onclick="applyFont('Calibri','Calibri');closeAllDropdowns()">Calibri</div>
-                    <div class="custom-dropdown-item" style="font-family:Georgia,serif" onclick="applyFont('Georgia','Georgia');closeAllDropdowns()">Georgia</div>
-                    <div class="custom-dropdown-item" style="font-family:Garamond,serif" onclick="applyFont('Garamond','Garamond');closeAllDropdowns()">Garamond</div>
-                    <div class="custom-dropdown-item" style="font-family:'Helvetica Neue',Helvetica,sans-serif" onclick="applyFont('Helvetica Neue','Helvetica Neue');closeAllDropdowns()">Helvetica Neue</div>
-                    <div class="custom-dropdown-item" style="font-family:'Book Antiqua',Palatino,serif" onclick="applyFont('Book Antiqua','Book Antiqua');closeAllDropdowns()">Book Antiqua</div>
-                    <div class="custom-dropdown-item" style="font-family:Verdana,sans-serif" onclick="applyFont('Verdana','Verdana');closeAllDropdowns()">Verdana</div>
-                    <div class="custom-dropdown-item" style="font-family:Tahoma,sans-serif" onclick="applyFont('Tahoma','Tahoma');closeAllDropdowns()">Tahoma</div>
-                    <div class="custom-dropdown-item" style="font-family:'Trebuchet MS',sans-serif" onclick="applyFont('Trebuchet MS','Trebuchet MS');closeAllDropdowns()">Trebuchet MS</div>
-                    <div class="custom-dropdown-item" style="font-family:'Courier New',monospace" onclick="applyFont('Courier New','Courier New');closeAllDropdowns()">Courier New</div>
-                </div>
-            </div>
-
-            <!-- Font Size — custom dropdown -->
+            <!-- Font Size only — Times New Roman is the only font -->
             <div class="custom-dropdown">
                 <button id="tbFontSizeBtn" class="custom-dropdown-btn" onclick="toggleDropdown('fontSizeMenu', event)" title="Font size">
                     <span>12pt</span>
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <div id="fontSizeMenu" class="custom-dropdown-menu hidden" style="min-width:90px;">
                     <div class="custom-dropdown-item" onclick="applyFontSize('1');closeAllDropdowns()">8pt</div>
@@ -1758,7 +1667,7 @@
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M9 12h12M3 18h18"/></svg>
             </button>
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
-            <!-- Unlink button: removes hyperlink from selected/clicked link -->
+            <!-- Unlink -->
             <button onclick="removeLink()" title="Remove hyperlink" id="tbUnlink" class="toolbar-btn">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
@@ -1768,7 +1677,6 @@
         </div>
         <!-- Editable content + floating copy icon -->
         <div class="editor-wrapper">
-            <!-- Floating copy icon — stays fixed relative to container, not scroll -->
             <button id="editorCopyBtn" onclick="copyEditorText()" title="Copy all text">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;color:#6366f1"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             </button>
@@ -1831,7 +1739,7 @@
     </div>
 </div>
 
-<!-- Sidebar (Stop → Edit & Retry) — slides from left, covers ~75% -->
+<!-- Sidebar -->
 <div id="editSidebar" class="fixed inset-y-0 left-0 z-40 -translate-x-full w-3/4 max-w-sm bg-white shadow-2xl flex flex-col">
     <div class="flex items-center justify-between px-4 pt-5 pb-3 border-b border-gray-100">
         <span class="text-sm font-semibold text-gray-700">Edit &amp; Retry</span>
@@ -2000,11 +1908,9 @@
                                     <span class="text-sm font-bold text-gray-700">Upload Your CV (Image, Word or PDF)</span>
                                     <button type="button" id="cvUploadBtn" onclick="document.getElementById('cvFile').click()"
                                         class="ml-2 p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload CV">
-                                        <!-- upload icon (default) -->
                                         <svg id="cvUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
                                         </svg>
-                                        <!-- plus icon (shown after first upload) -->
                                         <svg id="cvPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                                         </svg>
@@ -2032,7 +1938,6 @@
                             <div class="flex items-center justify-between mb-1.5">
                                 <span id="jdLabelText" class="text-sm font-bold text-gray-700">Job Description (Link)</span>
                                 <div class="flex items-center gap-2">
-                                    <!-- upload icon shown in file mode -->
                                     <button type="button" id="jdUploadBtn" onclick="document.getElementById('jdFile').click()"
                                         class="hidden p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload JD file">
                                         <svg id="jdUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -2049,13 +1954,11 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- URL panel (default) -->
                             <div id="jdUrlPanel">
                                 <input type="url" id="jdUrlInput" placeholder="Paste job posting URL (e.g. https://jobs.example.com/...)"
                                     class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                                     oninput="jdUrl=this.value.trim()">
                             </div>
-                            <!-- File panel (hidden by default) -->
                             <div id="jdFilePanel" class="hidden">
                                 <div id="jdFilesList" class="max-h-32 overflow-y-auto mt-1"></div>
                             </div>
@@ -2066,8 +1969,6 @@
 
                 <!-- ── Generation View ── -->
                 <div id="generationView" class="hidden">
-
-                    <!-- top bar: stop/retry only (no separate progress toggle button) -->
                     <div class="flex items-center justify-end mb-3">
                         <div class="flex items-center gap-1.5">
                             <button id="stopBtn" onclick="stopGeneration()"
@@ -2083,7 +1984,6 @@
                         </div>
                     </div>
 
-                    <!-- CHANGE 4: always-visible top indicator — same animation as step list -->
                     <div class="flex items-center gap-2.5 mb-4 px-0.5">
                         <div id="currentStepDot" class="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 animate-pulse-dot"></div>
                         <span id="currentStepText" class="text-sm font-medium"
@@ -2092,12 +1992,11 @@
                         </span>
                     </div>
 
-                    <!-- collapsible progress chain — chevron is now INSIDE each step row (built by JS) -->
                     <div id="progressDetail" class="hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm">
                         <div id="generationProgress"></div>
                     </div>
 
-                    <!-- letter result card (shown after done) -->
+                    <!-- letter result card -->
                     <div id="letterResult" class="hidden">
                         <div class="bg-white rounded-xl border border-emerald-100 shadow-sm p-4">
                             <div class="flex items-center gap-3 mb-4">
@@ -2146,10 +2045,8 @@
 </div>
 
 <script>
-    // Wire up sidebar generate button after DOM loads
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('sidebarGenerateBtn')?.addEventListener('click', () => {
-            // sync sidebar fields → main form fields
             document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
             document.getElementById('phone').value    = document.getElementById('sb-phone').value;
             document.getElementById('email').value    = document.getElementById('sb-email').value;
