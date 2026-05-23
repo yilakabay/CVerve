@@ -23,11 +23,16 @@
         let storedCvText = null;
         let storedCvFilename = null;
 
-        // ── MongoDB CV PDF helpers (IndexedDB removed) ────────────────────────
+        // Generation state
+        let generationAbortController = null;
+        let generationStopped = false;
+        let lastGeneratedLetterText = null;
+        let lastGeneratedFirstName = '';
+
+        // ── MongoDB CV PDF helpers ────────────────────────────────────────────
         const CV_MAX_MB    = 6;
         const CV_MAX_BYTES = CV_MAX_MB * 1024 * 1024;
 
-        /** ArrayBuffer → base64 string */
         function arrayBufferToBase64(buffer) {
             let binary = '';
             const bytes = new Uint8Array(buffer);
@@ -35,7 +40,6 @@
             return btoa(binary);
         }
 
-        /** base64 string → ArrayBuffer */
         function base64ToArrayBuffer(b64) {
             const binary = atob(b64);
             const bytes  = new Uint8Array(binary.length);
@@ -43,13 +47,7 @@
             return bytes.buffer;
         }
 
-        /**
-         * Use PDF.js to render every page of a PDF file to a PNG blob.
-         * Returns an array of { data: base64, type: 'image/png' } objects
-         * ready to send straight to the extract-text endpoint as image files.
-         */
         async function rasterisePdfToImageFiles(file) {
-            // Configure PDF.js worker (use CDN-matched worker)
             if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
                 pdfjsLib.GlobalWorkerOptions.workerSrc =
                     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -59,7 +57,7 @@
             const imageFiles = [];
             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                 const page    = await pdf.getPage(pageNum);
-                const scale   = 2.0; // 2× for decent OCR resolution
+                const scale   = 2.0;
                 const viewport = page.getViewport({ scale });
                 const canvas  = document.createElement('canvas');
                 canvas.width  = viewport.width;
@@ -71,28 +69,17 @@
             return imageFiles;
         }
 
-        /**
-         * Validate and encode a CV PDF ArrayBuffer for MongoDB storage.
-         * Returns { success, base64, filename } or { success:false, tooLarge }.
-         */
         function prepareCvPdfForServer(arrayBuffer, filename) {
-            if (arrayBuffer.byteLength > CV_MAX_BYTES) {
-                return { success: false, tooLarge: true };
-            }
+            if (arrayBuffer.byteLength > CV_MAX_BYTES) return { success: false, tooLarge: true };
             const base64 = arrayBufferToBase64(arrayBuffer);
             return { success: true, base64, filename };
         }
 
-        /**
-         * Convert an image File into a PDF ArrayBuffer using pdf-lib.
-         * Each image is embedded as a full A4 page (fitted, centred).
-         */
         async function imageFileToPdfBuffer(imageFile) {
             const { PDFDocument } = window.PDFLib;
             const imgBuffer = await imageFile.arrayBuffer();
             const imgBytes  = new Uint8Array(imgBuffer);
             const pdfDoc    = await PDFDocument.create();
-
             let embeddedImg;
             const t = imageFile.type;
             if (t === 'image/jpeg' || t === 'image/jpg') {
@@ -100,125 +87,83 @@
             } else if (t === 'image/png') {
                 embeddedImg = await pdfDoc.embedPng(imgBytes);
             } else {
-                // For gif/bmp/webp/tiff: draw onto a canvas first → PNG → embed
                 embeddedImg = await (async () => {
                     const blob   = new Blob([imgBytes], { type: t });
                     const url    = URL.createObjectURL(blob);
-                    const img    = await new Promise((res, rej) => {
-                        const i = new Image();
-                        i.onload  = () => res(i);
-                        i.onerror = rej;
-                        i.src = url;
-                    });
+                    const img    = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
                     URL.revokeObjectURL(url);
                     const canvas = document.createElement('canvas');
-                    canvas.width  = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
+                    canvas.width  = img.naturalWidth; canvas.height = img.naturalHeight;
                     canvas.getContext('2d').drawImage(img, 0, 0);
                     const pngBlob   = await new Promise(r => canvas.toBlob(r, 'image/png'));
                     const pngBuffer = await pngBlob.arrayBuffer();
                     return pdfDoc.embedPng(new Uint8Array(pngBuffer));
                 })();
             }
-
             const A4_W = 595.28, A4_H = 841.89;
             const page  = pdfDoc.addPage([A4_W, A4_H]);
             const scale = Math.min(A4_W / embeddedImg.width, A4_H / embeddedImg.height, 1);
-            const w = embeddedImg.width  * scale;
-            const h = embeddedImg.height * scale;
-            page.drawImage(embeddedImg, {
-                x: (A4_W - w) / 2,
-                y: (A4_H - h) / 2,
-                width: w, height: h
-            });
+            const w = embeddedImg.width * scale, h = embeddedImg.height * scale;
+            page.drawImage(embeddedImg, { x: (A4_W - w) / 2, y: (A4_H - h) / 2, width: w, height: h });
             const pdfBytes = await pdfDoc.save();
             return pdfBytes.buffer;
         }
 
-        /**
-         * Convert extracted plain text (from Word) into a PDF ArrayBuffer using jsPDF.
-         */
         function textToPdfBuffer(text, filename) {
             const { jsPDF } = window.jspdf;
             const doc   = new jsPDF({ unit: 'pt', format: 'a4' });
-            const pageW = doc.internal.pageSize.getWidth();
-            const pageH = doc.internal.pageSize.getHeight();
-            const mL = 60, mR = 60, mT = 60, mB = 60;
-            const usableW = pageW - mL - mR;
-            const lineH   = 13;
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
-            doc.setTextColor(30, 30, 30);
+            const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+            const mL = 60, mR = 60, mT = 60, mB = 60, lineH = 13;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
             let y = mT;
             for (const rawLine of text.split('\n')) {
-                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
+                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR);
                 for (const line of wrapped) {
                     if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
-                    doc.text(line, mL, y);
-                    y += lineH;
+                    doc.text(line, mL, y); y += lineH;
                 }
             }
             return doc.output('arraybuffer');
         }
 
-        /**
-         * Given cvFilesArray, produce a single merged PDF ArrayBuffer ready to store.
-         * - Native PDFs  → merged as-is via pdf-lib
-         * - Image files  → each converted to an image-based PDF page via pdf-lib
-         * - Word files   → text extracted server-side, then rendered to PDF via jsPDF
-         * Returns { buffer, filename } or throws.
-         */
         async function buildCvPdfBuffer(cvFiles, extractedCvText) {
             const { PDFDocument } = window.PDFLib;
             const merged = await PDFDocument.create();
-
             for (const f of cvFiles) {
                 if (f.type === 'application/pdf') {
-                    const srcDoc    = await PDFDocument.load(await f.arrayBuffer());
-                    const pages     = await merged.copyPages(srcDoc, srcDoc.getPageIndices());
+                    const srcDoc = await PDFDocument.load(await f.arrayBuffer());
+                    const pages  = await merged.copyPages(srcDoc, srcDoc.getPageIndices());
                     pages.forEach(p => merged.addPage(p));
-
                 } else if (f.type.startsWith('image/')) {
                     const imgPdfBuf = await imageFileToPdfBuffer(f);
                     const imgDoc    = await PDFDocument.load(imgPdfBuf);
                     const pages     = await merged.copyPages(imgDoc, imgDoc.getPageIndices());
                     pages.forEach(p => merged.addPage(p));
-
                 } else {
-                    // Word / other text-extractable → use the already-extracted text
-                    const text    = extractedCvText || '[No text extracted]';
-                    const txtBuf  = textToPdfBuffer(text, f.name);
-                    const txtDoc  = await PDFDocument.load(txtBuf);
-                    const pages   = await merged.copyPages(txtDoc, txtDoc.getPageIndices());
+                    const txtBuf = textToPdfBuffer(extractedCvText || '[No text extracted]', f.name);
+                    const txtDoc = await PDFDocument.load(txtBuf);
+                    const pages  = await merged.copyPages(txtDoc, txtDoc.getPageIndices());
                     pages.forEach(p => merged.addPage(p));
                 }
             }
-
             const pdfBytes = await merged.save();
             const baseName = cvFiles[0]?.name.replace(/\.[^.]+$/, '') || 'cv';
             return { buffer: pdfBytes.buffer, filename: baseName + '_converted.pdf' };
         }
 
-        /** Fetch the stored CV PDF from MongoDB. Returns ArrayBuffer or null. */
         async function loadCvPdfFromServer(uid) {
             try {
                 const res = await fetch('/.netlify/functions/manage-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: uid, action: 'get-cv-pdf' })
                 });
                 if (!res.ok) return null;
                 const data = await res.json();
-                if (!data.cvPdfBase64) return null;
-                return base64ToArrayBuffer(data.cvPdfBase64);
+                return data.cvPdfBase64 ? base64ToArrayBuffer(data.cvPdfBase64) : null;
             } catch(e) { console.error('loadCvPdfFromServer error', e); return null; }
         }
-        // ─────────────────────────────────────────────────────────────────────
 
-        function isValidPhoneNumber(phone) {
-            const phoneRegex = /^(09|07)\d{8}$/;
-            return phoneRegex.test(phone);
-        }
+        function isValidPhoneNumber(phone) { return /^(09|07)\d{8}$/.test(phone); }
 
         function truncateFilename(filename, maxLength = 25) {
             if (filename.length <= maxLength) return filename;
@@ -239,75 +184,33 @@
 
         function setCurrentDate() {
             const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            document.getElementById('appDate').value = `${yyyy}-${mm}-${dd}`;
+            document.getElementById('appDate').value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
         }
 
         function attachEventListeners() {
-            const ids = {
-                mergePdfBtn:       mergePdfs,
-                downloadPdfBtn:    downloadMergedPdf,
-                generateLetterBtn: generateLetter,
-                printLetterBtn:    printLetter,
-                mergeWithCvBtn:    mergeLetterWithCv
-            };
-            Object.entries(ids).forEach(([id, fn]) => {
-                const el = document.getElementById(id);
-                if (el) el.addEventListener('click', fn);
-            });
+            const ids = { mergePdfBtn: mergePdfs, downloadPdfBtn: downloadMergedPdf, generateLetterBtn: generateLetter };
+            Object.entries(ids).forEach(([id, fn]) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); });
             document.getElementById('cvFile')?.addEventListener('change', handleCvFileSelect);
             document.getElementById('jdFile')?.addEventListener('change', handleJdFileSelect);
             document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
         }
 
-        // ── CV file select: Image / Word / PDF accepted ──────────────────────
-        // PDFs within size limit are also stored for letter-merging.
-        // Images and Word docs are accepted for text extraction only.
         function handleCvFileSelect(e) {
-            const newFiles = Array.from(e.target.files);
-            e.target.value = '';
-
-            const ALLOWED_TYPES = [
-                'application/pdf',
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff'
-            ];
-
-            const rejected = [];
-            const accepted = [];
-            const nonPdfWarnings = [];
-
+            const newFiles = Array.from(e.target.files); e.target.value = '';
+            const rejected = [], accepted = [], nonPdfWarnings = [];
             for (const f of newFiles) {
                 const isPdf  = f.type === 'application/pdf';
                 const isWord = f.type === 'application/msword' || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
                 const isImage = f.type.startsWith('image/');
-
-                if (!isPdf && !isWord && !isImage) {
-                    rejected.push(`"${f.name}" is not a supported type (use PDF, Word, or image).`);
-                    continue;
-                }
-                // Only enforce the 6 MB size limit for PDFs (they get stored)
-                if (isPdf && f.size > CV_MAX_BYTES) {
-                    rejected.push(`"${f.name}" exceeds ${CV_MAX_MB} MB — PDF CVs larger than this cannot be stored for merging.`);
-                    continue;
-                }
+                if (!isPdf && !isWord && !isImage) { rejected.push(`"${f.name}" is not a supported type.`); continue; }
+                if (isPdf && f.size > CV_MAX_BYTES) { rejected.push(`"${f.name}" exceeds ${CV_MAX_MB} MB.`); continue; }
                 accepted.push(f);
-                if (!isPdf) {
-                    nonPdfWarnings.push(f.name);
-                }
+                if (!isPdf) nonPdfWarnings.push(f.name);
             }
-
             if (rejected.length > 0) showMessage('error', rejected.join(' '));
-            if (nonPdfWarnings.length > 0) {
-                showMessage('info', `"${nonPdfWarnings.join('", "')}" will be used for text extraction only — not stored for CV merging (PDF required for that).`);
-            }
-
+            if (nonPdfWarnings.length > 0) showMessage('info', `"${nonPdfWarnings.join('", "')}" used for text extraction only.`);
             cvFilesArray = [...cvFilesArray, ...accepted];
             updateCvFilesList();
-
             if (cvFilesArray.length > 0) {
                 usingStoredCv = false;
                 document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
@@ -315,34 +218,22 @@
             }
         }
 
-        function handleJdFileSelect(e)  { jdFilesArray = [...jdFilesArray, ...Array.from(e.target.files)]; updateJdFilesList(); e.target.value = ''; }
+        function handleJdFileSelect(e)  { jdFilesArray  = [...jdFilesArray,  ...Array.from(e.target.files)]; updateJdFilesList();  e.target.value = ''; }
         function handlePdfFileSelect(e) { pdfFilesArray = [...pdfFilesArray, ...Array.from(e.target.files)]; updatePdfFilesList(); e.target.value = ''; }
 
         function buildFileItem(file, index, removeFn) {
             const el = document.createElement('div');
             el.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2';
-            el.innerHTML = `
-                <div class="flex items-center space-x-2 min-w-0 flex-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <span class="text-sm text-gray-700 truncate" title="${file.name}">${truncateFilename(file.name)}</span>
-                    <span class="text-xs text-gray-500 flex-shrink-0">(${(file.size / 1024).toFixed(1)} KB)</span>
-                </div>
-                <button onclick="${removeFn}(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0 ml-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                </button>`;
+            el.innerHTML = `<div class="flex items-center space-x-2 min-w-0 flex-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><span class="text-sm text-gray-700 truncate" title="${file.name}">${truncateFilename(file.name)}</span><span class="text-xs text-gray-500 flex-shrink-0">(${(file.size/1024).toFixed(1)} KB)</span></div><button onclick="${removeFn}(${index})" class="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0 ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>`;
             return el;
         }
 
         function updateFilesList(arr, containerId, counterId, removeFn) {
-            const container = document.getElementById(containerId);
-            const counter   = document.getElementById(counterId);
+            const container = document.getElementById(containerId), counter = document.getElementById(counterId);
+            if (!container || !counter) return;
             container.innerHTML = '';
-            counter.textContent  = `${arr.length} file${arr.length !== 1 ? 's' : ''} selected`;
-            counter.className    = `text-sm font-medium ${arr.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
+            counter.textContent = `${arr.length} file${arr.length !== 1 ? 's' : ''} selected`;
+            counter.className   = `text-sm font-medium ${arr.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
             arr.forEach((file, i) => container.appendChild(buildFileItem(file, i, removeFn)));
         }
 
@@ -350,31 +241,23 @@
         function updateJdFilesList()  { updateFilesList(jdFilesArray,  'jdFilesList',  'jdFilesCounter',  'removeJdFile'); }
         function updatePdfFilesList() { updateFilesList(pdfFilesArray, 'pdfFilesList', 'pdfFilesCounter', 'removePdfFile'); }
 
-        function removeCvFile(i)  {
-            cvFilesArray.splice(i, 1);
-            updateCvFilesList();
+        function removeCvFile(i) {
+            cvFilesArray.splice(i, 1); updateCvFilesList();
             if (cvFilesArray.length === 0 && storedProfile && storedProfile.cvText) {
                 usingStoredCv = true;
                 document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
                 document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-            } else if (cvFilesArray.length === 0 && !storedProfile) {
-                usingStoredCv = false;
-                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
             } else {
                 usingStoredCv = false;
                 document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
                 document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
             }
         }
-        function removeJdFile(i)  { jdFilesArray.splice(i, 1); updateJdFilesList(); }
+        function removeJdFile(i)  { jdFilesArray.splice(i, 1);  updateJdFilesList(); }
         function removePdfFile(i) { pdfFilesArray.splice(i, 1); updatePdfFilesList(); }
 
-        function showLoadingOverlay(message) {
-            document.getElementById('loadingMessage').textContent = message;
-            document.getElementById('loadingOverlay').classList.remove('hidden');
-        }
-        function hideLoadingOverlay() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+        function showLoadingOverlay(message) { document.getElementById('loadingMessage').textContent = message; document.getElementById('loadingOverlay').classList.remove('hidden'); }
+        function hideLoadingOverlay()         { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
         async function handleLogin() {
             const phoneNumber = document.getElementById('phoneNumberInput').value.trim();
@@ -383,23 +266,17 @@
             if (!password)    { showMessage('error', 'Please enter your password'); return; }
             showLoadingOverlay('Logging in...');
             try {
-                const response = await fetch('/.netlify/functions/get-user', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phoneNumber, password }),
-                });
+                const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) {
-                    userId = phoneNumber; userBalance = data.balance;
-                    document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
-                    toggleLoginScreen(false); showMessage('success', 'Login successful!');
-                } else { showMessage('error', data.error || 'Login failed'); }
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2); toggleLoginScreen(false); showMessage('success', 'Login successful!'); }
+                else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
         }
 
         async function handleRegister() {
-            const phoneNumber     = document.getElementById('registerPhoneNumber').value.trim();
-            const password        = document.getElementById('registerPassword').value;
+            const phoneNumber = document.getElementById('registerPhoneNumber').value.trim();
+            const password    = document.getElementById('registerPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
             if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
             if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
@@ -408,32 +285,19 @@
             if (password.length < 6) { showMessage('error', 'Password must be at least 6 characters long'); return; }
             showLoadingOverlay('Creating your account...');
             try {
-                const response = await fetch('/.netlify/functions/create-user', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phoneNumber, password, balance: 0 }),
-                });
+                const response = await fetch('/.netlify/functions/create-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password, balance: 0 }) });
                 const data = await response.json();
-                if (response.ok) {
-                    showMessage('success', 'Account created successfully! Please login.');
-                    document.getElementById('registerForm').classList.add('hidden');
-                    document.getElementById('loginForm').classList.remove('hidden');
-                } else { showMessage('error', data.error || 'Registration failed'); }
+                if (response.ok) { showMessage('success', 'Account created successfully! Please login.'); document.getElementById('registerForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); }
+                else { showMessage('error', data.error || 'Registration failed'); }
             } catch { showMessage('error', 'Registration failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
         }
 
-        function showRegisterForm() {
-            document.getElementById('loginForm').classList.add('hidden');
-            document.getElementById('registerForm').classList.remove('hidden');
-        }
-        function showLoginForm() {
-            document.getElementById('registerForm').classList.add('hidden');
-            document.getElementById('loginForm').classList.remove('hidden');
-        }
+        function showRegisterForm() { document.getElementById('loginForm').classList.add('hidden'); document.getElementById('registerForm').classList.remove('hidden'); }
+        function showLoginForm()    { document.getElementById('registerForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); }
 
         function showMessage(type, message) {
-            const messageBox  = document.getElementById('messageBox');
-            const messageText = document.getElementById('messageText');
+            const messageBox = document.getElementById('messageBox'), messageText = document.getElementById('messageText');
             const color = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-yellow-500';
             messageBox.className = `fixed inset-x-0 bottom-4 mx-auto p-4 rounded-lg shadow-lg z-50 max-w-sm ${color} text-white text-center font-bold transition-all duration-300 transform scale-0`;
             messageText.textContent = message;
@@ -442,10 +306,9 @@
         }
 
         function showImageBasedPdfPopup(fileType) {
-            const msg = fileType === 'cv'
+            document.getElementById('imageBasedPdfMessage').textContent = fileType === 'cv'
                 ? 'Your CV PDF is image-based and cannot be extracted. Please upload screenshots of your CV instead.'
                 : 'Your Job Description PDF is image-based and cannot be extracted. Please upload screenshots of the Job Description instead.';
-            document.getElementById('imageBasedPdfMessage').textContent = msg;
             document.getElementById('imageBasedPdfPopup').classList.remove('hidden');
         }
         function closeImageBasedPdfPopup() { document.getElementById('imageBasedPdfPopup').classList.add('hidden'); }
@@ -477,10 +340,8 @@
                 document.getElementById('downloadPdfBtn').classList.remove('hidden');
                 showMessage('success', 'PDFs merged successfully!');
                 await updateBalance(-cost);
-            } catch (e) {
-                console.error(e);
-                showMessage('error', 'Failed to merge PDFs. Please try again.');
-            } finally { hideLoadingOverlay(); }
+            } catch (e) { console.error(e); showMessage('error', 'Failed to merge PDFs. Please try again.'); }
+            finally { hideLoadingOverlay(); }
         }
 
         function downloadMergedPdf() {
@@ -491,49 +352,31 @@
         }
 
         async function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+            return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); });
         }
 
-        // --------------------------------------------------------------
-        // Profile Management (MongoDB)
-        // --------------------------------------------------------------
+        // ── Profile Management ────────────────────────────────────────────────
         async function loadStoredProfileFromServer() {
             if (!userId) return;
             try {
-                const res = await fetch('/.netlify/functions/manage-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, action: 'get' })
-                });
+                const res  = await fetch('/.netlify/functions/manage-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, action: 'get' }) });
                 const data = await res.json();
                 if (res.ok && data.profile) {
                     storedProfile = data.profile;
                     if (storedProfile.cvText) {
-                        storedCvText = storedProfile.cvText;
-                        storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
-                        usingStoredCv = true;
+                        storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true;
                         document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
                         document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
                         document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-                    } else {
-                        usingStoredCv = false;
-                        document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                        document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-                    }
+                    } else { usingStoredCv = false; document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden'); document.getElementById('cvFileInputContainer')?.classList.remove('hidden'); }
                     document.getElementById('autofillHint')?.classList.remove('hidden');
+                    document.getElementById('sbAutofillHint')?.classList.remove('hidden');
                 } else {
-                    storedProfile = null;
-                    storedCvText = null;
-                    storedCvFilename = null;
-                    usingStoredCv = false;
+                    storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false;
                     document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
                     document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
                     document.getElementById('autofillHint')?.classList.add('hidden');
+                    document.getElementById('sbAutofillHint')?.classList.add('hidden');
                 }
             } catch(e) { console.error('Load profile error', e); }
         }
@@ -541,580 +384,472 @@
         async function saveProfileToServer(profileData) {
             if (!userId) return false;
             try {
-                const res = await fetch('/.netlify/functions/manage-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, action: 'save', profile: profileData })
-                });
+                const res  = await fetch('/.netlify/functions/manage-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, action: 'save', profile: profileData }) });
                 const data = await res.json();
                 if (res.ok) {
                     storedProfile = data.profile;
-                    if (storedProfile.cvText) {
-                        storedCvText = storedProfile.cvText;
-                        storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
-                        usingStoredCv = true;
-                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
-                        document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
-                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-                    }
-                    showMessage('success', 'Profile saved for future autofill.');
-                    return true;
-                } else {
-                    // If the server rejected only the PDF (413), show that message but don't fail entirely
-                    showMessage('error', data.error || 'Failed to save profile');
-                    return false;
-                }
+                    if (storedProfile.cvText) { storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true; document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden'); document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename); document.getElementById('cvFileInputContainer')?.classList.add('hidden'); }
+                    showMessage('success', 'Profile saved for future autofill.'); return true;
+                } else { showMessage('error', data.error || 'Failed to save profile'); return false; }
             } catch(e) { showMessage('error', 'Network error while saving'); return false; }
         }
 
         async function deleteProfileFromServer() {
             if (!userId) return false;
             try {
-                const res = await fetch('/.netlify/functions/manage-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, action: 'delete' })
-                });
-                if (res.ok) {
-                    storedProfile = null;
-                    storedCvText = null;
-                    storedCvFilename = null;
-                    usingStoredCv = false;
-                    // CV PDF is in MongoDB and removed with the profile document above
-                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-                    document.getElementById('autofillHint')?.classList.add('hidden');
-                    showMessage('success', 'Stored profile deleted.');
-                    return true;
-                } else { throw new Error(); }
+                const res = await fetch('/.netlify/functions/manage-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, action: 'delete' }) });
+                if (res.ok) { storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false; document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden'); document.getElementById('cvFileInputContainer')?.classList.remove('hidden'); document.getElementById('autofillHint')?.classList.add('hidden'); showMessage('success', 'Stored profile deleted.'); return true; }
+                else { throw new Error(); }
             } catch(e) { showMessage('error', 'Could not delete profile'); return false; }
         }
 
         async function updateProfileWithCurrentData(fullName, phone, email, address, cvText, cvFilename = null) {
-            const profileData = {
-                fullName, phone, email, address, cvText,
-                cvFilename: cvFilename || storedCvFilename
-            };
-            // Attach staged CV PDF if one was prepared during this session
-            if (window._stagedCvPdf && window._stagedCvPdf.base64) {
-                profileData.cvPdfBase64 = window._stagedCvPdf.base64;
-                profileData.cvFilename  = window._stagedCvPdf.filename || profileData.cvFilename;
-                window._stagedCvPdf = null; // consume it
-            }
+            const profileData = { fullName, phone, email, address, cvText, cvFilename: cvFilename || storedCvFilename };
+            if (window._stagedCvPdf && window._stagedCvPdf.base64) { profileData.cvPdfBase64 = window._stagedCvPdf.base64; profileData.cvFilename = window._stagedCvPdf.filename || profileData.cvFilename; window._stagedCvPdf = null; }
             return await saveProfileToServer(profileData);
         }
 
         function replaceStoredCv() {
-            usingStoredCv = false;
-            storedCvText = null;
-            storedCvFilename = null;
-            if (storedProfile) {
-                updateProfileWithCurrentData(
-                    storedProfile.fullName,
-                    storedProfile.phone,
-                    storedProfile.email,
-                    storedProfile.address,
-                    null,
-                    null
-                );
-            }
+            usingStoredCv = false; storedCvText = null; storedCvFilename = null;
+            if (storedProfile) updateProfileWithCurrentData(storedProfile.fullName, storedProfile.phone, storedProfile.email, storedProfile.address, null, null);
             document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
             document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-            cvFilesArray = [];
-            updateCvFilesList();
+            cvFilesArray = []; updateCvFilesList();
             showMessage('success', 'You can now upload new CV files.');
         }
 
         function autofillForm() {
-            if (!storedProfile) {
-                showMessage('error', 'No saved profile found. Generate a letter first and choose to save.');
-                return;
-            }
+            if (!storedProfile) { showMessage('error', 'No saved profile found.'); return; }
             document.getElementById('fullName').value = storedProfile.fullName || '';
-            document.getElementById('phone').value = storedProfile.phone || '';
-            document.getElementById('email').value = storedProfile.email || '';
-            document.getElementById('address').value = storedProfile.address || '';
-            if (storedProfile.cvText) {
-                storedCvText = storedProfile.cvText;
-                storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
-                usingStoredCv = true;
-                cvFilesArray = [];
-                updateCvFilesList();
-                document.getElementById('cvStoredBadgeContainer').classList.remove('hidden');
-                document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
-                document.getElementById('cvFileInputContainer').classList.add('hidden');
-                showMessage('success', 'Form autofilled with stored data (CV text included). Click Replace if you need to upload a different CV.');
-            } else {
-                showMessage('info', 'Form autofilled, but no CV text was stored. Please upload CV files.');
-            }
+            document.getElementById('phone').value    = storedProfile.phone    || '';
+            document.getElementById('email').value    = storedProfile.email    || '';
+            document.getElementById('address').value  = storedProfile.address  || '';
+            if (storedProfile.cvText) { storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true; cvFilesArray = []; updateCvFilesList(); document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'); document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename); document.getElementById('cvFileInputContainer').classList.add('hidden'); showMessage('success', 'Form autofilled with stored data.'); }
+            else { showMessage('info', 'Form autofilled, but no CV text stored. Please upload CV files.'); }
+        }
+
+        function autofillSidebar() {
+            if (!storedProfile) { showMessage('error', 'No saved profile found.'); return; }
+            document.getElementById('sb-fullName').value = storedProfile.fullName || '';
+            document.getElementById('sb-phone').value    = storedProfile.phone    || '';
+            document.getElementById('sb-email').value    = storedProfile.email    || '';
+            document.getElementById('sb-address').value  = storedProfile.address  || '';
+            showMessage('success', 'Autofilled!');
         }
 
         function showEditProfileModal() {
-            if (!storedProfile) {
-                showMessage('error', 'No stored profile to edit.');
-                return;
-            }
+            if (!storedProfile) { showMessage('error', 'No stored profile to edit.'); return; }
             document.getElementById('editFullName').value = storedProfile.fullName || '';
-            document.getElementById('editPhone').value = storedProfile.phone || '';
-            document.getElementById('editEmail').value = storedProfile.email || '';
-            document.getElementById('editAddress').value = storedProfile.address || '';
+            document.getElementById('editPhone').value    = storedProfile.phone    || '';
+            document.getElementById('editEmail').value    = storedProfile.email    || '';
+            document.getElementById('editAddress').value  = storedProfile.address  || '';
             document.getElementById('editProfileModal').classList.remove('hidden');
         }
 
         async function saveEditedProfile() {
-            const fullName = document.getElementById('editFullName').value.trim();
-            const phone = document.getElementById('editPhone').value.trim();
-            const email = document.getElementById('editEmail').value.trim();
-            const address = document.getElementById('editAddress').value.trim();
-            if (!fullName || !phone || !email || !address) {
-                showMessage('error', 'All fields are required.');
-                return;
-            }
-            const cvText = storedProfile.cvText || null;
-            const cvFilename = storedProfile.cvFilename || null;
-            await updateProfileWithCurrentData(fullName, phone, email, address, cvText, cvFilename);
+            const fullName = document.getElementById('editFullName').value.trim(), phone = document.getElementById('editPhone').value.trim(), email = document.getElementById('editEmail').value.trim(), address = document.getElementById('editAddress').value.trim();
+            if (!fullName || !phone || !email || !address) { showMessage('error', 'All fields are required.'); return; }
+            await updateProfileWithCurrentData(fullName, phone, email, address, storedProfile.cvText||null, storedProfile.cvFilename||null);
             closeEditProfileModal();
-            document.getElementById('fullName').value = fullName;
-            document.getElementById('phone').value = phone;
-            document.getElementById('email').value = email;
-            document.getElementById('address').value = address;
+            document.getElementById('fullName').value = fullName; document.getElementById('phone').value = phone; document.getElementById('email').value = email; document.getElementById('address').value = address;
         }
 
-        function closeEditProfileModal() {
-            document.getElementById('editProfileModal').classList.add('hidden');
-        }
+        function closeEditProfileModal() { document.getElementById('editProfileModal').classList.add('hidden'); }
 
         async function requestDeleteProfile() {
-            if (confirm('Are you sure you want to delete your stored profile (name, contact, and CV text)? This cannot be undone.')) {
-                await deleteProfileFromServer();
-                closeEditProfileModal();
+            if (confirm('Are you sure you want to delete your stored profile?')) { await deleteProfileFromServer(); closeEditProfileModal(); }
+        }
+
+        // ── GENERATION PROGRESS UI ────────────────────────────────────────────
+        const STEPS = [
+            { id: 'step-init', label: 'Generating your letter' },
+            { id: 'step-cv',   label: 'Preparing your CV' },
+            { id: 'step-jd',   label: 'Analysing the job description' },
+            { id: 'step-gen',  label: 'Almost done' },
+            { id: 'step-done', label: 'Done' },
+        ];
+
+        let currentStep = -1;
+        let progressExpanded = false;
+        let dotAnimFrames = {};
+        let fadeAnimFrames = {};
+
+        function buildProgressUI() {
+            const container = document.getElementById('generationProgress');
+            container.innerHTML = '';
+            STEPS.forEach((step, idx) => {
+                if (idx > 0) {
+                    const line = document.createElement('div');
+                    line.id = `${step.id}-line`;
+                    line.className = 'w-px h-3 bg-gray-200 ml-[9px]';
+                    container.appendChild(line);
+                }
+                const row = document.createElement('div');
+                row.id = step.id;
+                row.className = 'flex items-center gap-2';
+                const icon = document.createElement('div');
+                icon.id = `${step.id}-icon`;
+                icon.className = 'step-icon w-5 h-5 rounded-full border border-gray-200 bg-white flex-shrink-0 flex items-center justify-center';
+                icon.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-gray-200 block"></span>`;
+                row.appendChild(icon);
+                const label = document.createElement('span');
+                label.id = `${step.id}-label`;
+                label.className = 'step-label text-sm text-gray-300';
+                label.textContent = step.label;
+                row.appendChild(label);
+                container.appendChild(row);
+            });
+        }
+
+        function setStepDone(idx) {
+            const step = STEPS[idx];
+            const icon = document.getElementById(`${step.id}-icon`), label = document.getElementById(`${step.id}-label`), line = document.getElementById(`${step.id}-line`);
+            stopDotAnimation(step.id); stopFadeAnimation(step.id);
+            if (icon) { icon.className = 'step-icon w-5 h-5 rounded-full bg-emerald-500 flex-shrink-0 flex items-center justify-center'; icon.innerHTML = `<svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2 6l3 3 5-5"/></svg>`; }
+            if (label) { label.className = 'step-label text-sm text-emerald-600'; label.style.background=''; label.style.webkitBackgroundClip=''; label.style.webkitTextFillColor=''; label.style.backgroundClip=''; label.style.opacity=1; label.textContent = step.label; }
+            if (line) { line.className = 'w-px h-3 bg-emerald-400 ml-[9px]'; }
+        }
+
+        function setStepActive(idx) {
+            const step = STEPS[idx];
+            const icon = document.getElementById(`${step.id}-icon`), label = document.getElementById(`${step.id}-label`);
+            if (icon) { icon.className = 'step-icon w-5 h-5 rounded-full border-2 border-orange-400 bg-orange-50 flex-shrink-0 flex items-center justify-center'; icon.innerHTML = `<div class="w-2 h-2 rounded-full bg-orange-400 animate-pulse-dot"></div>`; }
+            if (label) {
+                label.className = 'step-label text-sm font-medium flex-1';
+                label.style.background = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
+                label.style.webkitBackgroundClip = 'text'; label.style.webkitTextFillColor = 'transparent'; label.style.backgroundClip = 'text';
+                startDotAnimation(step.id, step.label);
+                startFadeAnimation(step.id);
             }
         }
 
-        // --------------------------------------------------------------
-        // Letter Generation (with save profile logic)
-        // --------------------------------------------------------------
+        function startDotAnimation(stepId, baseText) {
+            stopDotAnimation(stepId);
+            const label = document.getElementById(`${stepId}-label`); if (!label) return;
+            let dotCount = 0;
+            dotAnimFrames[stepId] = setInterval(() => {
+                dotCount = (dotCount + 1) % 4;
+                const colors = ['#22c55e','#f97316','#3b82f6'];
+                const coloredDots = Array.from({length: dotCount}, (_, i) => `<span style="color:${colors[i%3]}">\u2022</span>`).join('');
+                label.innerHTML = baseText + coloredDots;
+            }, 400);
+        }
+
+        function stopDotAnimation(stepId) { if (dotAnimFrames[stepId]) { clearInterval(dotAnimFrames[stepId]); delete dotAnimFrames[stepId]; } }
+
+        function startFadeAnimation(stepId) {
+            stopFadeAnimation(stepId);
+            const label = document.getElementById(`${stepId}-label`); if (!label) return;
+            let dir = -1, opacity = 1;
+            fadeAnimFrames[stepId] = setInterval(() => { opacity += dir * 0.04; if (opacity <= 0.15) dir = 1; if (opacity >= 1) dir = -1; label.style.opacity = opacity; }, 40);
+        }
+
+        function stopFadeAnimation(stepId) {
+            if (fadeAnimFrames[stepId]) { clearInterval(fadeAnimFrames[stepId]); delete fadeAnimFrames[stepId]; }
+            const label = document.getElementById(`${stepId}-label`); if (label) label.style.opacity = 1;
+        }
+
+        function advanceStep(idx) {
+            for (let i = 0; i < idx; i++) setStepDone(i);
+            if (idx < STEPS.length) setStepActive(idx);
+            currentStep = idx;
+            // Update always-visible indicator
+            const el = document.getElementById('currentStepText');
+            if (el && STEPS[idx]) { el.textContent = STEPS[idx].label; }
+        }
+
+        function completeAllSteps() { STEPS.forEach((_, i) => setStepDone(i)); }
+
+        // ── Sidebar ──────────────────────────────────────────────────────────
+        function showSidebar() {
+            const sidebar = document.getElementById('editSidebar');
+            sidebar.classList.remove('-translate-x-full'); sidebar.classList.add('translate-x-0');
+            document.getElementById('sb-fullName').value = document.getElementById('fullName').value;
+            document.getElementById('sb-phone').value    = document.getElementById('phone').value;
+            document.getElementById('sb-email').value    = document.getElementById('email').value;
+            document.getElementById('sb-address').value  = document.getElementById('address').value;
+            document.getElementById('sb-appDate').value  = document.getElementById('appDate').value;
+            if (storedProfile) document.getElementById('sbAutofillHint')?.classList.remove('hidden');
+        }
+
+        function hideSidebar() {
+            const sidebar = document.getElementById('editSidebar');
+            sidebar.classList.add('-translate-x-full'); sidebar.classList.remove('translate-x-0');
+            // sync back to main form
+            document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
+            document.getElementById('phone').value    = document.getElementById('sb-phone').value;
+            document.getElementById('email').value    = document.getElementById('sb-email').value;
+            document.getElementById('address').value  = document.getElementById('sb-address').value;
+            document.getElementById('appDate').value  = document.getElementById('sb-appDate').value;
+        }
+
+        // ── Stop & Retry ─────────────────────────────────────────────────────
+        function stopGeneration() {
+            generationStopped = true;
+            if (generationAbortController) generationAbortController.abort();
+            Object.keys(dotAnimFrames).forEach(stopDotAnimation);
+            Object.keys(fadeAnimFrames).forEach(stopFadeAnimation);
+            document.getElementById('stopBtn').classList.add('hidden');
+            document.getElementById('retryBtn').classList.remove('hidden');
+            showSidebar();
+        }
+
+        function retryGeneration() {
+            document.getElementById('retryBtn').classList.add('hidden');
+            document.getElementById('stopBtn').classList.remove('hidden');
+            hideSidebar();
+            generateLetter();
+        }
+
+        // ── Progress chevron ─────────────────────────────────────────────────
+        function toggleProgressDetail() {
+            progressExpanded = !progressExpanded;
+            const chevron = document.getElementById('progressChevron'), detail = document.getElementById('progressDetail');
+            chevron.style.transform = progressExpanded ? 'rotate(-90deg)' : 'rotate(0deg)';
+            detail.classList.toggle('hidden', !progressExpanded);
+        }
+
+        // ── Edit popup ────────────────────────────────────────────────────────
+        function openEditPopup()  { document.getElementById('editLetterTA').value = lastGeneratedLetterText || ''; document.getElementById('editLetterPopup').classList.remove('hidden'); }
+        function closeEditPopup() { document.getElementById('editLetterPopup').classList.add('hidden'); }
+        function downloadEditedLetter() { downloadLetterAsPdf(document.getElementById('editLetterTA').value); }
+        async function mergeEditedWithCv() { await mergeLetterTextWithCv(document.getElementById('editLetterTA').value); closeEditPopup(); }
+
+        // ── Letter utilities ─────────────────────────────────────────────────
+        function downloadLetterAsPdf(letterText) {
+            if (!letterText) { showMessage('error', 'No letter to download.'); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+            const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+            const mL = 72, mR = 72, mT = 72, mB = 72, lineH = 15;
+            doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+            let y = mT;
+            letterText.split('\n').forEach(rawLine => {
+                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR);
+                wrapped.forEach(line => { if (y + lineH > pageH - mB) { doc.addPage(); y = mT; } doc.text(line, mL, y); y += lineH; });
+            });
+            doc.save(lastGeneratedFirstName ? `${lastGeneratedFirstName}_Letter.pdf` : 'Letter.pdf');
+            showMessage('success', 'Letter downloaded!');
+        }
+
+        async function mergeLetterTextWithCv(letterText) {
+            if (!letterText) { showMessage('error', 'No letter to merge.'); return; }
+            let cvPdfSources = [];
+            if (cvFilesArray.length > 0) {
+                showLoadingOverlay('Converting CV to PDF…');
+                try { const { buffer } = await buildCvPdfBuffer(cvFilesArray, storedCvText); cvPdfSources.push(buffer); } catch(e) { hideLoadingOverlay(); showMessage('error', 'Could not convert CV to PDF.'); return; }
+                hideLoadingOverlay();
+            } else if (usingStoredCv && userId) {
+                showLoadingOverlay('Loading stored CV PDF...');
+                const buffer = await loadCvPdfFromServer(userId); hideLoadingOverlay();
+                if (buffer) cvPdfSources.push(buffer);
+            }
+            if (cvPdfSources.length === 0) { showMessage('error', 'No CV found. Please upload a CV file first.'); return; }
+            showLoadingOverlay('Merging letter with CV...');
+            try {
+                const { jsPDF } = window.jspdf, { PDFDocument } = window.PDFLib;
+                const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+                const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+                const mL = 72, mR = 72, mT = 72, mB = 72, lineH = 15;
+                doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+                let y = mT;
+                letterText.split('\n').forEach(rawLine => { const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR); wrapped.forEach(line => { if (y + lineH > pageH - mB) { doc.addPage(); y = mT; } doc.text(line, mL, y); y += lineH; }); });
+                const letterPdfBytes = doc.output('arraybuffer');
+                const mergedPdfDoc = await PDFDocument.create();
+                const letterPdfDoc = await PDFDocument.load(letterPdfBytes);
+                const letterPages  = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
+                for (const page of letterPages) mergedPdfDoc.addPage(page);
+                for (const cvBytes of cvPdfSources) { const cvPdfDoc = await PDFDocument.load(cvBytes); const cvPages = await mergedPdfDoc.copyPages(cvPdfDoc, cvPdfDoc.getPageIndices()); for (const page of cvPages) mergedPdfDoc.addPage(page); }
+                const mergedPdfBytes = await mergedPdfDoc.save();
+                const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+                const url  = URL.createObjectURL(blob);
+                const fname = lastGeneratedFirstName ? `${lastGeneratedFirstName}_Letter_CV.pdf` : 'Letter_CV.pdf';
+                const a = Object.assign(document.createElement('a'), { href: url, download: fname });
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                showMessage('success', 'Letter merged with CV and downloaded.');
+            } catch(err) { console.error('Merge error:', err); showMessage('error', 'Failed to merge. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        // ── Main Generate Letter ──────────────────────────────────────────────
         async function generateLetter() {
             const fullName = document.getElementById('fullName').value;
             const phone    = document.getElementById('phone').value;
             const email    = document.getElementById('email').value;
             const address  = document.getElementById('address').value;
             const appDate  = document.getElementById('appDate').value;
-            if (!fullName || !phone || !email || !address || !appDate) {
-                showMessage('error', 'Please fill all personal fields.');
-                return;
-            }
+            if (!fullName || !phone || !email || !address || !appDate) { showMessage('error', 'Please fill all personal fields.'); return; }
+            if (userBalance < 15) { showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.'); return; }
 
-            if (userBalance < 15) {
-                showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.');
-                return;
-            }
+            lastGeneratedFirstName = fullName.split(' ')[0] || 'Letter';
+            generationStopped = false;
+            generationAbortController = new AbortController();
 
-            let cvTextForLetter = null;
-            let jdText = null;
+            // Switch to generation view
+            document.getElementById('letterFormFields').classList.add('hidden');
+            document.getElementById('generationView').classList.remove('hidden');
+            document.getElementById('letterResult').classList.add('hidden');
+            document.getElementById('stopBtn').classList.remove('hidden');
+            document.getElementById('retryBtn').classList.add('hidden');
+            progressExpanded = false;
+            document.getElementById('progressDetail').classList.add('hidden');
+            document.getElementById('progressChevron').style.transform = 'rotate(0deg)';
 
+            buildProgressUI();
+            advanceStep(0);
+
+            let cvTextForLetter = null, jdText = null;
+
+            // ── CV ────────────────────────────────────────────────────────────
             if (usingStoredCv && storedCvText && cvFilesArray.length === 0) {
                 cvTextForLetter = storedCvText;
-                showMessage('info', 'Using stored CV text. No need to re-upload.');
             } else {
-                if (cvFilesArray.length === 0) {
-                    showMessage('error', 'Please upload at least one CV file or use autofill.');
-                    return;
-                }
-                showLoadingOverlay('Extracting CV text...');
+                if (cvFilesArray.length === 0) { showMessage('error', 'Please upload at least one CV file or use autofill.'); resetToForm(); return; }
+                advanceStep(1);
+                if (generationStopped) return;
                 try {
-                    const toData = async (arr) => {
-                        const out = [];
-                        for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type });
-                        return out;
-                    };
+                    const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
                     const cvFilesData = await toData(cvFilesArray);
                     const callExtract = async (files, fileType) => {
-                        const res = await fetch('/.netlify/functions/extract-text', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ files, fileType })
-                        });
-                        let data;
-                        try { data = await res.json(); } catch { data = {}; }
-                        if (!res.ok) {
-                            const msg = data.error || data.message || `HTTP ${res.status}`;
-                            throw Object.assign(new Error(msg), { status: res.status });
-                        }
+                        const res = await fetch('/.netlify/functions/extract-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, fileType }), signal: generationAbortController.signal });
+                        let data; try { data = await res.json(); } catch { data = {}; }
+                        if (!res.ok) { throw Object.assign(new Error(data.error || data.message || `HTTP ${res.status}`), { status: res.status }); }
                         return data.extractedText;
                     };
-
-                    // First attempt — normal extraction
                     let cvExtractionError = null;
-                    try {
-                        cvTextForLetter = await callExtract(cvFilesData, 'cv');
-                    } catch (e) {
-                        cvExtractionError = e;
-                    }
-
-                    // If failed and any file is a PDF → rasterise client-side, retry as images
-                    if (cvExtractionError) {
+                    try { cvTextForLetter = await callExtract(cvFilesData, 'cv'); } catch(e) { cvExtractionError = e; }
+                    if (cvExtractionError && !generationStopped) {
                         const pdfFiles = cvFilesArray.filter(f => f.type === 'application/pdf');
                         if (pdfFiles.length > 0) {
-                            showLoadingOverlay('PDF has embedded images — rasterising for OCR…');
                             try {
-                                const imageFiles = [];
-                                for (const pf of pdfFiles) {
-                                    const imgs = await rasterisePdfToImageFiles(pf);
-                                    imageFiles.push(...imgs);
-                                }
-                                // Also keep any non-PDF files in their original form
-                                const nonPdfData = cvFilesData.filter(fd => !fd.type.includes('pdf'));
-                                const retryFiles = [...imageFiles, ...nonPdfData];
-                                cvTextForLetter = await callExtract(retryFiles, 'cv');
+                                const imageFiles = []; for (const pf of pdfFiles) { const imgs = await rasterisePdfToImageFiles(pf); imageFiles.push(...imgs); }
+                                cvTextForLetter = await callExtract([...imageFiles, ...cvFilesData.filter(fd => !fd.type.includes('pdf'))], 'cv');
                                 cvExtractionError = null;
-                            } catch (retryErr) {
-                                cvExtractionError = retryErr;
-                            }
+                            } catch(retryErr) { cvExtractionError = retryErr; }
                         }
                     }
-                    if (cvExtractionError) {
-                        throw new Error('CV extraction failed: ' + cvExtractionError.message);
-                    }
-
-                    // ── Convert & stage CV as PDF for MongoDB ─────────────────────
+                    if (cvExtractionError) throw new Error('CV extraction failed: ' + cvExtractionError.message);
                     window._stagedCvPdf = null;
-                    if (userId && cvFilesArray.length > 0) {
-                        try {
-                            showLoadingOverlay('Converting CV to PDF for storage…');
-                            const { buffer, filename } = await buildCvPdfBuffer(cvFilesArray, cvTextForLetter);
-                            const result = prepareCvPdfForServer(buffer, filename);
-                            if (result.tooLarge) {
-                                showMessage('info', `Converted CV exceeds ${CV_MAX_MB} MB — it will not be saved for merging, but the letter will still generate.`);
-                            } else {
-                                window._stagedCvPdf = { base64: result.base64, filename: result.filename };
-                            }
-                        } catch (convErr) {
-                            console.error('CV→PDF conversion failed:', convErr);
-                            showMessage('info', 'Could not convert CV to PDF for storage — letter will still generate.');
-                        }
+                    if (userId && cvFilesArray.length > 0 && !generationStopped) {
+                        try { const { buffer, filename } = await buildCvPdfBuffer(cvFilesArray, cvTextForLetter); const result = prepareCvPdfForServer(buffer, filename); if (!result.tooLarge) window._stagedCvPdf = { base64: result.base64, filename: result.filename }; } catch(e) { /* silent */ }
                     }
-                    // ──────────────────────────────────────────────────────────────
-
-                } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
-                finally { hideLoadingOverlay(); }
+                } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message); resetToForm(); return; }
             }
 
-            if (jdFilesArray.length === 0) {
-                showMessage('error', 'Please upload at least one Job Description file.');
-                return;
-            }
-            showLoadingOverlay('Extracting job description...');
+            if (generationStopped) return;
+
+            // ── JD ────────────────────────────────────────────────────────────
+            if (jdFilesArray.length === 0) { showMessage('error', 'Please upload at least one Job Description file.'); resetToForm(); return; }
+            advanceStep(2);
             try {
-                const toData = async (arr) => {
-                    const out = [];
-                    for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type });
-                    return out;
-                };
+                const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
                 const jdFilesData = await toData(jdFilesArray);
                 const callExtractJd = async (files, fileType) => {
-                    const res = await fetch('/.netlify/functions/extract-text', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ files, fileType })
-                    });
-                    let data;
-                    try { data = await res.json(); } catch { data = {}; }
-                    if (!res.ok) {
-                        const msg = data.error || data.message || `HTTP ${res.status}`;
-                        throw Object.assign(new Error(msg), { status: res.status });
-                    }
+                    const res = await fetch('/.netlify/functions/extract-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, fileType }), signal: generationAbortController.signal });
+                    let data; try { data = await res.json(); } catch { data = {}; }
+                    if (!res.ok) { throw Object.assign(new Error(data.error || data.message || `HTTP ${res.status}`), { status: res.status }); }
                     return data.extractedText;
                 };
-
                 let jdExtractionError = null;
-                try {
-                    jdText = await callExtractJd(jdFilesData, 'jd');
-                } catch (e) {
-                    jdExtractionError = e;
-                }
-
-                if (jdExtractionError) {
+                try { jdText = await callExtractJd(jdFilesData, 'jd'); } catch(e) { jdExtractionError = e; }
+                if (jdExtractionError && !generationStopped) {
                     const pdfFiles = jdFilesArray.filter(f => f.type === 'application/pdf');
                     if (pdfFiles.length > 0) {
-                        showLoadingOverlay('JD PDF has embedded images — rasterising for OCR…');
                         try {
-                            const imageFiles = [];
-                            for (const pf of pdfFiles) {
-                                const imgs = await rasterisePdfToImageFiles(pf);
-                                imageFiles.push(...imgs);
-                            }
-                            const nonPdfData = jdFilesData.filter(fd => !fd.type.includes('pdf'));
-                            const retryFiles = [...imageFiles, ...nonPdfData];
-                            jdText = await callExtractJd(retryFiles, 'jd');
+                            const imageFiles = []; for (const pf of pdfFiles) { const imgs = await rasterisePdfToImageFiles(pf); imageFiles.push(...imgs); }
+                            jdText = await callExtractJd([...imageFiles, ...jdFilesData.filter(fd => !fd.type.includes('pdf'))], 'jd');
                             jdExtractionError = null;
-                        } catch (retryErr) {
-                            jdExtractionError = retryErr;
-                        }
+                        } catch(retryErr) { jdExtractionError = retryErr; }
                     }
                 }
-                if (jdExtractionError) {
-                    throw new Error('JD extraction failed: ' + jdExtractionError.message);
-                }
-            } catch (err) { showMessage('error', err.message); hideLoadingOverlay(); return; }
-            finally { hideLoadingOverlay(); }
+                if (jdExtractionError) throw new Error('JD extraction failed: ' + jdExtractionError.message);
+            } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message); resetToForm(); return; }
 
+            if (generationStopped) return;
+
+            // ── Profile save prompt ───────────────────────────────────────────
             if (!storedProfile && cvTextForLetter) {
-                const shouldSave = confirm('Do you want to store your information (Name, Phone, Email, Address and CV content) for next time? You can use Autofill later.');
-                if (shouldSave) {
-                    let cvFilename = null;
-                    if (cvFilesArray.length > 0 && cvFilesArray[0]) {
-                        cvFilename = cvFilesArray[0].name;
-                    } else if (storedCvFilename) {
-                        cvFilename = storedCvFilename;
-                    }
-                    await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename);
-                }
+                const shouldSave = confirm('Do you want to store your information for next time?');
+                if (shouldSave) { let cvFilename = cvFilesArray.length > 0 ? cvFilesArray[0].name : (storedCvFilename||null); await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename); }
             } else if (storedProfile) {
-                const changed = (fullName !== storedProfile.fullName) || (phone !== storedProfile.phone) ||
-                                (email !== storedProfile.email) || (address !== storedProfile.address) ||
-                                (cvFilesArray.length > 0 && !usingStoredCv);
-                if (changed) {
-                    const updateStored = confirm('It looks like you changed your personal information or CV. Would you like to update your stored autofill profile with the new data?');
-                    if (updateStored) {
-                        let cvFilename = null;
-                        if (cvFilesArray.length > 0 && cvFilesArray[0]) {
-                            cvFilename = cvFilesArray[0].name;
-                        } else if (storedCvFilename) {
-                            cvFilename = storedCvFilename;
-                        }
-                        await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename);
-                    }
-                }
+                const changed = (fullName !== storedProfile.fullName)||(phone !== storedProfile.phone)||(email !== storedProfile.email)||(address !== storedProfile.address)||(cvFilesArray.length > 0 && !usingStoredCv);
+                if (changed) { const update = confirm('It looks like you changed your info. Update your stored autofill profile?'); if (update) { let cvFilename = cvFilesArray.length > 0 ? cvFilesArray[0].name : (storedCvFilename||null); await updateProfileWithCurrentData(fullName, phone, email, address, cvTextForLetter, cvFilename); } }
             }
 
-            showLoadingOverlay('Generating application letter...');
+            if (generationStopped) return;
+
+            // ── Generate ──────────────────────────────────────────────────────
+            advanceStep(3);
             try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText })
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText }),
+                    signal: generationAbortController.signal
                 });
                 if (!letterResponse.ok) throw new Error(`Letter generation failed: ${(await letterResponse.json()).error}`);
-
                 const { letterText } = await letterResponse.json();
-                if (letterText) {
-                    document.getElementById('applicationLetter').value = letterText;
-                    document.getElementById('printLetterBtn').classList.remove('hidden');
-                    document.getElementById('mergeWithCvBtn').classList.remove('hidden');
-                    showMessage('success', 'Application letter generated successfully!');
-                    await updateBalance(-15);
-                } else {
-                    showMessage('error', 'Could not generate letter. Please try again.');
-                }
-            } catch (error) {
-                console.error(error);
-                showMessage('error', error.message || 'An unexpected error occurred.');
-            } finally { hideLoadingOverlay(); }
+                if (!letterText) throw new Error('Could not generate letter. Please try again.');
+                if (generationStopped) return;
+                lastGeneratedLetterText = letterText;
+                await updateBalance(-15);
+
+                // Done
+                completeAllSteps();
+                Object.keys(dotAnimFrames).forEach(stopDotAnimation);
+                Object.keys(fadeAnimFrames).forEach(stopFadeAnimation);
+                const el = document.getElementById('currentStepText'); if (el) el.textContent = 'Done';
+                document.getElementById('stopBtn').classList.add('hidden');
+
+                setTimeout(() => {
+                    document.getElementById('letterResult').classList.remove('hidden');
+                    document.getElementById('letterFilename').textContent = `${lastGeneratedFirstName}_Letter.pdf`;
+                }, 400);
+
+            } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message || 'An unexpected error occurred.'); resetToForm(); }
         }
 
-        function printLetter() {
-            const letterText = document.getElementById('applicationLetter').value;
-            if (!letterText) { showMessage('error', 'No letter to download. Generate a letter first.'); return; }
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-            const pageW = doc.internal.pageSize.getWidth();
-            const pageH = doc.internal.pageSize.getHeight();
-            const mL = 72, mR = 72, mT = 72, mB = 72;
-            const usableW = pageW - mL - mR;
-            const lineH   = 15;
-            doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
-            let y = mT;
-            letterText.split('\n').forEach(rawLine => {
-                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
-                wrapped.forEach(line => {
-                    if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
-                    doc.text(line, mL, y); y += lineH;
-                });
-            });
-            doc.save('application_letter.pdf');
-            showMessage('success', 'Letter downloaded successfully!');
-        }
-
-        // --------------------------------------------------------------
-        // Merge letter with CV PDFs — converts any CV type on the fly
-        // --------------------------------------------------------------
-        async function mergeLetterWithCv() {
-            const letterText = document.getElementById('applicationLetter').value;
-            if (!letterText) {
-                showMessage('error', 'No letter to merge. Generate a letter first.');
-                return;
-            }
-
-            // Determine CV PDF source: convert fresh files OR load stored PDF from MongoDB
-            let cvPdfSources = []; // array of ArrayBuffer
-
-            if (cvFilesArray.length > 0) {
-                // Convert all uploaded CV files (any type) into one merged PDF
-                showLoadingOverlay('Converting CV to PDF…');
-                try {
-                    const storedText = document.getElementById('applicationLetter').value; // reuse extracted text if Word
-                    const { buffer } = await buildCvPdfBuffer(cvFilesArray, storedCvText || storedText);
-                    cvPdfSources.push(buffer);
-                } catch (e) {
-                    hideLoadingOverlay();
-                    showMessage('error', 'Could not convert CV to PDF. Please try again.');
-                    return;
-                }
-                hideLoadingOverlay();
-            } else if (usingStoredCv && userId) {
-                // Load stored CV PDF from MongoDB
-                showLoadingOverlay('Loading stored CV PDF...');
-                const buffer = await loadCvPdfFromServer(userId);
-                hideLoadingOverlay();
-                if (buffer) {
-                    cvPdfSources.push(buffer);
-                }
-            }
-
-            if (cvPdfSources.length === 0) {
-                showMessage('error', 'No CV found. Please upload a CV file and generate a letter first.');
-                return;
-            }
-
-            showLoadingOverlay('Merging letter with CV PDFs...');
-            try {
-                const { jsPDF }       = window.jspdf;
-                const { PDFDocument } = window.PDFLib;
-
-                // 1. Create PDF from letter text
-                const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-                const pageW = doc.internal.pageSize.getWidth();
-                const pageH = doc.internal.pageSize.getHeight();
-                const mL = 72, mR = 72, mT = 72, mB = 72;
-                const usableW = pageW - mL - mR;
-                const lineH = 15;
-                doc.setFont('times', 'normal');
-                doc.setFontSize(11);
-                doc.setTextColor(30, 30, 30);
-                let y = mT;
-                letterText.split('\n').forEach(rawLine => {
-                    const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, usableW);
-                    wrapped.forEach(line => {
-                        if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
-                        doc.text(line, mL, y);
-                        y += lineH;
-                    });
-                });
-                const letterPdfBytes = doc.output('arraybuffer');
-
-                // 2. Merge letter + CV(s) using pdf-lib
-                const mergedPdfDoc = await PDFDocument.create();
-                const letterPdfDoc = await PDFDocument.load(letterPdfBytes);
-                const letterPages  = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
-                for (const page of letterPages) mergedPdfDoc.addPage(page);
-
-                for (const cvBytes of cvPdfSources) {
-                    const cvPdfDoc = await PDFDocument.load(cvBytes);
-                    const cvPages  = await mergedPdfDoc.copyPages(cvPdfDoc, cvPdfDoc.getPageIndices());
-                    for (const page of cvPages) mergedPdfDoc.addPage(page);
-                }
-
-                const mergedPdfBytes = await mergedPdfDoc.save();
-                const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-                const url  = URL.createObjectURL(blob);
-                const a    = Object.assign(document.createElement('a'), { href: url, download: 'letter_with_cv.pdf' });
-                document.body.appendChild(a); a.click();
-                document.body.removeChild(a); URL.revokeObjectURL(url);
-                showMessage('success', 'Letter merged with CV and downloaded.');
-            } catch (err) {
-                console.error('Merge error:', err);
-                showMessage('error', 'Failed to merge letter with CV. Please try again.');
-            } finally {
-                hideLoadingOverlay();
-            }
+        function resetToForm() {
+            document.getElementById('letterFormFields').classList.remove('hidden');
+            document.getElementById('generationView').classList.add('hidden');
+            document.getElementById('letterResult').classList.add('hidden');
+            generationStopped = false;
         }
 
         async function updateBalance(amount) {
             try {
-                const response = await fetch('/.netlify/functions/update-balance', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, amount })
-                });
+                const response = await fetch('/.netlify/functions/update-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, amount }) });
                 const data = await response.json();
-                if (response.ok) {
-                    userBalance = data.balance;
-                    document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2);
-                    return true;
-                }
+                if (response.ok) { userBalance = data.balance; document.getElementById('balanceDisplay').textContent = userBalance.toFixed(2); return true; }
             } catch { /* silent */ }
             return false;
         }
 
-        // ---------- Payment Popup ----------
+        // ── Payment ───────────────────────────────────────────────────────────
         let paymentPopupVisible = false;
-
-        function openPaymentPopup() {
-            document.getElementById('paymentPopupOverlay').classList.remove('hidden');
-            document.getElementById('paymentPopupSheet').classList.remove('translate-y-full');
-            paymentPopupVisible = true;
-            showPaymentMethodChoice();
-        }
-
-        function closePaymentPopup() {
-            document.getElementById('paymentPopupSheet').classList.add('translate-y-full');
-            setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300);
-            paymentPopupVisible = false;
-        }
-
-        function showPaymentMethodChoice() {
-            document.getElementById('payMethodChoice').classList.remove('hidden');
-            document.getElementById('payMethodTelebirr').classList.add('hidden');
-            document.getElementById('payMethodCBE').classList.add('hidden');
-            document.getElementById('payMethodCBEBirr').classList.add('hidden');
-        }
-
+        function openPaymentPopup() { document.getElementById('paymentPopupOverlay').classList.remove('hidden'); document.getElementById('paymentPopupSheet').classList.remove('translate-y-full'); paymentPopupVisible = true; showPaymentMethodChoice(); }
+        function closePaymentPopup() { document.getElementById('paymentPopupSheet').classList.add('translate-y-full'); setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300); paymentPopupVisible = false; }
+        function showPaymentMethodChoice() { document.getElementById('payMethodChoice').classList.remove('hidden'); ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden')); }
         function selectPaymentMethod(method) {
             document.getElementById('payMethodChoice').classList.add('hidden');
-            document.getElementById('payMethodTelebirr').classList.add('hidden');
-            document.getElementById('payMethodCBE').classList.add('hidden');
-            document.getElementById('payMethodCBEBirr').classList.add('hidden');
-            if (method === 'telebirr') {
-                document.getElementById('payMethodTelebirr').classList.remove('hidden');
-            } else if (method === 'cbe') {
-                document.getElementById('payMethodCBE').classList.remove('hidden');
-                document.getElementById('cbeTxId').value = '';
-                document.getElementById('cbeAmount').value = '';
-            } else if (method === 'cbebirr') {
-                document.getElementById('payMethodCBEBirr').classList.remove('hidden');
-                document.getElementById('cbebirrTxId').value = '';
-                document.getElementById('cbebirrAmount').value = '';
-            }
+            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            if (method === 'telebirr') document.getElementById('payMethodTelebirr').classList.remove('hidden');
+            else if (method === 'cbe') { document.getElementById('payMethodCBE').classList.remove('hidden'); document.getElementById('cbeTxId').value=''; document.getElementById('cbeAmount').value=''; }
+            else if (method === 'cbebirr') { document.getElementById('payMethodCBEBirr').classList.remove('hidden'); document.getElementById('cbebirrTxId').value=''; document.getElementById('cbebirrAmount').value=''; }
         }
-
-        function copyText(text, label) {
-            navigator.clipboard.writeText(text)
-                .then(() => showMessage('success', `${label} copied!`))
-                .catch(() => showMessage('error', 'Failed to copy'));
-        }
-
+        function copyText(text, label) { navigator.clipboard.writeText(text).then(() => showMessage('success', `${label} copied!`)).catch(() => showMessage('error', 'Failed to copy')); }
         async function submitPayment(method) {
-            const txIdInput  = method === 'cbe' ? 'cbeTxId'     : 'cbebirrTxId';
-            const amtInput   = method === 'cbe' ? 'cbeAmount'   : 'cbebirrAmount';
-            const paymentId = document.getElementById(txIdInput).value.trim();
-            const amount    = document.getElementById(amtInput).value.trim();
+            const txIdInput = method === 'cbe' ? 'cbeTxId' : 'cbebirrTxId', amtInput = method === 'cbe' ? 'cbeAmount' : 'cbebirrAmount';
+            const paymentId = document.getElementById(txIdInput).value.trim(), amount = document.getElementById(amtInput).value.trim();
             if (!paymentId) { showMessage('error', 'Please enter the Transaction ID.'); return; }
             if (!amount)    { showMessage('error', 'Please enter the amount.'); return; }
-            closePaymentPopup();
-            showLoadingOverlay('Submitting payment…');
+            closePaymentPopup(); showLoadingOverlay('Submitting payment…');
             try {
-                const response = await fetch('/.netlify/functions/process-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method })
-                });
+                const response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
                 const result = await response.json();
-                if (response.ok && result.success) {
-                    showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
-                } else {
-                    showMessage('error', result.error || result.message || 'Payment submission failed.');
-                }
-            } catch (err) {
-                console.error('Payment submission error:', err);
-                showMessage('error', 'An unexpected error occurred. Please try again.');
-            } finally { hideLoadingOverlay(); }
+                if (response.ok && result.success) showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
+                else showMessage('error', result.error || result.message || 'Payment submission failed.');
+            } catch { showMessage('error', 'An unexpected error occurred. Please try again.'); }
+            finally { hideLoadingOverlay(); }
         }
     </script>
     <style>
@@ -1122,18 +857,22 @@
         @keyframes float      { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
         @keyframes spin       { to{transform:rotate(360deg)} }
         @keyframes pulse-ring { 0%{transform:scale(.8);opacity:1} 80%,100%{transform:scale(2);opacity:0} }
+        @keyframes pulseDot   { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(0.65)} }
         .animate-pulse        { animation:pulse 2s infinite; }
         .animate-float        { animation:float 2s ease-in-out infinite; }
         .animate-spin-slow    { animation:spin 3s linear infinite; }
         .animate-pulse-ring   { animation:pulse-ring 2s cubic-bezier(.455,.03,.515,.955) infinite; }
+        .animate-pulse-dot    { animation:pulseDot 1.1s ease-in-out infinite; }
         .file-input-wrapper   { position:relative; display:inline-block; width:100%; }
         .file-input-wrapper input[type="file"] { color:transparent; }
-        .file-count-display   {
-            position:absolute; right:100px; top:50%; transform:translateY(-50%);
-            pointer-events:none; background:white; padding:2px 8px; border-radius:12px;
-            font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap;
-        }
+        .file-count-display   { position:absolute; right:100px; top:50%; transform:translateY(-50%); pointer-events:none; background:white; padding:2px 8px; border-radius:12px; font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap; }
         #paymentPopupSheet    { transition: transform 0.3s ease-out; }
+        #editSidebar          { transition: transform 0.35s cubic-bezier(.4,0,.2,1); }
+        #progressChevron      { transition: transform 0.22s ease; }
+        .step-icon            { transition: background 0.3s, border-color 0.3s; }
+        .letter-action-btn    { display:inline-flex; align-items:center; gap:5px; padding:7px 14px; border-radius:999px; font-size:0.78rem; font-weight:600; border:none; cursor:pointer; transition:background 0.18s, transform 0.1s; }
+        .letter-action-btn:hover  { transform:translateY(-1px); }
+        .letter-action-btn:active { transform:scale(0.97); }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -1163,9 +902,7 @@
 <div id="imageBasedPdfPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-xl shadow-lg max-w-md w-full mx-4 text-center">
         <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
         </div>
         <h3 class="text-lg font-semibold text-gray-800 mb-2">Image-based PDF Detected</h3>
         <p id="imageBasedPdfMessage" class="text-sm text-gray-600 mb-4"></p>
@@ -1178,21 +915,43 @@
 <div id="editProfileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-xl max-w-md w-full mx-4">
         <h3 class="text-lg font-bold mb-4">Edit Stored Information</h3>
-        <input type="text" id="editFullName" placeholder="Full Name" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
-        <input type="tel" id="editPhone" placeholder="Phone Number" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
-        <input type="email" id="editEmail" placeholder="Email" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
-        <input type="text" id="editAddress" placeholder="Address" class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-4">
+        <input type="text"  id="editFullName" placeholder="Full Name"     class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="tel"   id="editPhone"    placeholder="Phone Number"  class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="email" id="editEmail"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-3">
+        <input type="text"  id="editAddress"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 mb-4">
         <div class="flex gap-2">
-            <button onclick="saveEditedProfile()" class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold">Save Changes</button>
+            <button onclick="saveEditedProfile()"  class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold">Save Changes</button>
             <button onclick="closeEditProfileModal()" class="flex-1 bg-gray-300 text-gray-800 py-2 rounded-full font-semibold">Cancel</button>
         </div>
         <button onclick="requestDeleteProfile()" class="w-full text-red-600 text-sm mt-3 underline">Delete stored profile completely</button>
     </div>
 </div>
 
+<!-- Edit Letter Popup -->
+<div id="editLetterPopup" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
+            <span class="font-semibold text-gray-700 text-sm">Edit Letter</span>
+            <button onclick="closeEditPopup()" class="text-gray-400 hover:text-gray-600 text-xl leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
+        </div>
+        <div class="flex-1 overflow-hidden p-4">
+            <textarea id="editLetterTA" class="w-full h-full min-h-[300px] p-3 text-sm border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono leading-relaxed"></textarea>
+        </div>
+        <div class="flex gap-3 px-5 pb-5 pt-2">
+            <button onclick="mergeEditedWithCv()" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600 flex-1 justify-center">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Merge with CV
+            </button>
+            <button onclick="downloadEditedLetter()" class="letter-action-btn bg-indigo-500 text-white hover:bg-indigo-600 flex-1 justify-center">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Download PDF
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- PAYMENT POPUP -->
-<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center"
-     onclick="if(event.target===this) closePaymentPopup()">
+<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center" onclick="if(event.target===this) closePaymentPopup()">
     <div id="paymentPopupSheet" class="translate-y-full bg-white rounded-t-3xl shadow-2xl w-full max-w-lg px-6 pt-4 pb-8">
         <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
         <div class="flex items-center justify-between mb-5">
@@ -1201,18 +960,9 @@
         </div>
         <div id="payMethodChoice" class="space-y-3">
             <p class="text-sm text-gray-500 mb-1">Select a payment method:</p>
-            <button onclick="selectPaymentMethod('telebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div><span class="font-semibold text-gray-700">Telebirr</span></div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            </button>
-            <button onclick="selectPaymentMethod('cbe')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div><span class="font-semibold text-gray-700">Bank Transfer (CBE)</span></div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            </button>
-            <button onclick="selectPaymentMethod('cbebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors">
-                <div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div><span class="font-semibold text-gray-700">CBEBirr</span></div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            </button>
+            <button onclick="selectPaymentMethod('telebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div><span class="font-semibold text-gray-700">Telebirr</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
+            <button onclick="selectPaymentMethod('cbe')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div><span class="font-semibold text-gray-700">Bank Transfer (CBE)</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
+            <button onclick="selectPaymentMethod('cbebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div><span class="font-semibold text-gray-700">CBEBirr</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
         </div>
         <div id="payMethodTelebirr" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
@@ -1220,26 +970,53 @@
         </div>
         <div id="payMethodCBE" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
-            <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2">
-                <p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p>
-                <div class="flex items-center justify-between"><span><span class="font-medium">Account:</span> 1000577617639</span><button onclick="copyText('1000577617639','Account number')" class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0" title="Copy account number"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div>
-                <p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p><p><span class="font-medium">Minimum:</span> 100 ETB</p>
-            </div>
+            <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2"><p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Account:</span> 1000577617639</span><button onclick="copyText('1000577617639','Account number')" class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div><p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p><p><span class="font-medium">Minimum:</span> 100 ETB</p></div>
             <p class="text-xs text-gray-500 mb-3">After transferring, enter your transaction details below:</p>
             <div class="flex gap-2 mb-3"><input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"><input type="number" id="cbeAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
             <button onclick="submitPayment('cbe')" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Submit Payment</button>
         </div>
         <div id="payMethodCBEBirr" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
-            <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2">
-                <p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p>
-                <div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0" title="Copy phone number"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div>
-                <p><span class="font-medium">Minimum:</span> 100 ETB</p>
-            </div>
+            <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2"><p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div><p><span class="font-medium">Minimum:</span> 100 ETB</p></div>
             <p class="text-xs text-gray-500 mb-3">After sending, enter your transaction details below:</p>
             <div class="flex gap-2 mb-3"><input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"><input type="number" id="cbebirrAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
             <button onclick="submitPayment('cbebirr')" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">Submit Payment</button>
         </div>
+    </div>
+</div>
+
+<!-- Sidebar (Stop → Edit & Retry) — slides from left, covers ~75% -->
+<div id="editSidebar" class="fixed inset-y-0 left-0 z-40 -translate-x-full w-3/4 max-w-sm bg-white shadow-2xl flex flex-col">
+    <div class="flex items-center justify-between px-4 pt-5 pb-3 border-b border-gray-100">
+        <span class="text-sm font-semibold text-gray-700">Edit &amp; Retry</span>
+        <button onclick="hideSidebar()" class="text-gray-400 hover:text-gray-600 text-xl w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        <div id="sbAutofillHint" class="hidden text-xs text-green-600 bg-green-50 p-1.5 rounded text-center">Saved profile available</div>
+        <button onclick="autofillSidebar()" class="w-full text-xs bg-indigo-50 text-indigo-700 rounded-full px-3 py-1.5 hover:bg-indigo-100 transition flex items-center justify-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            Autofill
+        </button>
+        <input type="text"  id="sb-fullName" placeholder="Full Name"    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="tel"   id="sb-phone"    placeholder="Phone Number" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="email" id="sb-email"    placeholder="Email"        class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="text"  id="sb-address"  placeholder="Address"      class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="date"  id="sb-appDate"                             class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <div>
+            <p class="text-xs font-medium text-gray-500 mb-1">CV File</p>
+            <input type="file" id="sbCvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
+                class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
+                onchange="handleCvFileSelect(event)">
+        </div>
+        <div>
+            <p class="text-xs font-medium text-gray-500 mb-1">Job Description</p>
+            <input type="file" id="sbJdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
+                onchange="handleJdFileSelect(event)">
+        </div>
+    </div>
+    <div class="px-4 pb-5 pt-2 border-t border-gray-100">
+        <button id="sidebarGenerateBtn" class="w-full bg-indigo-500 text-white py-2.5 rounded-full font-semibold text-sm hover:bg-indigo-600 transition shadow-md">Generate Letter</button>
     </div>
 </div>
 
@@ -1284,8 +1061,8 @@
                 <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
                 <div class="space-y-4">
                     <div class="file-input-container"><label class="block"><span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span><div class="file-input-wrapper mt-1"><input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="pdfFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="pdfFilesList" class="max-h-32 overflow-y-auto"></div></div>
-                    <button id="mergePdfBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Merge PDFs</button>
-                    <button id="downloadPdfBtn" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download Merged PDF</button>
+                    <button id="mergePdfBtn"     class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Merge PDFs</button>
+                    <button id="downloadPdfBtn"  class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download Merged PDF</button>
                 </div>
             </div>
         </div>
@@ -1293,62 +1070,132 @@
         <!-- Letter Tab -->
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
-                <div class="flex justify-between items-center mb-2">
-                    <h2 class="text-xl font-semibold text-center">Application Letter Writer</h2>
-                    <div class="flex gap-1">
-                        <button onclick="autofillForm()" class="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-1 hover:bg-indigo-200 flex items-center gap-1 transition" title="Autofill with saved data">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                            Autofill
-                        </button>
-                        <button onclick="showEditProfileModal()" class="text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-1 hover:bg-gray-200 flex items-center gap-1 transition" title="Edit stored information">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            Edit
-                        </button>
-                    </div>
-                </div>
-                <div id="autofillHint" class="text-xs text-green-600 bg-green-50 p-1 rounded hidden mb-2 text-center">Saved profile available – click Autofill</div>
-                <div class="space-y-4">
-                    <input type="text"  id="fullName" placeholder="Full Name"     class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <input type="tel"   id="phone"    placeholder="Phone Number"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <input type="date"  id="appDate"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
 
-                    <!-- CV Section with dynamic display -->
-                    <div class="file-input-container">
-                        <label class="block">
-                            <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF — all converted &amp; stored for merging)</span>
-                            <div id="cvStoredBadgeContainer" class="hidden mt-1">
-                                <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
-                                    <div class="flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        <span class="text-sm text-indigo-800">Using stored CV: <span id="cvStoredFilename" class="font-mono"></span></span>
+                <!-- ── Form Fields ── -->
+                <div id="letterFormFields">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-xl font-semibold">Application Letter Writer</h2>
+                        <div class="flex gap-1">
+                            <button onclick="autofillForm()" class="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-1 hover:bg-indigo-200 flex items-center gap-1 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                Autofill
+                            </button>
+                            <button onclick="showEditProfileModal()" class="text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-1 hover:bg-gray-200 flex items-center gap-1 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                Edit
+                            </button>
+                        </div>
+                    </div>
+                    <div id="autofillHint" class="text-xs text-green-600 bg-green-50 p-1 rounded hidden mb-2 text-center">Saved profile available – click Autofill</div>
+                    <div class="space-y-4">
+                        <input type="text"  id="fullName" placeholder="Full Name"     class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="tel"   id="phone"    placeholder="Phone Number"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="date"  id="appDate"                              class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+
+                        <!-- CV Section -->
+                        <div class="file-input-container">
+                            <label class="block">
+                                <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF — all converted &amp; stored for merging)</span>
+                                <div id="cvStoredBadgeContainer" class="hidden mt-1">
+                                    <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
+                                        <div class="flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            <span class="text-sm text-indigo-800">Using stored CV: <span id="cvStoredFilename" class="font-mono"></span></span>
+                                        </div>
+                                        <button onclick="replaceStoredCv()" class="text-xs bg-white text-indigo-600 border border-indigo-300 rounded-full px-2 py-0.5 hover:bg-indigo-100 transition">Replace</button>
                                     </div>
-                                    <button onclick="replaceStoredCv()" class="text-xs bg-white text-indigo-600 border border-indigo-300 rounded-full px-2 py-0.5 hover:bg-indigo-100 transition">
-                                        Replace
-                                    </button>
                                 </div>
-                            </div>
-                            <div id="cvFileInputContainer">
-                                <div class="file-input-wrapper mt-1">
-                                    <input type="file" id="cvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                    <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
+                                <div id="cvFileInputContainer">
+                                    <div class="file-input-wrapper mt-1">
+                                        <input type="file" id="cvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                        <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
+                                    </div>
+                                    <div id="cvFilesList" class="max-h-32 overflow-y-auto mt-2"></div>
                                 </div>
-                                <div id="cvFilesList" class="max-h-32 overflow-y-auto mt-2"></div>
-                            </div>
-                        </label>
-                    </div>
+                            </label>
+                        </div>
 
-                    <div class="file-input-container">
-                        <label class="block"><span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span><div class="file-input-wrapper mt-1"><input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="jdFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
-                    </div>
-                    <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
-                    <textarea id="applicationLetter" rows="10" placeholder="Your generated application letter will appear here..." class="w-full p-4 rounded-lg border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                    <div class="flex gap-3">
-                        <button id="printLetterBtn" class="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download as PDF</button>
-                        <button id="mergeWithCvBtn" class="flex-1 bg-amber-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-amber-600 transition-colors shadow-md">Merge with my CV (PDF only)</button>
+                        <div class="file-input-container">
+                            <label class="block"><span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span><div class="file-input-wrapper mt-1"><input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="jdFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
+                        </div>
+                        <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
                     </div>
                 </div>
+
+                <!-- ── Generation View ── -->
+                <div id="generationView" class="hidden">
+
+                    <!-- top bar: progress chevron + stop/retry -->
+                    <div class="flex items-center justify-between mb-3">
+                        <button onclick="toggleProgressDetail()" class="flex items-center gap-1.5 group select-none">
+                            <svg id="progressChevron" class="w-4 h-4 text-gray-400 group-hover:text-gray-600" style="transform:rotate(0deg)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                            </svg>
+                            <span class="text-xs text-gray-400 group-hover:text-gray-600">Progress</span>
+                        </button>
+                        <div class="flex items-center gap-1.5">
+                            <button id="stopBtn" onclick="stopGeneration()"
+                                class="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition px-2 py-1 rounded-full hover:bg-red-50">
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
+                                Stop
+                            </button>
+                            <button id="retryBtn" onclick="retryGeneration()"
+                                class="hidden flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 transition px-2 py-1 rounded-full hover:bg-indigo-50">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                Retry
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- collapsible progress chain -->
+                    <div id="progressDetail" class="hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm">
+                        <div id="generationProgress"></div>
+                    </div>
+
+                    <!-- always-visible current step -->
+                    <div class="flex items-center gap-2.5 mb-6 px-0.5">
+                        <div class="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 animate-pulse-dot"></div>
+                        <span id="currentStepText" class="text-sm font-medium"
+                            style="background:linear-gradient(90deg,#22c55e,#f97316,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
+                            Generating your letter
+                        </span>
+                    </div>
+
+                    <!-- letter result card (shown after done) -->
+                    <div id="letterResult" class="hidden">
+                        <div class="bg-white rounded-xl border border-emerald-100 shadow-sm p-4">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p id="letterFilename" class="text-sm font-semibold text-gray-800 truncate">Letter.pdf</p>
+                                    <p class="text-xs text-gray-400">Application Letter — ready</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-2 flex-wrap">
+                                <button onclick="downloadLetterAsPdf(lastGeneratedLetterText)" class="letter-action-btn bg-indigo-500 text-white hover:bg-indigo-600">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    Download
+                                </button>
+                                <button onclick="openEditPopup()" class="letter-action-btn bg-gray-100 text-gray-700 hover:bg-gray-200">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                    Edit
+                                </button>
+                                <button onclick="mergeLetterTextWithCv(lastGeneratedLetterText)" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                    Merge with CV
+                                </button>
+                            </div>
+                        </div>
+                        <button onclick="resetToForm()" class="w-full mt-3 text-xs text-gray-400 hover:text-indigo-600 transition py-1">← Generate another letter</button>
+                    </div>
+
+                </div>
+                <!-- end generationView -->
+
             </div>
         </div>
 
@@ -1360,7 +1207,24 @@
                 <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800"><p class="font-semibold mb-1">How top-ups work:</p><p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p></div>
             </div>
         </div>
+
     </div>
 </div>
+
+<script>
+    // Wire up sidebar generate button after DOM loads
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('sidebarGenerateBtn')?.addEventListener('click', () => {
+            // sync sidebar fields → main form fields
+            document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
+            document.getElementById('phone').value    = document.getElementById('sb-phone').value;
+            document.getElementById('email').value    = document.getElementById('sb-email').value;
+            document.getElementById('address').value  = document.getElementById('sb-address').value;
+            document.getElementById('appDate').value  = document.getElementById('sb-appDate').value;
+            hideSidebar();
+            generateLetter();
+        });
+    });
+</script>
 </body>
 </html>
