@@ -867,7 +867,6 @@
             if (btn) btn.querySelector('span').textContent = labels[size] || '12pt';
         }
 
-        // Map browser fontSize (1-7) to pt labels and actual pt values for PDF
         const _fontSizeMap = {'1':'8pt','2':'10pt','3':'12pt','4':'14pt','5':'18pt','6':'24pt','7':'36pt'};
         const _fontSizePt  = {'1':8,   '2':10,   '3':11,   '4':14,   '5':18,   '6':24,   '7':36};
         const _pxToPt = {'8':'8pt','10':'10pt','13':'12pt','16':'14pt','24':'18pt','32':'24pt','48':'36pt'};
@@ -914,7 +913,6 @@
             }
         });
 
-        // ── Custom dropdown logic ─────────────────────────────────────────────
         function closeAllDropdowns() {
             document.querySelectorAll('.custom-dropdown-menu').forEach(m => m.classList.add('hidden'));
         }
@@ -972,15 +970,12 @@
             updateToolbarState();
         }
 
-        // ── Letter PDF rendering ──────────────────────────────────────────────
-        // FIX 2: Font size is now carried through the segment pipeline from <font size="N"> tags.
-        // FIX 3: lineH reduced to 8 (half of original 16) for narrower paragraph gaps.
-
+        // ── Letter PDF rendering (Line spacing 1.15, paragraph spacing unchanged) ──
         function renderHtmlToPdf(doc, html, mL, mR, mT, mB) {
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
             const maxW  = pageW - mL - mR;
-            const lineH = 8; // FIX 3: was 16, now 8 (half gap)
+            const paragraphSpacing = 8; // fixed spacing for empty lines (kept as original)
 
             let y = mT;
             const blocks = parseHtmlBlocks(html);
@@ -990,11 +985,15 @@
                 const pdfLines = wrapBlockToPdfLines(doc, block.segments, maxW);
                 for (const lineSegs of pdfLines) {
                     if (y > pageH - mB) { doc.addPage(); y = mT; }
-                    if (lineSegs.length === 0) { y += lineH; continue; }
+                    if (lineSegs.length === 0) { 
+                        y += paragraphSpacing; 
+                        continue; 
+                    }
                     renderPdfLine(doc, lineSegs, mL, y, maxW, align, pageW);
-                    // FIX 3: use the max font size in the line to scale the line height
+                    // Line spacing = 1.15 * max font size in the line
                     const maxPt = lineSegs.reduce((mx, s) => Math.max(mx, s.fontSize || 11), 11);
-                    y += Math.max(lineH, maxPt * 0.6);
+                    const lineHeight = maxPt * 1.15;
+                    y += lineHeight;
                 }
             }
             return y;
@@ -1019,7 +1018,6 @@
             return null;
         }
 
-        // FIX 2: parse <font size="N"> to extract jsPDF font size (pt)
         function getFontSizeFromNode(node, parentFontSize) {
             if (node.nodeType !== Node.ELEMENT_NODE) return parentFontSize;
             const tag = node.tagName.toLowerCase();
@@ -1027,7 +1025,6 @@
                 const sizeAttr = node.getAttribute('size');
                 if (sizeAttr && _fontSizePt[sizeAttr]) return _fontSizePt[sizeAttr];
             }
-            // Also check inline style for font-size
             const style = node.getAttribute('style') || '';
             const m = style.match(/font-size\s*:\s*([\d.]+)(px|pt|em)/i);
             if (m) {
@@ -1060,7 +1057,6 @@
                 const href = node.getAttribute('href') || null;
                 newStyle.href = href;
             }
-            // FIX 2: inherit font size from <font size="N"> or style
             newStyle.fontSize = getFontSizeFromNode(node, style.fontSize || 11);
 
             const isBlock = ['p','div','h1','h2','h3','h4','h5','h6','li','br','tr'].includes(tag);
@@ -1086,7 +1082,7 @@
             const tokens = [];
             for (const seg of segments) {
                 const fontStyle = seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal';
-                const fontSize = seg.fontSize || 11; // FIX 2: use segment's font size
+                const fontSize = seg.fontSize || 11;
                 doc.setFont('times', fontStyle);
                 doc.setFontSize(fontSize);
                 const parts = seg.text.split(/(\s+)/);
@@ -1153,7 +1149,7 @@
             let totalW = 0;
             const measured = segs.map(s => {
                 const fontStyle = s.bold && s.italic ? 'bolditalic' : s.bold ? 'bold' : s.italic ? 'italic' : 'normal';
-                const fontSize = s.fontSize || 11; // FIX 2: use segment's font size
+                const fontSize = s.fontSize || 11;
                 doc.setFont('times', fontStyle);
                 doc.setFontSize(fontSize);
                 const w = doc.getTextWidth(s.text);
@@ -1167,7 +1163,7 @@
 
             for (const seg of measured) {
                 doc.setFont('times', seg.fontStyle);
-                doc.setFontSize(seg.fontSize); // FIX 2: apply actual font size
+                doc.setFontSize(seg.fontSize);
                 if (seg.href) {
                     doc.setTextColor(67, 56, 202);
                     doc.textWithLink(seg.text, x, y, { url: seg.href });
@@ -1521,8 +1517,6 @@
         .toolbar-btn.active { background:#4f46e5; color:#fff; }
         #editLetterDiv a { color:#4338ca; text-decoration:underline; }
         #editLetterDiv:focus { outline:none; }
-
-        /* Custom dropdown styles */
         .custom-dropdown { position:relative; display:inline-block; }
         .custom-dropdown-btn {
             display:inline-flex; align-items:center; gap:4px;
@@ -1548,8 +1542,6 @@
         }
         .custom-dropdown-item:hover { background:#f0f0ff; color:#4338ca; }
         .custom-dropdown-item.active-item { background:#ede9fe; color:#4f46e5; font-weight:600; }
-
-        /* Floating copy button */
         .editor-wrapper { position:relative; flex:1; overflow:hidden; display:flex; flex-direction:column; }
         #editorCopyBtn {
             position:absolute; top:10px; right:10px;
@@ -1618,14 +1610,11 @@
 <!-- Edit Letter Popup -->
 <div id="editLetterPopup" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <!-- Header -->
         <div class="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
             <span class="font-semibold text-gray-700 text-sm">Edit Letter</span>
             <button onclick="closeEditPopup()" class="text-gray-400 hover:text-gray-600 text-xl leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
         </div>
-        <!-- Toolbar — CHANGE 1: Font family dropdown removed; only size + formatting remain -->
         <div id="editorToolbar" class="flex flex-wrap items-center gap-1 px-4 py-2 border-b border-gray-100 bg-gray-50">
-            <!-- Undo / Redo -->
             <button onclick="editorCmd('undo')" title="Undo" class="toolbar-btn">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6-6M3 10l6 6"/></svg>
             </button>
@@ -1633,12 +1622,9 @@
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 10H11a8 8 0 00-8 8v2m18-10l-6-6m6 6l-6 6"/></svg>
             </button>
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
-            <!-- Bold / Italic -->
             <button onclick="editorCmd('bold')" title="Bold" id="tbBold" class="toolbar-btn font-bold text-sm">B</button>
             <button onclick="editorCmd('italic')" title="Italic" id="tbItalic" class="toolbar-btn italic text-sm">I</button>
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
-
-            <!-- Font Size only — Times New Roman is the only font -->
             <div class="custom-dropdown">
                 <button id="tbFontSizeBtn" class="custom-dropdown-btn" onclick="toggleDropdown('fontSizeMenu', event)" title="Font size">
                     <span>12pt</span>
@@ -1654,9 +1640,7 @@
                     <div class="custom-dropdown-item" onclick="applyFontSize('7');closeAllDropdowns()">36pt</div>
                 </div>
             </div>
-
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
-            <!-- Alignment -->
             <button onclick="editorCmd('justifyLeft')"   title="Align left"    id="tbAlignL" class="toolbar-btn">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M3 12h12M3 18h18"/></svg>
             </button>
@@ -1667,7 +1651,6 @@
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M9 12h12M3 18h18"/></svg>
             </button>
             <div class="w-px h-5 bg-gray-300 mx-1"></div>
-            <!-- Unlink -->
             <button onclick="removeLink()" title="Remove hyperlink" id="tbUnlink" class="toolbar-btn">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
@@ -1675,7 +1658,6 @@
                 </svg>
             </button>
         </div>
-        <!-- Editable content + floating copy icon -->
         <div class="editor-wrapper">
             <button id="editorCopyBtn" onclick="copyEditorText()" title="Copy all text">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;color:#6366f1"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1690,7 +1672,6 @@
                 ></div>
             </div>
         </div>
-        <!-- Footer buttons -->
         <div class="flex gap-3 px-5 pb-5 pt-2">
             <button onclick="mergeEditedWithCv()" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600 flex-1 justify-center">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1773,7 +1754,6 @@
                     class="hidden" onchange="handleCvFileSelect(event)">
             </div>
         </div>
-        <!-- Job Description toggle in sidebar -->
         <div>
             <div class="flex items-center justify-between mb-1">
                 <p id="sbJdLabelText" class="text-xs font-medium text-gray-500">Job Description (Link)</p>
@@ -1876,7 +1856,6 @@
         <div id="letter-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
 
-                <!-- ── Form Fields ── -->
                 <div id="letterFormFields">
                     <div class="flex justify-between items-center mb-2">
                         <h2 class="text-xl font-semibold">Application Letter Writer</h2>
@@ -1900,7 +1879,6 @@
                         <input type="date"  id="appDate" placeholder="Date of application submission" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text"  id="targetPosition" placeholder="Position you are applying for (e.g. Software Engineer)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
 
-                        <!-- CV Section -->
                         <div class="file-input-container" id="cvSectionWrapper">
                             <div id="cvError" class="hidden text-xs text-red-500 mb-1"></div>
                             <label class="block">
@@ -1932,7 +1910,6 @@
                             </label>
                         </div>
 
-                        <!-- Job Description with Link/File toggle -->
                         <div id="jdSectionWrapper">
                             <div id="jdError" class="hidden text-xs text-red-500 mb-1"></div>
                             <div class="flex items-center justify-between mb-1.5">
@@ -1967,7 +1944,6 @@
                     </div>
                 </div>
 
-                <!-- ── Generation View ── -->
                 <div id="generationView" class="hidden">
                     <div class="flex items-center justify-end mb-3">
                         <div class="flex items-center gap-1.5">
@@ -1996,7 +1972,6 @@
                         <div id="generationProgress"></div>
                     </div>
 
-                    <!-- letter result card -->
                     <div id="letterResult" class="hidden">
                         <div class="bg-white rounded-xl border border-emerald-100 shadow-sm p-4">
                             <div class="flex items-center gap-3 mb-4">
@@ -2025,14 +2000,10 @@
                         </div>
                         <button onclick="resetToForm()" class="w-full mt-3 text-xs text-gray-400 hover:text-indigo-600 transition py-1">← Generate another letter</button>
                     </div>
-
                 </div>
-                <!-- end generationView -->
-
             </div>
         </div>
 
-        <!-- Balance Tab -->
         <div id="payment-content" class="tab-content hidden">
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">Payment &amp; Balance</h2>
@@ -2040,7 +2011,6 @@
                 <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800"><p class="font-semibold mb-1">How top-ups work:</p><p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p></div>
             </div>
         </div>
-
     </div>
 </div>
 
