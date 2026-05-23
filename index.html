@@ -15,6 +15,8 @@
         let userBalance = 0;
         let cvFilesArray = [];
         let jdFilesArray = [];
+        let jdInputMode = 'url'; // 'url' | 'file'
+        let jdUrl = '';
         let pdfFilesArray = [];
 
         // Profile storage related
@@ -193,6 +195,7 @@
             document.getElementById('cvFile')?.addEventListener('change', handleCvFileSelect);
             document.getElementById('jdFile')?.addEventListener('change', handleJdFileSelect);
             document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
+            document.getElementById('jdUrlInput')?.addEventListener('input', e => { jdUrl = e.target.value.trim(); });
         }
 
         function handleCvFileSelect(e) {
@@ -255,6 +258,31 @@
         }
         function removeJdFile(i)  { jdFilesArray.splice(i, 1);  updateJdFilesList(); }
         function removePdfFile(i) { pdfFilesArray.splice(i, 1); updatePdfFilesList(); }
+
+        function switchJdInputMode(mode) {
+            jdInputMode = mode;
+            const urlPanel  = document.getElementById('jdUrlPanel');
+            const filePanel = document.getElementById('jdFilePanel');
+            const btnUrl    = document.getElementById('jdBtnUrl');
+            const btnFile   = document.getElementById('jdBtnFile');
+            // Main form
+            if (urlPanel)  urlPanel.classList.toggle('hidden',  mode !== 'url');
+            if (filePanel) filePanel.classList.toggle('hidden', mode !== 'file');
+            if (btnUrl)  { btnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  btnUrl.classList.toggle('text-white', mode === 'url');  btnUrl.classList.toggle('text-gray-500', mode !== 'url');  btnUrl.classList.toggle('bg-white', mode !== 'url'); }
+            if (btnFile) { btnFile.classList.toggle('bg-indigo-500', mode === 'file'); btnFile.classList.toggle('text-white', mode === 'file'); btnFile.classList.toggle('text-gray-500', mode !== 'file'); btnFile.classList.toggle('bg-white', mode !== 'file'); }
+            // Sidebar mirrors
+            const sbUrlPanel  = document.getElementById('sbJdUrlPanel');
+            const sbFilePanel = document.getElementById('sbJdFilePanel');
+            const sbBtnUrl    = document.getElementById('sbJdBtnUrl');
+            const sbBtnFile   = document.getElementById('sbJdBtnFile');
+            if (sbUrlPanel)  sbUrlPanel.classList.toggle('hidden',  mode !== 'url');
+            if (sbFilePanel) sbFilePanel.classList.toggle('hidden', mode !== 'file');
+            if (sbBtnUrl)  { sbBtnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  sbBtnUrl.classList.toggle('text-white', mode === 'url');  sbBtnUrl.classList.toggle('text-gray-500', mode !== 'url');  sbBtnUrl.classList.toggle('bg-white', mode !== 'url'); }
+            if (sbBtnFile) { sbBtnFile.classList.toggle('bg-indigo-500', mode === 'file'); sbBtnFile.classList.toggle('text-white', mode === 'file'); sbBtnFile.classList.toggle('text-gray-500', mode !== 'file'); sbBtnFile.classList.toggle('bg-white', mode !== 'file'); }
+            // Sync URL value
+            const urlVal = document.getElementById('jdUrlInput')?.value || document.getElementById('sbJdUrlInput')?.value || '';
+            jdUrl = urlVal.trim();
+        }
 
         function showLoadingOverlay(message) { document.getElementById('loadingMessage').textContent = message; document.getElementById('loadingOverlay').classList.remove('hidden'); }
         function hideLoadingOverlay()         { document.getElementById('loadingOverlay').classList.add('hidden'); }
@@ -670,6 +698,8 @@
             document.getElementById('sb-email').value    = document.getElementById('email').value;
             document.getElementById('sb-address').value  = document.getElementById('address').value;
             document.getElementById('sb-appDate').value  = document.getElementById('appDate').value;
+            document.getElementById('sb-targetPosition').value = document.getElementById('targetPosition').value;
+            if (jdInputMode === 'url') document.getElementById('sbJdUrlInput').value = document.getElementById('jdUrlInput').value;
             if (storedProfile) document.getElementById('sbAutofillHint')?.classList.remove('hidden');
         }
 
@@ -682,6 +712,8 @@
             document.getElementById('email').value    = document.getElementById('sb-email').value;
             document.getElementById('address').value  = document.getElementById('sb-address').value;
             document.getElementById('appDate').value  = document.getElementById('sb-appDate').value;
+            document.getElementById('targetPosition').value = document.getElementById('sb-targetPosition').value;
+            if (jdInputMode === 'url') { const v = document.getElementById('sbJdUrlInput').value; document.getElementById('jdUrlInput').value = v; jdUrl = v.trim(); }
         }
 
         // ── Stop & Retry ─────────────────────────────────────────────────────
@@ -775,12 +807,16 @@
 
         // ── Main Generate Letter ──────────────────────────────────────────────
         async function generateLetter() {
-            const fullName = document.getElementById('fullName').value;
-            const phone    = document.getElementById('phone').value;
-            const email    = document.getElementById('email').value;
-            const address  = document.getElementById('address').value;
-            const appDate  = document.getElementById('appDate').value;
+            const fullName       = document.getElementById('fullName').value;
+            const phone          = document.getElementById('phone').value;
+            const email          = document.getElementById('email').value;
+            const address        = document.getElementById('address').value;
+            const appDate        = document.getElementById('appDate').value;
+            const targetPosition = (document.getElementById('targetPosition')?.value || '').trim();
             if (!fullName || !phone || !email || !address || !appDate) { showMessage('error', 'Please fill all personal fields.'); return; }
+            if (!targetPosition) { showMessage('error', 'Please enter the Position you are applying for.'); return; }
+            if (jdInputMode === 'url') { jdUrl = (document.getElementById('jdUrlInput')?.value || '').trim(); if (!jdUrl) { showMessage('error', 'Please enter the Job Description URL.'); return; } }
+            if (jdInputMode === 'file' && jdFilesArray.length === 0) { showMessage('error', 'Please upload at least one Job Description file.'); return; }
             if (userBalance < 15) { showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.'); return; }
 
             lastGeneratedFirstName = fullName.split(' ')[0] || 'Letter';
@@ -846,30 +882,34 @@
             if (generationStopped) return;
 
             // ── JD — step 1 ───────────────────────────────────────────────────
-            if (jdFilesArray.length === 0) { showMessage('error', 'Please upload at least one Job Description file.'); resetToForm(); return; }
             advanceStep(1);
             try {
-                const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
-                const jdFilesData = await toData(jdFilesArray);
-                const callExtractJd = async (files, fileType) => {
-                    const res = await fetch('/.netlify/functions/extract-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, fileType }), signal: generationAbortController.signal });
-                    let data; try { data = await res.json(); } catch { data = {}; }
-                    if (!res.ok) { throw Object.assign(new Error(data.error || data.message || `HTTP ${res.status}`), { status: res.status }); }
-                    return data.extractedText;
-                };
-                let jdExtractionError = null;
-                try { jdText = await callExtractJd(jdFilesData, 'jd'); } catch(e) { jdExtractionError = e; }
-                if (jdExtractionError && !generationStopped) {
-                    const pdfFiles = jdFilesArray.filter(f => f.type === 'application/pdf');
-                    if (pdfFiles.length > 0) {
-                        try {
-                            const imageFiles = []; for (const pf of pdfFiles) { const imgs = await rasterisePdfToImageFiles(pf); imageFiles.push(...imgs); }
-                            jdText = await callExtractJd([...imageFiles, ...jdFilesData.filter(fd => !fd.type.includes('pdf'))], 'jd');
-                            jdExtractionError = null;
-                        } catch(retryErr) { jdExtractionError = retryErr; }
+                if (jdInputMode === 'url') {
+                    // URL mode: pass the URL to generate-letter; server fetches and extracts text
+                    jdText = '__URL__'; // sentinel — actual fetch happens server-side
+                } else {
+                    const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
+                    const jdFilesData = await toData(jdFilesArray);
+                    const callExtractJd = async (files, fileType) => {
+                        const res = await fetch('/.netlify/functions/extract-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, fileType }), signal: generationAbortController.signal });
+                        let data; try { data = await res.json(); } catch { data = {}; }
+                        if (!res.ok) { throw Object.assign(new Error(data.error || data.message || `HTTP ${res.status}`), { status: res.status }); }
+                        return data.extractedText;
+                    };
+                    let jdExtractionError = null;
+                    try { jdText = await callExtractJd(jdFilesData, 'jd'); } catch(e) { jdExtractionError = e; }
+                    if (jdExtractionError && !generationStopped) {
+                        const pdfFiles = jdFilesArray.filter(f => f.type === 'application/pdf');
+                        if (pdfFiles.length > 0) {
+                            try {
+                                const imageFiles = []; for (const pf of pdfFiles) { const imgs = await rasterisePdfToImageFiles(pf); imageFiles.push(...imgs); }
+                                jdText = await callExtractJd([...imageFiles, ...jdFilesData.filter(fd => !fd.type.includes('pdf'))], 'jd');
+                                jdExtractionError = null;
+                            } catch(retryErr) { jdExtractionError = retryErr; }
+                        }
                     }
+                    if (jdExtractionError) throw new Error('JD extraction failed: ' + jdExtractionError.message);
                 }
-                if (jdExtractionError) throw new Error('JD extraction failed: ' + jdExtractionError.message);
             } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message); resetToForm(); return; }
 
             if (generationStopped) return;
@@ -890,7 +930,7 @@
             try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText }),
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText: jdInputMode === 'url' ? null : jdText, jdUrl: jdInputMode === 'url' ? jdUrl : null, targetPosition }),
                     signal: generationAbortController.signal
                 });
                 if (!letterResponse.ok) throw new Error(`Letter generation failed: ${(await letterResponse.json()).error}`);
@@ -1111,17 +1151,32 @@
         <input type="email" id="sb-email"    placeholder="Email"        class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <input type="text"  id="sb-address"  placeholder="Address"      class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <input type="date"  id="sb-appDate"                             class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="text" id="sb-targetPosition" placeholder="Position (e.g. Software Engineer)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <div>
             <p class="text-xs font-medium text-gray-500 mb-1">CV File</p>
             <input type="file" id="sbCvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
                 class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
                 onchange="handleCvFileSelect(event)">
         </div>
+        <!-- Job Description toggle in sidebar -->
         <div>
-            <p class="text-xs font-medium text-gray-500 mb-1">Job Description</p>
-            <input type="file" id="sbJdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
-                onchange="handleJdFileSelect(event)">
+            <div class="flex items-center justify-between mb-1">
+                <p class="text-xs font-medium text-gray-500">Job Description</p>
+                <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+                    <button id="sbJdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500 text-white transition-all">🔗</button>
+                    <button id="sbJdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full text-gray-500 bg-white transition-all">📄</button>
+                </div>
+            </div>
+            <div id="sbJdUrlPanel">
+                <input type="url" id="sbJdUrlInput" placeholder="Paste job URL..."
+                    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    oninput="jdUrl=this.value.trim(); document.getElementById('jdUrlInput').value=this.value;">
+            </div>
+            <div id="sbJdFilePanel" class="hidden">
+                <input type="file" id="sbJdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
+                    onchange="handleJdFileSelect(event)">
+            </div>
         </div>
     </div>
     <div class="px-4 pb-5 pt-2 border-t border-gray-100">
@@ -1202,6 +1257,7 @@
                         <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="date"  id="appDate"                              class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="text"  id="targetPosition" placeholder="Position you are applying for (e.g. Software Engineer)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
 
                         <!-- CV Section -->
                         <div class="file-input-container">
@@ -1226,8 +1282,30 @@
                             </label>
                         </div>
 
-                        <div class="file-input-container">
-                            <label class="block"><span class="text-sm font-medium text-gray-700">Upload Job Description Files (Image, PDF, Word)</span><div class="file-input-wrapper mt-1"><input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="jdFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="jdFilesList" class="max-h-32 overflow-y-auto"></div>
+                        <!-- Job Description with Link/File toggle -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-sm font-medium text-gray-700">Job Description</span>
+                                <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+                                    <button id="jdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500 text-white transition-all">🔗 Link</button>
+                                    <button id="jdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full text-gray-500 bg-white transition-all">📄 File</button>
+                                </div>
+                            </div>
+                            <!-- URL panel (default) -->
+                            <div id="jdUrlPanel">
+                                <input type="url" id="jdUrlInput" placeholder="Paste job posting URL (e.g. https://jobs.example.com/...)"
+                                    class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                                    oninput="jdUrl=this.value.trim()">
+                                <p class="text-xs text-gray-400 mt-1">The page will be fetched and only the content for the specified position will be used.</p>
+                            </div>
+                            <!-- File panel (hidden by default) -->
+                            <div id="jdFilePanel" class="hidden">
+                                <div class="file-input-wrapper mt-1">
+                                    <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+                                    <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
+                                </div>
+                                <div id="jdFilesList" class="max-h-32 overflow-y-auto mt-1"></div>
+                            </div>
                         </div>
                         <button id="generateLetterBtn" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Generate Application Letter</button>
                     </div>
@@ -1323,7 +1401,9 @@
             document.getElementById('phone').value    = document.getElementById('sb-phone').value;
             document.getElementById('email').value    = document.getElementById('sb-email').value;
             document.getElementById('address').value  = document.getElementById('sb-address').value;
-            document.getElementById('appDate').value  = document.getElementById('sb-appDate').value;
+            document.getElementById('appDate').value          = document.getElementById('sb-appDate').value;
+            document.getElementById('targetPosition').value  = document.getElementById('sb-targetPosition').value;
+            if (jdInputMode === 'url') { const v = document.getElementById('sbJdUrlInput').value; document.getElementById('jdUrlInput').value = v; jdUrl = v.trim(); }
             hideSidebar();
             generateLetter();
         });
