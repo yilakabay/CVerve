@@ -1,3 +1,4 @@
+index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,7 +116,7 @@
             const { jsPDF } = window.jspdf;
             const doc   = new jsPDF({ unit: 'pt', format: 'a4' });
             const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-            const mL = 60, mR = 60, mT = 60, mB = 60, lineH = 8;
+            const mL = 60, mR = 60, mT = 60, mB = 60, lineH = 14;
             doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
             let y = mT;
             for (const rawLine of text.split('\n')) {
@@ -992,7 +993,7 @@
                     renderPdfLine(doc, lineSegs, mL, y, maxW, align, pageW);
                     // Line spacing = 1.15 * max font size in the line
                     const maxPt = lineSegs.reduce((mx, s) => Math.max(mx, s.fontSize || 11), 11);
-                    const lineHeight = maxPt * 1.15;
+                    const lineHeight = maxPt * 1.5;
                     y += lineHeight;
                 }
             }
