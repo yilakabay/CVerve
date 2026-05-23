@@ -185,8 +185,7 @@
         }
 
         function setCurrentDate() {
-            const today = new Date();
-            document.getElementById('appDate').value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+            // No default date — user must choose
         }
 
         function attachEventListeners() {
@@ -195,7 +194,15 @@
             document.getElementById('cvFile')?.addEventListener('change', handleCvFileSelect);
             document.getElementById('jdFile')?.addEventListener('change', handleJdFileSelect);
             document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
-            document.getElementById('jdUrlInput')?.addEventListener('input', e => { jdUrl = e.target.value.trim(); });
+            document.getElementById('jdUrlInput')?.addEventListener('input', e => {
+                jdUrl = e.target.value.trim();
+                if (jdUrl) { e.target.classList.remove('border-red-400'); e.target.classList.add('border-gray-300'); clearUploadError('jdError', null); }
+            });
+            // Clear field errors on input
+            ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
+                document.getElementById(id)?.addEventListener('input', () => clearFieldError(id));
+                document.getElementById(id)?.addEventListener('change', () => clearFieldError(id));
+            });
         }
 
         function handleCvFileSelect(e) {
@@ -218,11 +225,22 @@
                 usingStoredCv = false;
                 document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
                 document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                clearUploadError('cvError', 'cvUploadBtn');
             }
         }
 
-        function handleJdFileSelect(e)  { jdFilesArray  = [...jdFilesArray,  ...Array.from(e.target.files)]; updateJdFilesList();  e.target.value = ''; }
-        function handlePdfFileSelect(e) { pdfFilesArray = [...pdfFilesArray, ...Array.from(e.target.files)]; updatePdfFilesList(); e.target.value = ''; }
+        function handleJdFileSelect(e)  {
+            jdFilesArray = [...jdFilesArray, ...Array.from(e.target.files)];
+            updateJdFilesList();
+            if (jdFilesArray.length > 0) clearUploadError('jdError', 'jdUploadBtn');
+            e.target.value = '';
+        }
+        function handlePdfFileSelect(e) {
+            pdfFilesArray = [...pdfFilesArray, ...Array.from(e.target.files)];
+            updatePdfFilesList();
+            if (pdfFilesArray.length > 0) clearUploadError('pdfError', 'pdfUploadBtn');
+            e.target.value = '';
+        }
 
         function buildFileItem(file, index, removeFn) {
             const el = document.createElement('div');
@@ -231,18 +249,34 @@
             return el;
         }
 
-        function updateFilesList(arr, containerId, counterId, removeFn) {
-            const container = document.getElementById(containerId), counter = document.getElementById(counterId);
-            if (!container || !counter) return;
+        function updateFilesList(arr, containerId, removeFn) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
             container.innerHTML = '';
-            counter.textContent = `${arr.length} file${arr.length !== 1 ? 's' : ''} selected`;
-            counter.className   = `text-sm font-medium ${arr.length > 0 ? 'text-indigo-600' : 'text-gray-500'}`;
             arr.forEach((file, i) => container.appendChild(buildFileItem(file, i, removeFn)));
         }
 
-        function updateCvFilesList()  { updateFilesList(cvFilesArray,  'cvFilesList',  'cvFilesCounter',  'removeCvFile'); }
-        function updateJdFilesList()  { updateFilesList(jdFilesArray,  'jdFilesList',  'jdFilesCounter',  'removeJdFile'); }
-        function updatePdfFilesList() { updateFilesList(pdfFilesArray, 'pdfFilesList', 'pdfFilesCounter', 'removePdfFile'); }
+        function toggleUploadIcon(uploadIconId, plusIconId, count) {
+            const up = document.getElementById(uploadIconId), pl = document.getElementById(plusIconId);
+            if (!up || !pl) return;
+            if (count > 0) { up.classList.add('hidden'); pl.classList.remove('hidden'); }
+            else           { up.classList.remove('hidden'); pl.classList.add('hidden'); }
+        }
+
+        function updateCvFilesList()  {
+            updateFilesList(cvFilesArray,  'cvFilesList',  'removeCvFile');
+            toggleUploadIcon('cvUploadIcon', 'cvPlusIcon', cvFilesArray.length);
+            toggleUploadIcon('sbCvUploadIcon', 'sbCvPlusIcon', cvFilesArray.length);
+        }
+        function updateJdFilesList()  {
+            updateFilesList(jdFilesArray,  'jdFilesList',  'removeJdFile');
+            toggleUploadIcon('jdUploadIcon', 'jdPlusIcon', jdFilesArray.length);
+            toggleUploadIcon('sbJdUploadIcon', 'sbJdPlusIcon', jdFilesArray.length);
+        }
+        function updatePdfFilesList() {
+            updateFilesList(pdfFilesArray, 'pdfFilesList', 'removePdfFile');
+            toggleUploadIcon('pdfUploadIcon', 'pdfPlusIcon', pdfFilesArray.length);
+        }
 
         function removeCvFile(i) {
             cvFilesArray.splice(i, 1); updateCvFilesList();
@@ -265,20 +299,30 @@
             const filePanel = document.getElementById('jdFilePanel');
             const btnUrl    = document.getElementById('jdBtnUrl');
             const btnFile   = document.getElementById('jdBtnFile');
+            const jdLabel   = document.getElementById('jdLabelText');
+            const jdUploadBtn = document.getElementById('jdUploadBtn');
             // Main form
             if (urlPanel)  urlPanel.classList.toggle('hidden',  mode !== 'url');
             if (filePanel) filePanel.classList.toggle('hidden', mode !== 'file');
             if (btnUrl)  { btnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  btnUrl.classList.toggle('text-white', mode === 'url');  btnUrl.classList.toggle('text-gray-500', mode !== 'url');  btnUrl.classList.toggle('bg-white', mode !== 'url'); }
             if (btnFile) { btnFile.classList.toggle('bg-indigo-500', mode === 'file'); btnFile.classList.toggle('text-white', mode === 'file'); btnFile.classList.toggle('text-gray-500', mode !== 'file'); btnFile.classList.toggle('bg-white', mode !== 'file'); }
+            // Update label
+            if (jdLabel) jdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
+            // Show/hide upload btn
+            if (jdUploadBtn) jdUploadBtn.classList.toggle('hidden', mode !== 'file');
             // Sidebar mirrors
             const sbUrlPanel  = document.getElementById('sbJdUrlPanel');
             const sbFilePanel = document.getElementById('sbJdFilePanel');
             const sbBtnUrl    = document.getElementById('sbJdBtnUrl');
             const sbBtnFile   = document.getElementById('sbJdBtnFile');
+            const sbJdLabel   = document.getElementById('sbJdLabelText');
+            const sbJdUploadBtn = document.getElementById('sbJdUploadBtn');
             if (sbUrlPanel)  sbUrlPanel.classList.toggle('hidden',  mode !== 'url');
             if (sbFilePanel) sbFilePanel.classList.toggle('hidden', mode !== 'file');
             if (sbBtnUrl)  { sbBtnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  sbBtnUrl.classList.toggle('text-white', mode === 'url');  sbBtnUrl.classList.toggle('text-gray-500', mode !== 'url');  sbBtnUrl.classList.toggle('bg-white', mode !== 'url'); }
             if (sbBtnFile) { sbBtnFile.classList.toggle('bg-indigo-500', mode === 'file'); sbBtnFile.classList.toggle('text-white', mode === 'file'); sbBtnFile.classList.toggle('text-gray-500', mode !== 'file'); sbBtnFile.classList.toggle('bg-white', mode !== 'file'); }
+            if (sbJdLabel) sbJdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
+            if (sbJdUploadBtn) sbJdUploadBtn.classList.toggle('hidden', mode !== 'file');
             // Sync URL value
             const urlVal = document.getElementById('jdUrlInput')?.value || document.getElementById('sbJdUrlInput')?.value || '';
             jdUrl = urlVal.trim();
@@ -352,7 +396,11 @@
 
         let mergedPdf = null;
         async function mergePdfs() {
-            if (pdfFilesArray.length < 2) { showMessage('error', 'Please select at least two PDF files to merge.'); return; }
+            if (pdfFilesArray.length < 2) {
+                setUploadError('pdfError', 'pdfUploadBtn', 'Please select at least two PDF files to merge');
+                return;
+            }
+            clearUploadError('pdfError', 'pdfUploadBtn');
             const cost = 3;
             if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); return; }
             showLoadingOverlay('Merging PDFs...');
@@ -805,6 +853,46 @@
             finally { hideLoadingOverlay(); }
         }
 
+        // ── Inline Field Error Helpers ────────────────────────────────────────
+        function setFieldError(fieldId, message) {
+            const el = document.getElementById(fieldId);
+            if (!el) return;
+            el.classList.add('border-red-400');
+            el.classList.remove('border-gray-300');
+            let errEl = document.getElementById(fieldId + '-err');
+            if (!errEl) {
+                errEl = document.createElement('p');
+                errEl.id = fieldId + '-err';
+                errEl.className = 'text-xs text-red-500 mb-1';
+                el.parentNode.insertBefore(errEl, el);
+            }
+            errEl.textContent = message;
+            errEl.classList.remove('hidden');
+        }
+        function clearFieldError(fieldId) {
+            const el = document.getElementById(fieldId);
+            if (el) { el.classList.remove('border-red-400'); el.classList.add('border-gray-300'); }
+            const errEl = document.getElementById(fieldId + '-err');
+            if (errEl) errEl.classList.add('hidden');
+        }
+        function setUploadError(errorDivId, btnId, message) {
+            const errEl = document.getElementById(errorDivId);
+            const btn   = document.getElementById(btnId);
+            if (errEl) { errEl.textContent = message; errEl.classList.remove('hidden'); }
+            if (btn)   { btn.classList.add('border-red-400'); btn.classList.remove('border-gray-300'); }
+        }
+        function clearUploadError(errorDivId, btnId) {
+            const errEl = document.getElementById(errorDivId);
+            const btn   = document.getElementById(btnId);
+            if (errEl) errEl.classList.add('hidden');
+            if (btn)   { btn.classList.remove('border-red-400'); btn.classList.add('border-gray-300'); }
+        }
+        function clearAllErrors() {
+            ['fullName','phone','email','address','appDate','targetPosition'].forEach(clearFieldError);
+            clearUploadError('cvError', 'cvUploadBtn');
+            clearUploadError('jdError', 'jdUploadBtn');
+        }
+
         // ── Main Generate Letter ──────────────────────────────────────────────
         async function generateLetter() {
             const fullName       = document.getElementById('fullName').value;
@@ -813,10 +901,38 @@
             const address        = document.getElementById('address').value;
             const appDate        = document.getElementById('appDate').value;
             const targetPosition = (document.getElementById('targetPosition')?.value || '').trim();
-            if (!fullName || !phone || !email || !address || !appDate) { showMessage('error', 'Please fill all personal fields.'); return; }
-            if (!targetPosition) { showMessage('error', 'Please enter the Position you are applying for.'); return; }
-            if (jdInputMode === 'url') { jdUrl = (document.getElementById('jdUrlInput')?.value || '').trim(); if (!jdUrl) { showMessage('error', 'Please enter the Job Description URL.'); return; } }
-            if (jdInputMode === 'file' && jdFilesArray.length === 0) { showMessage('error', 'Please upload at least one Job Description file.'); return; }
+
+            // Clear previous errors
+            clearAllErrors();
+
+            let hasError = false;
+            if (!fullName)       { setFieldError('fullName', 'Full name is required'); hasError = true; }
+            if (!phone)          { setFieldError('phone', 'Phone number is required'); hasError = true; }
+            if (!email)          { setFieldError('email', 'Email is required'); hasError = true; }
+            if (!address)        { setFieldError('address', 'Address is required'); hasError = true; }
+            if (!appDate)        { setFieldError('appDate', 'Date of application is required'); hasError = true; }
+            if (!targetPosition) { setFieldError('targetPosition', 'Position is required'); hasError = true; }
+
+            if (jdInputMode === 'url') {
+                jdUrl = (document.getElementById('jdUrlInput')?.value || '').trim();
+                if (!jdUrl) {
+                    const jdUrlInput = document.getElementById('jdUrlInput');
+                    if (jdUrlInput) { jdUrlInput.classList.add('border-red-400'); jdUrlInput.classList.remove('border-gray-300'); }
+                    setUploadError('jdError', null, 'Job Description URL is required');
+                    hasError = true;
+                }
+            }
+            if (jdInputMode === 'file' && jdFilesArray.length === 0) {
+                setUploadError('jdError', 'jdUploadBtn', 'Please upload at least one Job Description file');
+                hasError = true;
+            }
+
+            if (!usingStoredCv && cvFilesArray.length === 0) {
+                setUploadError('cvError', 'cvUploadBtn', 'Please upload your CV');
+                hasError = true;
+            }
+
+            if (hasError) return;
             if (userBalance < 15) { showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.'); return; }
 
             lastGeneratedFirstName = fullName.split(' ')[0] || 'Letter';
@@ -1150,21 +1266,44 @@
         <input type="tel"   id="sb-phone"    placeholder="Phone Number" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <input type="email" id="sb-email"    placeholder="Email"        class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <input type="text"  id="sb-address"  placeholder="Address"      class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
-        <input type="date"  id="sb-appDate"                             class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input type="date"  id="sb-appDate" placeholder="Date of application submission" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <input type="text" id="sb-targetPosition" placeholder="Position (e.g. Software Engineer)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400">
         <div>
-            <p class="text-xs font-medium text-gray-500 mb-1">CV File</p>
-            <input type="file" id="sbCvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
-                class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
-                onchange="handleCvFileSelect(event)">
+            <div class="flex items-center justify-between mb-1">
+                <p class="text-xs font-medium text-gray-500">CV File</p>
+                <button type="button" id="sbCvUploadBtn" onclick="document.getElementById('sbCvFile').click()"
+                    class="p-1 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload CV">
+                    <svg id="sbCvUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                    </svg>
+                    <svg id="sbCvPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                    </svg>
+                </button>
+                <input type="file" id="sbCvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
+                    class="hidden" onchange="handleCvFileSelect(event)">
+            </div>
         </div>
         <!-- Job Description toggle in sidebar -->
         <div>
             <div class="flex items-center justify-between mb-1">
-                <p class="text-xs font-medium text-gray-500">Job Description</p>
-                <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
-                    <button id="sbJdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500 text-white transition-all">🔗</button>
-                    <button id="sbJdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full text-gray-500 bg-white transition-all">📄</button>
+                <p id="sbJdLabelText" class="text-xs font-medium text-gray-500">Job Description (Link)</p>
+                <div class="flex items-center gap-1.5">
+                    <button type="button" id="sbJdUploadBtn" onclick="document.getElementById('sbJdFile').click()"
+                        class="hidden p-1 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload JD file">
+                        <svg id="sbJdUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                        </svg>
+                        <svg id="sbJdPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                        </svg>
+                    </button>
+                    <input type="file" id="sbJdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        class="hidden" onchange="handleJdFileSelect(event)">
+                    <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+                        <button id="sbJdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500 text-white transition-all">🔗</button>
+                        <button id="sbJdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-0.5 text-xs font-semibold px-2.5 py-0.5 rounded-full text-gray-500 bg-white transition-all">📄</button>
+                    </div>
                 </div>
             </div>
             <div id="sbJdUrlPanel">
@@ -1173,9 +1312,6 @@
                     oninput="jdUrl=this.value.trim(); document.getElementById('jdUrlInput').value=this.value;">
             </div>
             <div id="sbJdFilePanel" class="hidden">
-                <input type="file" id="sbJdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    class="w-full text-xs text-transparent file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition"
-                    onchange="handleJdFileSelect(event)">
             </div>
         </div>
     </div>
@@ -1224,7 +1360,23 @@
             <div class="p-4 bg-gray-50 rounded-lg shadow-inner">
                 <h2 class="text-xl font-semibold mb-4 text-center">PDF Merger</h2>
                 <div class="space-y-4">
-                    <div class="file-input-container"><label class="block"><span class="text-sm font-medium text-gray-700">Upload PDFs in order:</span><div class="file-input-wrapper mt-1"><input type="file" id="pdfInput" multiple accept="application/pdf" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150"><span id="pdfFilesCounter" class="file-count-display">0 files selected</span></div></label><div id="pdfFilesList" class="max-h-32 overflow-y-auto"></div></div>
+                    <div class="file-input-container">
+                        <div id="pdfError" class="hidden text-xs text-red-500 mb-1"></div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-sm font-bold text-gray-700">Upload PDFs in order</span>
+                            <button type="button" id="pdfUploadBtn" onclick="document.getElementById('pdfInput').click()"
+                                class="p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload PDF">
+                                <svg id="pdfUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                                </svg>
+                                <svg id="pdfPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                            </button>
+                            <input type="file" id="pdfInput" multiple accept="application/pdf" class="hidden">
+                        </div>
+                        <div id="pdfFilesList" class="max-h-32 overflow-y-auto"></div>
+                    </div>
                     <button id="mergePdfBtn"     class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Merge PDFs</button>
                     <button id="downloadPdfBtn"  class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hidden hover:bg-emerald-600 transition-colors shadow-md">Download Merged PDF</button>
                 </div>
@@ -1256,13 +1408,28 @@
                         <input type="tel"   id="phone"    placeholder="Phone Number"  class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="email" id="email"    placeholder="Email"         class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text"  id="address"  placeholder="Address"       class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <input type="date"  id="appDate"                              class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="date"  id="appDate" placeholder="Date of application submission" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <input type="text"  id="targetPosition" placeholder="Position you are applying for (e.g. Software Engineer)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
 
                         <!-- CV Section -->
-                        <div class="file-input-container">
+                        <div class="file-input-container" id="cvSectionWrapper">
+                            <div id="cvError" class="hidden text-xs text-red-500 mb-1"></div>
                             <label class="block">
-                                <span class="text-sm font-medium text-gray-700">Your CV (Image, Word or PDF — all converted &amp; stored for merging)</span>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm font-bold text-gray-700">Upload Your CV (Image, Word or PDF)</span>
+                                    <button type="button" id="cvUploadBtn" onclick="document.getElementById('cvFile').click()"
+                                        class="ml-2 p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload CV">
+                                        <!-- upload icon (default) -->
+                                        <svg id="cvUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                                        </svg>
+                                        <!-- plus icon (shown after first upload) -->
+                                        <svg id="cvPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                        </svg>
+                                    </button>
+                                    <input type="file" id="cvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="hidden">
+                                </div>
                                 <div id="cvStoredBadgeContainer" class="hidden mt-1">
                                     <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
                                         <div class="flex items-center gap-2">
@@ -1273,22 +1440,32 @@
                                     </div>
                                 </div>
                                 <div id="cvFileInputContainer">
-                                    <div class="file-input-wrapper mt-1">
-                                        <input type="file" id="cvFile" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                        <span id="cvFilesCounter" class="file-count-display">0 files selected</span>
-                                    </div>
                                     <div id="cvFilesList" class="max-h-32 overflow-y-auto mt-2"></div>
                                 </div>
                             </label>
                         </div>
 
                         <!-- Job Description with Link/File toggle -->
-                        <div>
+                        <div id="jdSectionWrapper">
+                            <div id="jdError" class="hidden text-xs text-red-500 mb-1"></div>
                             <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-sm font-medium text-gray-700">Job Description</span>
-                                <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
-                                    <button id="jdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500 text-white transition-all">🔗 Link</button>
-                                    <button id="jdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full text-gray-500 bg-white transition-all">📄 File</button>
+                                <span id="jdLabelText" class="text-sm font-bold text-gray-700">Job Description (Link)</span>
+                                <div class="flex items-center gap-2">
+                                    <!-- upload icon shown in file mode -->
+                                    <button type="button" id="jdUploadBtn" onclick="document.getElementById('jdFile').click()"
+                                        class="hidden p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload JD file">
+                                        <svg id="jdUploadIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                                        </svg>
+                                        <svg id="jdPlusIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                        </svg>
+                                    </button>
+                                    <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="hidden">
+                                    <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+                                        <button id="jdBtnUrl"  onclick="switchJdInputMode('url')"  class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500 text-white transition-all">🔗 Link</button>
+                                        <button id="jdBtnFile" onclick="switchJdInputMode('file')" class="flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full text-gray-500 bg-white transition-all">📄 File</button>
+                                    </div>
                                 </div>
                             </div>
                             <!-- URL panel (default) -->
@@ -1296,14 +1473,9 @@
                                 <input type="url" id="jdUrlInput" placeholder="Paste job posting URL (e.g. https://jobs.example.com/...)"
                                     class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                                     oninput="jdUrl=this.value.trim()">
-                                <p class="text-xs text-gray-400 mt-1">The page will be fetched and only the content for the specified position will be used.</p>
                             </div>
                             <!-- File panel (hidden by default) -->
                             <div id="jdFilePanel" class="hidden">
-                                <div class="file-input-wrapper mt-1">
-                                    <input type="file" id="jdFile" multiple accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="w-full text-sm text-transparent file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
-                                    <span id="jdFilesCounter" class="file-count-display">0 files selected</span>
-                                </div>
                                 <div id="jdFilesList" class="max-h-32 overflow-y-auto mt-1"></div>
                             </div>
                         </div>
