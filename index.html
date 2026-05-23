@@ -792,30 +792,224 @@
         }
 
         // ── Edit popup ────────────────────────────────────────────────────────
-        function openEditPopup()  { document.getElementById('editLetterTA').value = lastGeneratedLetterText || ''; document.getElementById('editLetterPopup').classList.remove('hidden'); }
-        function closeEditPopup() { document.getElementById('editLetterPopup').classList.add('hidden'); }
-        function downloadEditedLetter() { downloadLetterAsPdf(document.getElementById('editLetterTA').value); }
-        async function mergeEditedWithCv() { await mergeLetterTextWithCv(document.getElementById('editLetterTA').value); closeEditPopup(); }
+        // ── Rich Text Editor ──────────────────────────────────────────────────
+        // State stored as HTML in lastGeneratedLetterHtml; plain text in lastGeneratedLetterText
+        let lastGeneratedLetterHtml = null;
+
+        function textToHtmlWithLinks(text, phone, email) {
+            // Escape HTML, then auto-link phone and email
+            const escaped = text
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let html = escaped;
+            // Auto-link email
+            if (email) {
+                const safeEmail = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                html = html.replace(new RegExp(safeEmail, 'g'),
+                    `<a href="mailto:${email}">${email}</a>`);
+            }
+            // Auto-link phone (match stored phone and common digit formats)
+            if (phone) {
+                const safePhone = phone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                html = html.replace(new RegExp(safePhone, 'g'),
+                    `<a href="tel:${phone}">${phone}</a>`);
+            }
+            // Convert newlines to <br>
+            return html.replace(/\n/g, '<br>');
+        }
+
+        function editorHtmlToPlainText(html) {
+            // Convert <br> to newlines, strip tags
+            return html
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/p>/gi, '\n')
+                .replace(/<\/div>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                .replace(/&nbsp;/g, ' ');
+        }
+
+        function openEditPopup() {
+            const div = document.getElementById('editLetterDiv');
+            if (lastGeneratedLetterHtml) {
+                div.innerHTML = lastGeneratedLetterHtml;
+            } else {
+                const phone = document.getElementById('phone')?.value || '';
+                const email = document.getElementById('email')?.value || '';
+                div.innerHTML = textToHtmlWithLinks(lastGeneratedLetterText || '', phone, email);
+                lastGeneratedLetterHtml = div.innerHTML;
+            }
+            document.getElementById('editLetterPopup').classList.remove('hidden');
+            div.focus();
+        }
+
+        function closeEditPopup() {
+            document.getElementById('editLetterPopup').classList.add('hidden');
+        }
+
+        function onEditorInput() {
+            const div = document.getElementById('editLetterDiv');
+            lastGeneratedLetterHtml = div.innerHTML;
+            lastGeneratedLetterText = editorHtmlToPlainText(div.innerHTML);
+        }
+
+        function editorCmd(cmd) {
+            document.getElementById('editLetterDiv').focus();
+            document.execCommand(cmd, false, null);
+            updateToolbarState();
+        }
+
+        function editorFontSize(size) {
+            document.getElementById('editLetterDiv').focus();
+            document.execCommand('fontSize', false, size);
+            updateToolbarState();
+        }
+
+        function updateToolbarState() {
+            document.getElementById('tbBold').classList.toggle('active', document.queryCommandState('bold'));
+            document.getElementById('tbItalic').classList.toggle('active', document.queryCommandState('italic'));
+            document.getElementById('tbAlignL').classList.toggle('active', document.queryCommandState('justifyLeft'));
+            document.getElementById('tbAlignC').classList.toggle('active', document.queryCommandState('justifyCenter'));
+            document.getElementById('tbAlignR').classList.toggle('active', document.queryCommandState('justifyRight'));
+        }
+
+        document.addEventListener('selectionchange', () => {
+            if (!document.getElementById('editLetterPopup')?.classList.contains('hidden')) updateToolbarState();
+        });
+
+        function downloadEditedLetter() { downloadLetterAsPdf(); }
+        async function mergeEditedWithCv() { await mergeLetterTextWithCv(); closeEditPopup(); }
 
         // ── Letter utilities ─────────────────────────────────────────────────
-        function downloadLetterAsPdf(letterText) {
-            if (!letterText) { showMessage('error', 'No letter to download.'); return; }
+        // Render the rich HTML editor content (or plain text) to a jsPDF document
+        // with clickable tel: / mailto: links for phone and email.
+        function renderHtmlToPdf(doc, html, mL, mR, mT, mB) {
+            const pageW = doc.internal.pageSize.getWidth();
+            const pageH = doc.internal.pageSize.getHeight();
+            const maxW  = pageW - mL - mR;
+
+            // Parse the HTML into a flat list of segments: {text, bold, italic, align, href}
+            const segments = parseHtmlSegments(html);
+
+            // Group segments into lines respecting alignment
+            let y = mT;
+            let lineSegs = [];
+            let currentAlign = 'left';
+
+            const flushLine = (align) => {
+                if (lineSegs.length === 0) { y += 15; return; }
+                renderPdfLine(doc, lineSegs, mL, y, maxW, align || currentAlign);
+                y += 15;
+                if (y > pageH - mB) { doc.addPage(); y = mT; }
+                lineSegs = [];
+            };
+
+            for (const seg of segments) {
+                if (seg.type === 'br') { flushLine(currentAlign); continue; }
+                if (seg.align) currentAlign = seg.align;
+                lineSegs.push(seg);
+            }
+            flushLine(currentAlign);
+            return y;
+        }
+
+        function parseHtmlSegments(html) {
+            // Use a DOM parser for accurate traversal
+            const parser = new DOMParser();
+            const doc2 = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+            const root = doc2.body.firstChild;
+            const segments = [];
+            traverseNode(root, { bold: false, italic: false, href: null, align: null }, segments);
+            return segments;
+        }
+
+        function traverseNode(node, style, segments) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node.textContent;
+                if (text) segments.push({ type: 'text', text, ...style });
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+            const tag = node.tagName.toLowerCase();
+            let newStyle = { ...style };
+
+            if (tag === 'br') { segments.push({ type: 'br' }); return; }
+            if (tag === 'b' || tag === 'strong') newStyle.bold = true;
+            if (tag === 'i' || tag === 'em')     newStyle.italic = true;
+            if (tag === 'a') newStyle.href = node.getAttribute('href') || null;
+
+            // Detect alignment from style
+            const styleAttr = node.getAttribute('style') || '';
+            if (styleAttr.includes('center')) newStyle.align = 'center';
+            else if (styleAttr.includes('right')) newStyle.align = 'right';
+            else if (styleAttr.includes('left')) newStyle.align = 'left';
+
+            // Block elements add a break after
+            const isBlock = ['p','div','h1','h2','h3','h4','h5','h6','li'].includes(tag);
+
+            for (const child of node.childNodes) traverseNode(child, newStyle, segments);
+            if (isBlock) segments.push({ type: 'br' });
+        }
+
+        function renderPdfLine(doc, segs, mL, y, maxW, align) {
+            if (!segs.length) return;
+            const pageW = doc.internal.pageSize.getWidth();
+
+            // Measure total width
+            let totalW = 0;
+            const measured = segs.map(s => {
+                const fontStyle = s.bold && s.italic ? 'bolditalic' : s.bold ? 'bold' : s.italic ? 'italic' : 'normal';
+                doc.setFont('times', fontStyle);
+                doc.setFontSize(11);
+                const w = doc.getTextWidth(s.text);
+                totalW += w;
+                return { ...s, w, fontStyle };
+            });
+
+            let x = mL;
+            if (align === 'center') x = (pageW - totalW) / 2;
+            else if (align === 'right') x = pageW - mL - totalW;
+
+            for (const seg of measured) {
+                doc.setFont('times', seg.fontStyle);
+                doc.setFontSize(11);
+                if (seg.href) {
+                    doc.setTextColor(67, 56, 202); // indigo
+                    doc.textWithLink(seg.text, x, y, { url: seg.href });
+                } else {
+                    doc.setTextColor(30, 30, 30);
+                    doc.text(seg.text, x, y);
+                }
+                x += seg.w;
+            }
+        }
+
+        function buildLetterPdfDoc() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-            const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-            const mL = 72, mR = 72, mT = 72, mB = 72, lineH = 15;
-            doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
-            let y = mT;
-            letterText.split('\n').forEach(rawLine => {
-                const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR);
-                wrapped.forEach(line => { if (y + lineH > pageH - mB) { doc.addPage(); y = mT; } doc.text(line, mL, y); y += lineH; });
-            });
+            const mL = 72, mR = 72, mT = 72, mB = 72;
+
+            if (lastGeneratedLetterHtml) {
+                renderHtmlToPdf(doc, lastGeneratedLetterHtml, mL, mR, mT, mB);
+            } else if (lastGeneratedLetterText) {
+                // Fallback: plain text with auto-links
+                const phone = document.getElementById('phone')?.value || '';
+                const email = document.getElementById('email')?.value || '';
+                const html  = textToHtmlWithLinks(lastGeneratedLetterText, phone, email);
+                renderHtmlToPdf(doc, html, mL, mR, mT, mB);
+            }
+            return doc;
+        }
+
+        function downloadLetterAsPdf() {
+            if (!lastGeneratedLetterText && !lastGeneratedLetterHtml) { showMessage('error', 'No letter to download.'); return; }
+            const doc = buildLetterPdfDoc();
             doc.save(lastGeneratedFirstName ? `${lastGeneratedFirstName}_Letter.pdf` : 'Letter.pdf');
             showMessage('success', 'Letter downloaded!');
         }
 
-        async function mergeLetterTextWithCv(letterText) {
-            if (!letterText) { showMessage('error', 'No letter to merge.'); return; }
+        async function mergeLetterTextWithCv() {
+            if (!lastGeneratedLetterText && !lastGeneratedLetterHtml) { showMessage('error', 'No letter to merge.'); return; }
             let cvPdfSources = [];
             if (cvFilesArray.length > 0) {
                 showLoadingOverlay('Converting CV to PDF…');
@@ -829,14 +1023,9 @@
             if (cvPdfSources.length === 0) { showMessage('error', 'No CV found. Please upload a CV file first.'); return; }
             showLoadingOverlay('Merging letter with CV...');
             try {
-                const { jsPDF } = window.jspdf, { PDFDocument } = window.PDFLib;
-                const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-                const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-                const mL = 72, mR = 72, mT = 72, mB = 72, lineH = 15;
-                doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
-                let y = mT;
-                letterText.split('\n').forEach(rawLine => { const wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR); wrapped.forEach(line => { if (y + lineH > pageH - mB) { doc.addPage(); y = mT; } doc.text(line, mL, y); y += lineH; }); });
-                const letterPdfBytes = doc.output('arraybuffer');
+                const { PDFDocument } = window.PDFLib;
+                const letterDoc = buildLetterPdfDoc();
+                const letterPdfBytes = letterDoc.output('arraybuffer');
                 const mergedPdfDoc = await PDFDocument.create();
                 const letterPdfDoc = await PDFDocument.load(letterPdfBytes);
                 const letterPages  = await mergedPdfDoc.copyPages(letterPdfDoc, letterPdfDoc.getPageIndices());
@@ -1054,6 +1243,7 @@
                 if (!letterText) throw new Error('Could not generate letter. Please try again.');
                 if (generationStopped) return;
                 lastGeneratedLetterText = letterText;
+                lastGeneratedLetterHtml = null; // will be built fresh on first edit open
                 await updateBalance(-15);
 
                 // Done — step 3, then complete all
@@ -1138,6 +1328,11 @@
         .letter-action-btn    { display:inline-flex; align-items:center; gap:5px; padding:7px 14px; border-radius:999px; font-size:0.78rem; font-weight:600; border:none; cursor:pointer; transition:background 0.18s, transform 0.1s; }
         .letter-action-btn:hover  { transform:translateY(-1px); }
         .letter-action-btn:active { transform:scale(0.97); }
+        .toolbar-btn { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; border:none; background:transparent; cursor:pointer; color:#374151; transition:background 0.15s, color 0.15s; flex-shrink:0; }
+        .toolbar-btn:hover  { background:#e0e7ff; color:#4338ca; }
+        .toolbar-btn.active { background:#4f46e5; color:#fff; }
+        #editLetterDiv a { color:#4338ca; text-decoration:underline; }
+        #editLetterDiv:focus { outline:none; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -1195,13 +1390,59 @@
 <!-- Edit Letter Popup -->
 <div id="editLetterPopup" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <!-- Header -->
         <div class="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
             <span class="font-semibold text-gray-700 text-sm">Edit Letter</span>
             <button onclick="closeEditPopup()" class="text-gray-400 hover:text-gray-600 text-xl leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
         </div>
-        <div class="flex-1 overflow-hidden p-4">
-            <textarea id="editLetterTA" class="w-full h-full min-h-[300px] p-3 text-sm border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono leading-relaxed"></textarea>
+        <!-- Toolbar -->
+        <div id="editorToolbar" class="flex flex-wrap items-center gap-1 px-4 py-2 border-b border-gray-100 bg-gray-50">
+            <!-- Undo / Redo -->
+            <button onclick="editorCmd('undo')" title="Undo" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6-6M3 10l6 6"/></svg>
+            </button>
+            <button onclick="editorCmd('redo')" title="Redo" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 10H11a8 8 0 00-8 8v2m18-10l-6-6m6 6l-6 6"/></svg>
+            </button>
+            <div class="w-px h-5 bg-gray-300 mx-1"></div>
+            <!-- Bold / Italic -->
+            <button onclick="editorCmd('bold')" title="Bold" id="tbBold" class="toolbar-btn font-bold text-sm">B</button>
+            <button onclick="editorCmd('italic')" title="Italic" id="tbItalic" class="toolbar-btn italic text-sm">I</button>
+            <div class="w-px h-5 bg-gray-300 mx-1"></div>
+            <!-- Font Size -->
+            <select id="tbFontSize" onchange="editorFontSize(this.value)" title="Font size"
+                class="text-xs border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer">
+                <option value="1">8pt</option>
+                <option value="2">10pt</option>
+                <option value="3" selected>12pt</option>
+                <option value="4">14pt</option>
+                <option value="5">18pt</option>
+                <option value="6">24pt</option>
+                <option value="7">36pt</option>
+            </select>
+            <div class="w-px h-5 bg-gray-300 mx-1"></div>
+            <!-- Alignment -->
+            <button onclick="editorCmd('justifyLeft')"   title="Align left"    id="tbAlignL" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M3 12h12M3 18h18"/></svg>
+            </button>
+            <button onclick="editorCmd('justifyCenter')" title="Align center"  id="tbAlignC" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M6 12h12M3 18h18"/></svg>
+            </button>
+            <button onclick="editorCmd('justifyRight')"  title="Align right"   id="tbAlignR" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M9 12h12M3 18h18"/></svg>
+            </button>
         </div>
+        <!-- Editable content -->
+        <div class="flex-1 overflow-y-auto p-4">
+            <div id="editLetterDiv"
+                contenteditable="true"
+                spellcheck="true"
+                class="w-full min-h-[300px] p-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 leading-relaxed font-[Times_New_Roman,serif] whitespace-pre-wrap"
+                style="font-family:'Times New Roman',Times,serif; font-size:12pt; line-height:1.6;"
+                oninput="onEditorInput()"
+            ></div>
+        </div>
+        <!-- Footer buttons -->
         <div class="flex gap-3 px-5 pb-5 pt-2">
             <button onclick="mergeEditedWithCv()" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600 flex-1 justify-center">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1529,7 +1770,7 @@
                                 </div>
                             </div>
                             <div class="flex gap-2 flex-wrap">
-                                <button onclick="downloadLetterAsPdf(lastGeneratedLetterText)" class="letter-action-btn bg-indigo-500 text-white hover:bg-indigo-600">
+                                <button onclick="downloadLetterAsPdf()" class="letter-action-btn bg-indigo-500 text-white hover:bg-indigo-600">
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                     Download
                                 </button>
@@ -1537,7 +1778,7 @@
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                     Edit
                                 </button>
-                                <button onclick="mergeLetterTextWithCv(lastGeneratedLetterText)" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600">
+                                <button onclick="mergeLetterTextWithCv()" class="letter-action-btn bg-amber-500 text-white hover:bg-amber-600">
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                                     Merge with CV
                                 </button>
