@@ -807,14 +807,17 @@
                 html = html.replace(new RegExp(safeEmail, 'g'),
                     `<a href="mailto:${email}">${email}</a>`);
             }
-            // Auto-link phone (match stored phone and common digit formats)
+            // Auto-link phone
             if (phone) {
                 const safePhone = phone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 html = html.replace(new RegExp(safePhone, 'g'),
                     `<a href="tel:${phone}">${phone}</a>`);
             }
-            // Convert newlines to <br>
-            return html.replace(/\n/g, '<br>');
+            // FIX: Convert to block divs — one per line — so alignment is scoped
+            // per paragraph and long lines wrap within the page width
+            return html.split(/\n/).map(line =>
+                `<div style="text-align:left;">${line === '' ? '<br>' : line}</div>`
+            ).join('');
         }
 
         function editorHtmlToPlainText(html) {
@@ -908,12 +911,57 @@
             if (btn) btn.querySelector('span').textContent = label;
         }
 
+        // Map browser fontSize (1-7) and computed px to pt labels
+        const _fontSizeMap = {'1':'8pt','2':'10pt','3':'12pt','4':'14pt','5':'18pt','6':'24pt','7':'36pt'};
+        // execCommand fontSize maps: 1=8,2=10,3=12,4=14,5=18,6=24,7=36 (in px on screen)
+        const _pxToPt = {'8':'8pt','10':'10pt','13':'12pt','16':'14pt','24':'18pt','32':'24pt','48':'36pt'};
+
         function updateToolbarState() {
             document.getElementById('tbBold').classList.toggle('active', document.queryCommandState('bold'));
             document.getElementById('tbItalic').classList.toggle('active', document.queryCommandState('italic'));
             document.getElementById('tbAlignL').classList.toggle('active', document.queryCommandState('justifyLeft'));
             document.getElementById('tbAlignC').classList.toggle('active', document.queryCommandState('justifyCenter'));
             document.getElementById('tbAlignR').classList.toggle('active', document.queryCommandState('justifyRight'));
+
+            // FIX 4: Read actual font size at current cursor position
+            try {
+                const sizeVal = document.queryCommandValue('fontSize'); // returns '1'-'7' or ''
+                const sizeBtn = document.getElementById('tbFontSizeBtn');
+                if (sizeBtn) {
+                    let label = '';
+                    if (sizeVal && _fontSizeMap[sizeVal]) {
+                        label = _fontSizeMap[sizeVal];
+                    } else {
+                        // Fallback: read computed style of the element at cursor
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {
+                            let node = sel.getRangeAt(0).startContainer;
+                            if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+                            const computed = window.getComputedStyle(node);
+                            const pxStr = computed.fontSize; // e.g. "13.3333px"
+                            const px = Math.round(parseFloat(pxStr));
+                            label = _pxToPt[String(px)] || (Math.round(px * 0.75) + 'pt');
+                        }
+                    }
+                    if (label) sizeBtn.querySelector('span').textContent = label;
+                }
+            } catch(e) {}
+
+            // FIX 4: Read actual font family at cursor
+            try {
+                const fontBtn = document.getElementById('tbFontBtn');
+                if (fontBtn) {
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                        let node = sel.getRangeAt(0).startContainer;
+                        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+                        const ff = window.getComputedStyle(node).fontFamily;
+                        // Clean up CSS font-family string (strip quotes, take first)
+                        const first = ff.split(',')[0].replace(/['"]/g,'').trim();
+                        if (first) fontBtn.querySelector('span').textContent = first;
+                    }
+                }
+            } catch(e) {}
         }
 
         document.addEventListener('selectionchange', () => {
@@ -961,6 +1009,35 @@
         function downloadEditedLetter() { downloadLetterAsPdf(); }
         async function mergeEditedWithCv() { await mergeLetterTextWithCv(); closeEditPopup(); }
 
+        // FIX 1: Remove hyperlink — works on clicked link or selected text containing link
+        function removeLink() {
+            const div = document.getElementById('editLetterDiv');
+            div.focus();
+            // First try: if cursor is inside an <a>, select the whole link text then unlink
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                let node = sel.getRangeAt(0).startContainer;
+                if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+                // Walk up to find anchor
+                let anchor = null;
+                let el = node;
+                while (el && el !== div) {
+                    if (el.tagName && el.tagName.toLowerCase() === 'a') { anchor = el; break; }
+                    el = el.parentElement;
+                }
+                if (anchor) {
+                    // Select the entire link text
+                    const range = document.createRange();
+                    range.selectNodeContents(anchor);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+            }
+            document.execCommand('unlink', false, null);
+            onEditorInput();
+            updateToolbarState();
+        }
+
         // ── Letter utilities ─────────────────────────────────────────────────
         // Render the rich HTML editor content (or plain text) to a jsPDF document
         // with clickable tel: / mailto: links for phone and email.
@@ -968,74 +1045,137 @@
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
             const maxW  = pageW - mL - mR;
+            const lineH = 16;
 
-            // Parse the HTML into a flat list of segments: {text, bold, italic, align, href}
-            const segments = parseHtmlSegments(html);
-
-            // Group segments into lines respecting alignment
             let y = mT;
-            let lineSegs = [];
-            let currentAlign = 'left';
 
-            const flushLine = (align) => {
-                if (lineSegs.length === 0) { y += 15; return; }
-                renderPdfLine(doc, lineSegs, mL, y, maxW, align || currentAlign);
-                y += 15;
-                if (y > pageH - mB) { doc.addPage(); y = mT; }
-                lineSegs = [];
-            };
+            // Parse into blocks, each block has {align, segments[]}
+            const blocks = parseHtmlBlocks(html);
 
-            for (const seg of segments) {
-                if (seg.type === 'br') { flushLine(currentAlign); continue; }
-                if (seg.align) currentAlign = seg.align;
-                lineSegs.push(seg);
+            for (const block of blocks) {
+                const align = block.align || 'left';
+                // Word-wrap each block into PDF lines
+                const pdfLines = wrapBlockToPdfLines(doc, block.segments, maxW);
+                for (const lineSegs of pdfLines) {
+                    if (y > pageH - mB) { doc.addPage(); y = mT; }
+                    if (lineSegs.length === 0) { y += lineH; continue; }
+                    renderPdfLine(doc, lineSegs, mL, y, maxW, align, pageW);
+                    y += lineH;
+                }
             }
-            flushLine(currentAlign);
             return y;
         }
 
-        function parseHtmlSegments(html) {
-            // Use a DOM parser for accurate traversal
+        // Parse HTML into an array of blocks. Each block = one paragraph/div/line.
+        // Each block: { align: 'left'|'center'|'right', segments: [{text,bold,italic,href}] }
+        function parseHtmlBlocks(html) {
             const parser = new DOMParser();
-            const doc2 = parser.parseFromString(`<div>${html}</div>`, 'text/html');
-            const root = doc2.body.firstChild;
-            const segments = [];
-            traverseNode(root, { bold: false, italic: false, href: null, align: null }, segments);
-            return segments;
+            const doc2 = parser.parseFromString(`<body>${html}</body>`, 'text/html');
+            const root = doc2.body;
+            const blocks = [];
+            collectBlocks(root, blocks, { bold: false, italic: false, href: null }, 'left');
+            return blocks;
         }
 
-        function traverseNode(node, style, segments) {
+        function getNodeAlign(node) {
+            if (node.nodeType !== Node.ELEMENT_NODE) return null;
+            const s = node.getAttribute('style') || '';
+            const m = s.match(/text-align\s*:\s*(left|center|right|justify)/i);
+            if (m) return m[1].toLowerCase();
+            const align = node.getAttribute('align');
+            if (align) return align.toLowerCase();
+            return null;
+        }
+
+        function collectBlocks(node, blocks, style, parentAlign) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent;
-                if (text) segments.push({ type: 'text', text, ...style });
+                if (text) {
+                    // Append to last block or create one
+                    if (blocks.length === 0) blocks.push({ align: parentAlign, segments: [] });
+                    blocks[blocks.length-1].segments.push({ text, ...style });
+                }
                 return;
             }
             if (node.nodeType !== Node.ELEMENT_NODE) return;
-
             const tag = node.tagName.toLowerCase();
             let newStyle = { ...style };
+            let align = getNodeAlign(node) || parentAlign;
 
-            if (tag === 'br') { segments.push({ type: 'br' }); return; }
             if (tag === 'b' || tag === 'strong') newStyle.bold = true;
             if (tag === 'i' || tag === 'em')     newStyle.italic = true;
-            if (tag === 'a') newStyle.href = node.getAttribute('href') || null;
+            if (tag === 'a') {
+                const href = node.getAttribute('href') || null;
+                newStyle.href = href;
+            }
 
-            // Detect alignment from style
-            const styleAttr = node.getAttribute('style') || '';
-            if (styleAttr.includes('center')) newStyle.align = 'center';
-            else if (styleAttr.includes('right')) newStyle.align = 'right';
-            else if (styleAttr.includes('left')) newStyle.align = 'left';
+            // Block-level: each gets its own block
+            const isBlock = ['p','div','h1','h2','h3','h4','h5','h6','li','br','tr'].includes(tag);
 
-            // Block elements add a break after
-            const isBlock = ['p','div','h1','h2','h3','h4','h5','h6','li'].includes(tag);
+            if (tag === 'br') {
+                blocks.push({ align, segments: [] }); // empty line
+                return;
+            }
 
-            for (const child of node.childNodes) traverseNode(child, newStyle, segments);
-            if (isBlock) segments.push({ type: 'br' });
+            if (isBlock) {
+                // Start a new block
+                const block = { align, segments: [] };
+                blocks.push(block);
+                const prevLen = blocks.length;
+                for (const child of node.childNodes) collectBlocks(child, blocks, newStyle, align);
+                // If nothing was added inside, the block is blank (keep it)
+                // After block ends, next sibling starts fresh — don't add extra br, traversal handles it
+            } else {
+                // Inline: append to current block
+                if (blocks.length === 0) blocks.push({ align, segments: [] });
+                for (const child of node.childNodes) collectBlocks(child, blocks, newStyle, align);
+            }
         }
 
-        function renderPdfLine(doc, segs, mL, y, maxW, align) {
-            if (!segs.length) return;
-            const pageW = doc.internal.pageSize.getWidth();
+        // Word-wrap a block's segments into multiple PDF lines, each line = array of seg-chunks
+        function wrapBlockToPdfLines(doc, segments, maxW) {
+            if (segments.length === 0) return [[]]; // blank line
+
+            const lines = [];
+            let currentLine = [];
+            let currentW = 0;
+
+            for (const seg of segments) {
+                const fontStyle = seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal';
+                doc.setFont('times', fontStyle);
+                doc.setFontSize(11);
+
+                // Split seg text by spaces to wrap word by word
+                const words = seg.text.split(/(\s+)/); // keep delimiters
+                let buf = '';
+                for (const word of words) {
+                    const testBuf = buf + word;
+                    const testW = doc.getTextWidth(testBuf);
+                    if (currentW + testW > maxW && currentLine.length > 0 && buf.trim() !== '') {
+                        // Flush buf to current line
+                        if (buf) currentLine.push({ ...seg, text: buf });
+                        lines.push(currentLine);
+                        currentLine = [];
+                        currentW = 0;
+                        buf = word.trimStart(); // start new line without leading space
+                    } else {
+                        buf = testBuf;
+                    }
+                }
+                // Remaining buf
+                if (buf) {
+                    const w = doc.getTextWidth(buf);
+                    currentLine.push({ ...seg, text: buf });
+                    currentW += w;
+                }
+            }
+            if (currentLine.length > 0) lines.push(currentLine);
+            return lines.length > 0 ? lines : [[]];
+        }
+
+        function renderPdfLine(doc, segs, mL, y, maxW, align, pageW) {
+            if (!segs || !segs.length) return;
+            if (!pageW) pageW = doc.internal.pageSize.getWidth();
 
             // Measure total width
             let totalW = 0;
@@ -1581,6 +1721,14 @@
             <button onclick="editorCmd('justifyRight')"  title="Align right"   id="tbAlignR" class="toolbar-btn">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M9 12h12M3 18h18"/></svg>
             </button>
+            <div class="w-px h-5 bg-gray-300 mx-1"></div>
+            <!-- Unlink button: removes hyperlink from selected/clicked link -->
+            <button onclick="removeLink()" title="Remove hyperlink" id="tbUnlink" class="toolbar-btn">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                    <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
         </div>
         <!-- Editable content + floating copy icon -->
         <div class="editor-wrapper">
@@ -1593,7 +1741,7 @@
                     contenteditable="true"
                     spellcheck="true"
                     class="w-full min-h-[300px] p-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 leading-relaxed"
-                    style="font-family:'Times New Roman',Times,serif; font-size:12pt; line-height:1.6; word-break:break-word; overflow-wrap:break-word; white-space:pre-wrap; box-sizing:border-box;"
+                    style="font-family:'Times New Roman',Times,serif; font-size:12pt; line-height:1.6; word-break:break-word; overflow-wrap:break-word; white-space:normal; box-sizing:border-box;"
                     oninput="onEditorInput()"
                 ></div>
             </div>
