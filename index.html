@@ -1136,41 +1136,77 @@
         function wrapBlockToPdfLines(doc, segments, maxW) {
             if (segments.length === 0) return [[]]; // blank line
 
-            const lines = [];
-            let currentLine = [];
-            let currentW = 0;
-
+            // Step 1: flatten all segments into an array of tokens {text, seg}
+            // where each token is one word or one space run, preserving seg style.
+            const tokens = [];
             for (const seg of segments) {
                 const fontStyle = seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal';
                 doc.setFont('times', fontStyle);
                 doc.setFontSize(11);
-
-                // Split seg text by spaces to wrap word by word
-                const words = seg.text.split(/(\s+)/); // keep delimiters
-                let buf = '';
-                for (const word of words) {
-                    const testBuf = buf + word;
-                    const testW = doc.getTextWidth(testBuf);
-                    if (currentW + testW > maxW && currentLine.length > 0 && buf.trim() !== '') {
-                        // Flush buf to current line
-                        if (buf) currentLine.push({ ...seg, text: buf });
-                        lines.push(currentLine);
-                        currentLine = [];
-                        currentW = 0;
-                        buf = word.trimStart(); // start new line without leading space
-                    } else {
-                        buf = testBuf;
-                    }
-                }
-                // Remaining buf
-                if (buf) {
-                    const w = doc.getTextWidth(buf);
-                    currentLine.push({ ...seg, text: buf });
-                    currentW += w;
+                // Split on whitespace boundaries, keep the pieces
+                const parts = seg.text.split(/(\s+)/);
+                for (const part of parts) {
+                    if (part === '') continue;
+                    const w = doc.getTextWidth(part);
+                    tokens.push({ text: part, w, seg });
                 }
             }
-            if (currentLine.length > 0) lines.push(currentLine);
+
+            // Step 2: greedily pack tokens into lines
+            const lines = [];
+            let currentLine = [];   // [{text, w, seg}]
+            let currentW = 0;
+
+            for (const tok of tokens) {
+                // Pure whitespace token: add to current line only if not at start of line
+                const isSpace = /^\s+$/.test(tok.text);
+                if (isSpace) {
+                    if (currentLine.length > 0) {
+                        // Only add if the next word will fit; otherwise just skip it (don't start a line with space)
+                        currentLine.push(tok);
+                        currentW += tok.w;
+                    }
+                    continue;
+                }
+                // Word token: does it fit on current line?
+                if (currentW + tok.w > maxW && currentLine.length > 0) {
+                    // Flush current line (trim trailing spaces)
+                    while (currentLine.length > 0 && /^\s+$/.test(currentLine[currentLine.length-1].text)) {
+                        currentLine.pop();
+                    }
+                    lines.push(buildLineSegs(currentLine));
+                    currentLine = [];
+                    currentW = 0;
+                }
+                currentLine.push(tok);
+                currentW += tok.w;
+            }
+            // Flush last line
+            while (currentLine.length > 0 && /^\s+$/.test(currentLine[currentLine.length-1].text)) {
+                currentLine.pop();
+            }
+            if (currentLine.length > 0) lines.push(buildLineSegs(currentLine));
+
             return lines.length > 0 ? lines : [[]];
+        }
+
+        // Merge adjacent tokens with same style into combined seg chunks for renderPdfLine
+        function buildLineSegs(tokens) {
+            if (tokens.length === 0) return [];
+            const segs = [];
+            let cur = { ...tokens[0].seg, text: tokens[0].text };
+            for (let i = 1; i < tokens.length; i++) {
+                const tok = tokens[i];
+                // Same style = merge
+                if (tok.seg.bold === cur.bold && tok.seg.italic === cur.italic && tok.seg.href === cur.href) {
+                    cur.text += tok.text;
+                } else {
+                    segs.push(cur);
+                    cur = { ...tok.seg, text: tok.text };
+                }
+            }
+            segs.push(cur);
+            return segs;
         }
 
         function renderPdfLine(doc, segs, mL, y, maxW, align, pageW) {
