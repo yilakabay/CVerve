@@ -409,8 +409,8 @@
         let mergedPdf = null;
         let mergeTopDotAnim = null, mergeTopFadeAnim = null;
 
-        // ── Inline progress logo SVG (spinning) ──────────────────────────────
-        const PROGRESS_LOGO_SVG = `<svg class="cverve-progress-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><defs><linearGradient id="pgLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#f97316"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`;
+        // ── Inline progress logo SVG (draw/erase — same as login overlay) ────
+        const PROGRESS_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><defs><linearGradient id="pgLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#f97316"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`;
 
         function startMergeAnimation(text) {
             stopMergeAnimation();
@@ -1649,20 +1649,7 @@
         #editorCopyBtn:hover { background:#f0f0ff; border-color:#a5b4fc; }
 
         /* ── CVerve inline progress logo animation ───────────────── */
-        @keyframes cverveLogoSpin {
-            from { transform: rotate(0deg); }
-            to   { transform: rotate(360deg); }
-        }
-        @keyframes cverveLogoFade {
-            0%, 100% { opacity: 1; }
-            50%      { opacity: 0.45; }
-        }
-        .cverve-progress-logo {
-            display: inline-block;
-            flex-shrink: 0;
-            animation: cverveLogoSpin 1.4s linear infinite, cverveLogoFade 2.2s ease-in-out infinite;
-            transform-origin: center center;
-        }
+        /* uses same draw/erase style as the login overlay logo */
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
@@ -1737,12 +1724,15 @@
             var len = p.getTotalLength();
             document.documentElement.style.setProperty('--logo-len', len + 'px');
         }
+        // Measure from any .mini-logo-path (hidden elements are fine; they still report length)
         var mp = document.querySelector('.mini-logo-path');
         if(mp) {
             var mlen = mp.getTotalLength();
             document.documentElement.style.setProperty('--mini-logo-len', mlen + 'px');
+            window.__miniLogoLen = mlen + 'px';
         }
     }
+    // Call after DOM ready so hidden SVGs in the page are available
     if(document.readyState === 'loading'){
         document.addEventListener('DOMContentLoaded', initLogoAnim);
     } else { initLogoAnim(); }
@@ -2039,7 +2029,7 @@
                 <div id="mergerProgressView" class="hidden">
                     <!-- Status indicator -->
                     <div class="flex items-center gap-2.5 mb-4 px-0.5">
-                        <div id="mergeStepDot" class="flex-shrink-0" style="width:36px;height:36px;"><svg class="cverve-progress-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><defs><linearGradient id="pgLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#f97316"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
+                        <div id="mergeStepDot" class="flex-shrink-0" style="width:36px;height:36px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><defs><linearGradient id="pgLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#f97316"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
                         <span id="mergeStepText" class="text-sm font-medium"
                             style="background:linear-gradient(90deg,#22c55e,#f97316,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
                             Merging your PDFs...
@@ -2181,7 +2171,7 @@
                     </div>
 
                     <div class="flex items-center gap-2.5 mb-4 px-0.5">
-                        <div id="currentStepDot" class="flex-shrink-0" style="width:36px;height:36px;"><svg class="cverve-progress-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
+                        <div id="currentStepDot" class="flex-shrink-0" style="width:36px;height:36px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:36px;height:36px;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
                         <span id="currentStepText" class="text-sm font-medium"
                             style="background:linear-gradient(90deg,#22c55e,#f97316,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
                             Organising your CV...
