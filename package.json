@@ -10,6 +10,7 @@
     "tesseract.js": "^4.1.1",
     "sharp": "^0.33.2",
     "bcryptjs": "^2.4.3",
-    "@google/generative-ai": "^0.21.0"
+    "@google/generative-ai": "^0.21.0",
+    "twilio": "^5.3.3"
   }
 }
