@@ -466,14 +466,171 @@
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('otpForm').classList.add('hidden');
             document.getElementById('telegramLinkForm').classList.add('hidden');
+            document.getElementById('forgotForm').classList.add('hidden');
+            document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+            document.getElementById('forgotOtpForm').classList.add('hidden');
+            document.getElementById('resetPasswordForm').classList.add('hidden');
             document.getElementById('registerForm').classList.remove('hidden');
         }
         function showLoginForm() {
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('otpForm').classList.add('hidden');
             document.getElementById('telegramLinkForm').classList.add('hidden');
+            document.getElementById('forgotForm').classList.add('hidden');
+            document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+            document.getElementById('forgotOtpForm').classList.add('hidden');
+            document.getElementById('resetPasswordForm').classList.add('hidden');
             window._pendingReg = null;
+            window._pendingReset = null;
             document.getElementById('loginForm').classList.remove('hidden');
+        }
+
+        // ── Forgot Password Flow ──────────────────────────────────────────────
+
+        function showForgotForm() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('forgotPhoneNumber').value = '';
+            document.getElementById('forgotForm').classList.remove('hidden');
+        }
+
+        async function handleForgotPassword() {
+            const phoneNumber = document.getElementById('forgotPhoneNumber').value.trim();
+            if (!phoneNumber)                    { showMessage('error', 'Please enter your phone number'); return; }
+            if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
+
+            window._pendingReset = { phoneNumber };
+            showLoadingOverlay('Sending verification code...');
+            try {
+                const response = await fetch('/.netlify/functions/send-reset-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber })
+                });
+                const data = await response.json();
+
+                if (data.needsTelegram) {
+                    document.getElementById('forgotForm').classList.add('hidden');
+                    document.getElementById('forgotTelegramLinkForm').classList.remove('hidden');
+                    document.getElementById('forgotTelegramBotLink').href = 'https://t.me/cverve_bot';
+                } else if (response.ok && data.success) {
+                    showForgotOtpStep();
+                    showMessage('success', 'Code sent to your Telegram!');
+                } else {
+                    showMessage('error', data.error || 'Could not send code. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        async function handleForgotDoneInTelegram() {
+            if (!window._pendingReset) { showLoginForm(); return; }
+            showLoadingOverlay('Checking Telegram...');
+            try {
+                const response = await fetch('/.netlify/functions/send-reset-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
+                });
+                const data = await response.json();
+
+                if (data.needsTelegram) {
+                    showMessage('error', "We still can't find your Telegram. Please open the bot and tap \"Share my phone number\", then try again.");
+                } else if (response.ok && data.success) {
+                    document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+                    showForgotOtpStep();
+                    showMessage('success', 'Code sent to your Telegram!');
+                } else {
+                    showMessage('error', data.error || 'Something went wrong. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        function showForgotOtpStep() {
+            document.getElementById('forgotForm').classList.add('hidden');
+            document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+            document.getElementById('forgotOtpInput').value = '';
+            document.getElementById('forgotOtpForm').classList.remove('hidden');
+            document.getElementById('forgotOtpInput').focus();
+        }
+
+        async function handleVerifyResetOtp() {
+            const otp = document.getElementById('forgotOtpInput').value.trim();
+            if (!otp || otp.length !== 6) { showMessage('error', 'Please enter the 6-digit code'); return; }
+            if (!window._pendingReset)    { showMessage('error', 'Session expired. Please start over.'); showLoginForm(); return; }
+
+            showLoadingOverlay('Verifying code...');
+            try {
+                const response = await fetch('/.netlify/functions/verify-reset-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber, otp })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    window._pendingReset.resetToken = data.resetToken;
+                    document.getElementById('forgotOtpForm').classList.add('hidden');
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmNewPassword').value = '';
+                    document.getElementById('resetPasswordForm').classList.remove('hidden');
+                } else {
+                    showMessage('error', data.error || 'Incorrect code. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        async function handleResendResetOtp() {
+            if (!window._pendingReset) { showLoginForm(); return; }
+            showLoadingOverlay('Resending code...');
+            try {
+                const response = await fetch('/.netlify/functions/send-reset-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    document.getElementById('forgotOtpInput').value = '';
+                    document.getElementById('forgotOtpInput').focus();
+                    showMessage('success', 'A new code was sent to your Telegram.');
+                } else {
+                    showMessage('error', data.error || 'Could not resend code. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        async function handleResetPassword() {
+            const newPassword     = document.getElementById('newPassword').value;
+            const confirmNew      = document.getElementById('confirmNewPassword').value;
+            if (!newPassword)                  { showMessage('error', 'Please enter a new password'); return; }
+            if (newPassword.length < 6)        { showMessage('error', 'Password must be at least 6 characters'); return; }
+            if (newPassword !== confirmNew)    { showMessage('error', 'Passwords do not match'); return; }
+            if (!window._pendingReset?.resetToken) { showMessage('error', 'Session expired. Please start over.'); showLoginForm(); return; }
+
+            showLoadingOverlay('Resetting password...');
+            try {
+                const response = await fetch('/.netlify/functions/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phoneNumber: window._pendingReset.phoneNumber,
+                        resetToken:  window._pendingReset.resetToken,
+                        newPassword,
+                        confirmPassword: confirmNew
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    window._pendingReset = null;
+                    showMessage('success', 'Password reset successfully! Please log in.');
+                    showLoginForm();
+                } else {
+                    showMessage('error', data.error || 'Reset failed. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
         }
 
         function showMessage(type, message) {
@@ -2234,9 +2391,81 @@
         <p class="text-sm text-center text-gray-500 mb-6">Login to access your account</p>
         <div id="loginForm">
             <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="tel" id="phoneNumberInput" placeholder="Enter your phone number" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
-            <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="mb-2"><label class="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" id="passwordInput" placeholder="Enter your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="text-right mb-5"><button onclick="showForgotForm()" class="text-sm text-indigo-500 hover:underline">Forgot password?</button></div>
             <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
             <div class="text-center"><p class="text-sm text-gray-600">Don't have an account?</p><button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button></div>
+        </div>
+
+        <!-- Forgot Password: Step 1 — enter phone -->
+        <div id="forgotForm" class="hidden">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                </div>
+                <h3 class="font-semibold text-gray-800 mb-1">Reset Password</h3>
+                <p class="text-sm text-gray-500">Enter your registered phone number and we'll send a verification code via Telegram.</p>
+            </div>
+            <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="tel" id="forgotPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <button onclick="handleForgotPassword()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Send Code</button>
+            <div class="text-center"><button onclick="showLoginForm()" class="text-gray-500 text-sm hover:text-gray-700">← Back to Login</button></div>
+        </div>
+
+        <!-- Forgot Password: Step 2 — open Telegram bot (if not linked yet) -->
+        <div id="forgotTelegramLinkForm" class="hidden">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-blue-500" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
+                </div>
+                <h3 class="font-semibold text-gray-800 mb-1">One more step</h3>
+                <p class="text-sm text-gray-500">Open our Telegram bot and tap <strong>"Share my phone number"</strong> so we can send your reset code.</p>
+            </div>
+            <a id="forgotTelegramBotLink" href="https://t.me/cverve_bot" target="_blank" rel="noopener"
+                class="w-full bg-blue-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-blue-600 transition-colors shadow-md mb-3 flex items-center justify-center gap-2">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
+                Open @cverve_bot
+            </a>
+            <button onclick="handleForgotDoneInTelegram()" class="w-full bg-emerald-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-3">
+                I've shared my number →
+            </button>
+            <div class="text-center"><button onclick="showForgotForm()" class="text-gray-500 text-sm hover:text-gray-700">← Go back</button></div>
+        </div>
+
+        <!-- Forgot Password: Step 3 — enter OTP -->
+        <div id="forgotOtpForm" class="hidden">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                </div>
+                <p class="text-sm text-gray-600">Enter the 6-digit code sent to your Telegram</p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                <input type="tel" id="forgotOtpInput" maxlength="6" placeholder="000000"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center text-2xl font-mono tracking-widest"
+                    oninput="this.value=this.value.replace(/\D/g,'')"
+                    onkeydown="if(event.key==='Enter') handleVerifyResetOtp()">
+            </div>
+            <button onclick="handleVerifyResetOtp()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-3">Verify Code</button>
+            <div class="flex items-center justify-between text-sm">
+                <button onclick="showForgotForm()" class="text-gray-500 hover:text-gray-700">← Start over</button>
+                <button onclick="handleResendResetOtp()" class="text-indigo-600 font-semibold hover:underline">Resend code</button>
+            </div>
+        </div>
+
+        <!-- Forgot Password: Step 4 — set new password -->
+        <div id="resetPasswordForm" class="hidden">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                </div>
+                <h3 class="font-semibold text-gray-800 mb-1">Set New Password</h3>
+                <p class="text-sm text-gray-500">Choose a new password for your account.</p>
+            </div>
+            <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">New Password</label><input type="password" id="newPassword" placeholder="New password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label><input type="password" id="confirmNewPassword" placeholder="Confirm new password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <button onclick="handleResetPassword()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Reset Password</button>
+            <div class="text-center"><button onclick="showLoginForm()" class="text-gray-500 text-sm hover:text-gray-700">← Cancel</button></div>
         </div>
         <!-- Step 1: Registration details (phone only) -->
         <div id="registerForm" class="hidden">
