@@ -1600,26 +1600,22 @@
             document.getElementById('disclaimerMsg').textContent = msgs[method] || '';
             document.getElementById('disclaimerCheck1').checked = false;
             document.getElementById('disclaimerCheck2').checked = false;
-            document.getElementById('disclaimerContinueBtn').disabled = true;
-            document.getElementById('disclaimerContinueBtn').classList.add('opacity-50', 'cursor-not-allowed');
+            document.getElementById('disclaimerCheck1Error').classList.add('hidden');
             document.getElementById('paymentDisclaimerPopup').classList.remove('hidden');
         }
 
-        function onDisclaimerCheckChange() {
-            const c1 = document.getElementById('disclaimerCheck1').checked;
-            const btn = document.getElementById('disclaimerContinueBtn');
-            if (c1) {
-                btn.disabled = false;
-                btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else {
-                btn.disabled = true;
-                btn.classList.add('opacity-50', 'cursor-not-allowed');
-            }
+        function clearDisclaimerError() {
+            document.getElementById('disclaimerCheck1Error').classList.add('hidden');
         }
 
         function continueAfterDisclaimer() {
             const method = _pendingPaymentMethod;
             if (!method) return;
+            const c1 = document.getElementById('disclaimerCheck1').checked;
+            if (!c1) {
+                document.getElementById('disclaimerCheck1Error').classList.remove('hidden');
+                return;
+            }
             // Only save "don't show again" if that checkbox is also checked
             const c2 = document.getElementById('disclaimerCheck2').checked;
             if (c2) {
@@ -2025,21 +2021,25 @@
             </div>
             <h3 id="disclaimerTitle" class="text-base font-bold text-gray-800"></h3>
         </div>
-        <p id="disclaimerMsg" class="text-sm text-gray-600 mb-5 leading-relaxed"></p>
+        <p id="disclaimerMsg" class="text-sm text-gray-600 mb-3 leading-relaxed"></p>
+        <p class="text-xs text-red-600 font-semibold bg-red-50 rounded-lg px-3 py-2 mb-4">&#9888; We are not responsible for payments less than 100 ETB.</p>
         <div class="space-y-3 mb-5">
+            <div>
+                <p id="disclaimerCheck1Error" class="hidden text-xs text-red-500 mb-1">You must confirm you understand before continuing</p>
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" id="disclaimerCheck1" onchange="clearDisclaimerError()" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
+                    <span class="text-sm text-gray-700">I understand the payment rules above</span>
+                </label>
+            </div>
             <label class="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" id="disclaimerCheck1" onchange="onDisclaimerCheckChange()" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
-                <span class="text-sm text-gray-700">I understand the payment rules above</span>
-            </label>
-            <label class="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" id="disclaimerCheck2" onchange="onDisclaimerCheckChange()" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
+                <input type="checkbox" id="disclaimerCheck2" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
                 <span class="text-sm text-gray-700">Don't show this again for this payment method</span>
             </label>
         </div>
         <div class="flex gap-3">
             <button onclick="closeDisclaimerPopup()" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-full font-semibold hover:bg-gray-200 transition text-sm">Cancel</button>
-            <button id="disclaimerContinueBtn" onclick="continueAfterDisclaimer()" disabled
-                class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold transition text-sm opacity-50 cursor-not-allowed">
+            <button id="disclaimerContinueBtn" onclick="continueAfterDisclaimer()"
+                class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold hover:bg-indigo-600 transition text-sm">
                 Continue
             </button>
         </div>
