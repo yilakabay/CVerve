@@ -122,16 +122,18 @@ exports.handler = async (event, context) => {
 
       STRICT GUIDELINES:
       1. Total body length: exactly 3 paragraphs. Each paragraph is 3-4 sentences maximum. The entire letter body must fit in roughly two thirds of an A4 page — no more.
-      2. Header block (no labels): Name, Phone, Email, Address, Date — each on its own line.
+      2. Header block (no labels): Name, Phone, Email, Address, Date — each on its own line. This is the ONLY place phone and email should appear in the entire letter.
       3. Then a subject line naming the exact position ("${targetPosition}") and company.
       4. Then "Dear Hiring Manager" (or recipient name if given in the JD).
       5. Paragraph 1: State the position you are applying for and one or two specific reasons you are a strong fit, drawn directly from the CV and the requirements for "${targetPosition}" only. Be factual and concrete, not generic.
-      6. Paragraph 2: Express genuine interest in the company/role in one sentence, then close with availability and contact info in one sentence.
-      7. Close with "Sincerely," then the applicant's name.
-      8. Tone: natural, humble, and direct — write like a real person, not a template. Avoid corporate filler phrases such as "I am excited to apply", "I am confident", "leverage my skills", "dynamic team", or any similar buzzwords.
-      9. No bullet points, no bold text, no em dashes, no placeholders.
-      10. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
-      11. Do not mention attaching documents.
+      6. Paragraph 2: Highlight one or two concrete skills or experiences from the CV that directly match the job requirements. Be specific about what you did and how it relates to this role.
+      7. Paragraph 3: Express genuine interest in the company/role in one sentence, then close with availability for interview in one sentence. Do NOT include phone number or email here — they are already in the header.
+      8. Close with "Sincerely," then the applicant's name.
+      9. Tone: natural, humble, and direct — write like a real person, not a template. Avoid corporate filler phrases such as "I am excited to apply", "I am confident", "leverage my skills", "dynamic team", or any similar buzzwords.
+      10. No bullet points, no bold text, no em dashes, no placeholders.
+      11. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
+      12. Do not mention attaching documents.
+      13. CRITICAL: Phone number and email must appear ONLY in the header block (item 2 above). Do NOT repeat them anywhere in the body paragraphs or closing. The closing sentence should only mention availability for an interview, NOT contact details.
 
       Generate the letter now:
     `;
