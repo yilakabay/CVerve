@@ -341,27 +341,103 @@
             finally { hideLoadingOverlay(); }
         }
 
+        // ── OTP Registration Flow ─────────────────────────────────────────────
+        // Step 1: Validate inputs → send OTP
         async function handleRegister() {
-            const phoneNumber = document.getElementById('registerPhoneNumber').value.trim();
-            const password    = document.getElementById('registerPassword').value;
+            const phoneNumber     = document.getElementById('registerPhoneNumber').value.trim();
+            const password        = document.getElementById('registerPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
-            if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
+            if (!phoneNumber)                    { showMessage('error', 'Please enter your phone number'); return; }
             if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
-            if (!password)    { showMessage('error', 'Please enter a password'); return; }
-            if (password !== confirmPassword) { showMessage('error', 'Passwords do not match'); return; }
-            if (password.length < 6) { showMessage('error', 'Password must be at least 6 characters long'); return; }
-            showLoadingOverlay('Creating your account...');
+            if (!password)                       { showMessage('error', 'Please enter a password'); return; }
+            if (password !== confirmPassword)     { showMessage('error', 'Passwords do not match'); return; }
+            if (password.length < 6)             { showMessage('error', 'Password must be at least 6 characters long'); return; }
+
+            showLoadingOverlay('Sending verification code...');
             try {
-                const response = await fetch('/.netlify/functions/create-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password, balance: 0 }) });
+                const response = await fetch('/.netlify/functions/send-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber })
+                });
                 const data = await response.json();
-                if (response.ok) { showMessage('success', 'Account created successfully! Please login.'); document.getElementById('registerForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); }
-                else { showMessage('error', data.error || 'Registration failed'); }
-            } catch { showMessage('error', 'Registration failed. Please try again.'); }
+                if (response.ok) {
+                    // Store pending registration details
+                    window._pendingReg = { phoneNumber, password, confirmPassword };
+                    // Show OTP entry step
+                    document.getElementById('registerForm').classList.add('hidden');
+                    document.getElementById('otpForm').classList.remove('hidden');
+                    document.getElementById('otpPhoneHint').textContent = phoneNumber;
+                    document.getElementById('otpInput').value = '';
+                    document.getElementById('otpInput').focus();
+                    showMessage('success', 'A 6-digit code was sent to your phone.');
+                } else {
+                    showMessage('error', data.error || 'Could not send OTP. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
             finally { hideLoadingOverlay(); }
         }
 
-        function showRegisterForm() { document.getElementById('loginForm').classList.add('hidden'); document.getElementById('registerForm').classList.remove('hidden'); }
-        function showLoginForm()    { document.getElementById('registerForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); }
+        // Step 2: Verify OTP → create account
+        async function handleVerifyOtp() {
+            const otp = document.getElementById('otpInput').value.trim();
+            if (!otp || otp.length !== 6) { showMessage('error', 'Please enter the 6-digit code'); return; }
+            if (!window._pendingReg)      { showMessage('error', 'Session expired. Please start over.'); showRegisterForm(); return; }
+
+            const { phoneNumber, password, confirmPassword } = window._pendingReg;
+            showLoadingOverlay('Verifying code...');
+            try {
+                const response = await fetch('/.netlify/functions/verify-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber, otp, password, confirmPassword })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    window._pendingReg = null;
+                    showMessage('success', 'Account created successfully! Please log in.');
+                    document.getElementById('otpForm').classList.add('hidden');
+                    document.getElementById('loginForm').classList.remove('hidden');
+                } else {
+                    showMessage('error', data.error || 'Verification failed. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        // Resend OTP
+        async function handleResendOtp() {
+            if (!window._pendingReg) { showRegisterForm(); return; }
+            showLoadingOverlay('Resending code...');
+            try {
+                const response = await fetch('/.netlify/functions/send-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('otpInput').value = '';
+                    document.getElementById('otpInput').focus();
+                    showMessage('success', 'A new code was sent to your phone.');
+                } else {
+                    showMessage('error', data.error || 'Could not resend code. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        function showRegisterForm() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('otpForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+        }
+        function showLoginForm() {
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('otpForm').classList.add('hidden');
+            window._pendingReg = null;
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
 
         function showMessage(type, message) {
             const messageBox = document.getElementById('messageBox'), messageText = document.getElementById('messageText');
@@ -2011,7 +2087,6 @@
     </div>
 </div>
 
-
 <!-- Payment Disclaimer Popup -->
 <div id="paymentDisclaimerPopup" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] px-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
@@ -2126,12 +2201,36 @@
             <button onclick="handleLogin()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md mb-4">Login</button>
             <div class="text-center"><p class="text-sm text-gray-600">Don't have an account?</p><button onclick="showRegisterForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Create Account</button></div>
         </div>
+        <!-- Step 1: Registration details -->
         <div id="registerForm" class="hidden">
             <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="tel" id="registerPhoneNumber" placeholder="Enter your phone number (09 or 07 + 8 digits)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
             <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" id="registerPassword" placeholder="Create a password (min. 6 characters)" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
             <div class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label><input type="password" id="confirmPassword" placeholder="Confirm your password" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
-            <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Create Account</button>
+            <button onclick="handleRegister()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-4">Send Verification Code</button>
             <div class="text-center"><p class="text-sm text-gray-600">Already have an account?</p><button onclick="showLoginForm()" class="text-indigo-600 font-semibold text-sm hover:underline mt-1">Back to Login</button></div>
+        </div>
+
+        <!-- Step 2: OTP verification -->
+        <div id="otpForm" class="hidden">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                </div>
+                <p class="text-sm text-gray-600">We sent a 6-digit code to</p>
+                <p id="otpPhoneHint" class="font-semibold text-gray-800 mt-0.5"></p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                <input type="tel" id="otpInput" maxlength="6" placeholder="Enter 6-digit code"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center text-2xl font-mono tracking-widest"
+                    oninput="this.value=this.value.replace(/\D/g,'')"
+                    onkeydown="if(event.key==='Enter') handleVerifyOtp()">
+            </div>
+            <button onclick="handleVerifyOtp()" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-3">Verify &amp; Create Account</button>
+            <div class="flex items-center justify-between text-sm">
+                <button onclick="showRegisterForm()" class="text-gray-500 hover:text-gray-700">← Change number</button>
+                <button onclick="handleResendOtp()" class="text-indigo-600 font-semibold hover:underline">Resend code</button>
+            </div>
         </div>
     </div>
 </div>
