@@ -437,7 +437,7 @@
         function setMergeDone() {
             stopMergeAnimation();
             const dot=document.getElementById('mergeStepDot'), label=document.getElementById('mergeStepText');
-            if(dot){dot.className='flex-shrink-0 flex items-center justify-center';dot.style.width='';dot.style.height='';dot.innerHTML=`<svg style="width:28px;height:28px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="2.8"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;}
+            if(dot){dot.className='flex-shrink-0 flex items-center justify-center';dot.style.width='';dot.style.height='';dot.innerHTML=`<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;}
             if(label){label.style.background='';label.style.webkitBackgroundClip='';label.style.webkitTextFillColor='';label.style.backgroundClip='';label.style.opacity=1;label.className='text-sm font-medium text-emerald-600';label.textContent='Done';}
         }
 
@@ -658,7 +658,7 @@
             const icon = document.getElementById(`${step.id}-icon`), label = document.getElementById(`${step.id}-label`), line = document.getElementById(`${step.id}-line`);
             const chevronBtn = document.getElementById(`${step.id}-chevron`);
             stopDotAnimation(step.id); stopFadeAnimation(step.id);
-            if (icon) { icon.className = 'step-icon flex-shrink-0 flex items-center justify-center'; icon.style.width=''; icon.style.height=''; icon.innerHTML = `<svg style="width:20px;height:20px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="2.8"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`; }
+            if (icon) { icon.className = 'step-icon flex-shrink-0 flex items-center justify-center'; icon.style.width=''; icon.style.height=''; icon.innerHTML = `<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`; }
             if (label) { label.className = 'step-label text-sm text-emerald-600'; label.style.background=''; label.style.webkitBackgroundClip=''; label.style.webkitTextFillColor=''; label.style.backgroundClip=''; label.style.opacity=1; label.textContent = step.label; }
             if (line) { line.className = 'w-px h-3 bg-emerald-400 ml-[9px]'; }
             if (chevronBtn) { chevronBtn.style.opacity = '0'; chevronBtn.style.pointerEvents = 'none'; }
@@ -753,7 +753,7 @@
                 dot.className = 'flex-shrink-0 flex items-center justify-center';
                 dot.style.width = '';
                 dot.style.height = '';
-                dot.innerHTML = `<svg style="width:28px;height:28px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="2.8"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
+                dot.innerHTML = `<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
             }
             if (label) {
                 label.style.background = '';
