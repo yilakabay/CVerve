@@ -1536,7 +1536,12 @@
                     document.getElementById('letterFilename').textContent = `${lastGeneratedFirstName}_Letter.pdf`;
                 }, 400);
 
-            } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message || 'An unexpected error occurred.'); resetToForm(); }
+            } catch(err) {
+                if (err.name === 'AbortError' || generationStopped) return;
+                const isNetwork = err instanceof TypeError && (err.message.toLowerCase().includes('network') || err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('failed to fetch'));
+                if (isNetwork) { showNetworkErrorPopup(); } else { showSystemErrorPopup(); }
+                resetToForm();
+            }
         }
 
         function resetToForm() {
@@ -1561,27 +1566,145 @@
         function openPaymentPopup() { document.getElementById('paymentPopupOverlay').classList.remove('hidden'); document.getElementById('paymentPopupSheet').classList.remove('translate-y-full'); paymentPopupVisible = true; showPaymentMethodChoice(); }
         function closePaymentPopup() { document.getElementById('paymentPopupSheet').classList.add('translate-y-full'); setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300); paymentPopupVisible = false; }
         function showPaymentMethodChoice() { document.getElementById('payMethodChoice').classList.remove('hidden'); ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden')); }
+        let _pendingPaymentMethod = null;
+        // Per-method "don't show again" flags (in-memory; reset on page refresh)
+        const _disclaimerShown = { telebirr: false, cbe: false, cbebirr: false };
+
         function selectPaymentMethod(method) {
+            const skipKey = 'cverve_disclaimer_skip_' + method;
+            const skip = localStorage.getItem(skipKey) === '1' || _disclaimerShown[method];
+            if (!skip) {
+                _pendingPaymentMethod = method;
+                showPaymentDisclaimer(method);
+                return;
+            }
+            _applyPaymentMethod(method);
+        }
+
+        function _applyPaymentMethod(method) {
             document.getElementById('payMethodChoice').classList.add('hidden');
             ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden'));
             if (method === 'telebirr') document.getElementById('payMethodTelebirr').classList.remove('hidden');
             else if (method === 'cbe') { document.getElementById('payMethodCBE').classList.remove('hidden'); document.getElementById('cbeTxId').value=''; document.getElementById('cbeAmount').value=''; }
             else if (method === 'cbebirr') { document.getElementById('payMethodCBEBirr').classList.remove('hidden'); document.getElementById('cbebirrTxId').value=''; document.getElementById('cbebirrAmount').value=''; }
         }
+
+        function showPaymentDisclaimer(method) {
+            const msgs = {
+                cbe: 'You must send from your CBE account to our CBE account only. Cross-bank transfers (from other banks, Telebirr, or CBEBirr) are not accepted. We are not responsible for payments made incorrectly.',
+                telebirr: 'Telebirr top-ups are only accepted from Telebirr to Telebirr. Cross-platform payments (from CBE, CBEBirr, or other banks) are not accepted. We are not responsible for payments made incorrectly.',
+                cbebirr: 'CBEBirr top-ups are only accepted from CBEBirr to CBEBirr. Cross-platform payments (from Telebirr, CBE, or other banks) are not accepted. We are not responsible for payments made incorrectly.'
+            };
+            const titles = { cbe: 'Bank Transfer (CBE)', telebirr: 'Telebirr', cbebirr: 'CBEBirr' };
+            document.getElementById('disclaimerTitle').textContent = 'Payment Notice — ' + (titles[method] || method);
+            document.getElementById('disclaimerMsg').textContent = msgs[method] || '';
+            document.getElementById('disclaimerCheck1').checked = false;
+            document.getElementById('disclaimerCheck2').checked = false;
+            document.getElementById('disclaimerContinueBtn').disabled = true;
+            document.getElementById('disclaimerContinueBtn').classList.add('opacity-50', 'cursor-not-allowed');
+            document.getElementById('paymentDisclaimerPopup').classList.remove('hidden');
+        }
+
+        function onDisclaimerCheckChange() {
+            const c1 = document.getElementById('disclaimerCheck1').checked;
+            const btn = document.getElementById('disclaimerContinueBtn');
+            if (c1) {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function continueAfterDisclaimer() {
+            const method = _pendingPaymentMethod;
+            if (!method) return;
+            // Only save "don't show again" if that checkbox is also checked
+            const c2 = document.getElementById('disclaimerCheck2').checked;
+            if (c2) {
+                const skipKey = 'cverve_disclaimer_skip_' + method;
+                localStorage.setItem(skipKey, '1');
+                _disclaimerShown[method] = true;
+            }
+            document.getElementById('paymentDisclaimerPopup').classList.add('hidden');
+            _applyPaymentMethod(method);
+            _pendingPaymentMethod = null;
+        }
+
+        function closeDisclaimerPopup() {
+            document.getElementById('paymentDisclaimerPopup').classList.add('hidden');
+            _pendingPaymentMethod = null;
+        }
         function copyText(text, label) { navigator.clipboard.writeText(text).then(() => showMessage('success', `${label} copied!`)).catch(() => showMessage('error', 'Failed to copy')); }
         async function submitPayment(method) {
             const txIdInput = method === 'cbe' ? 'cbeTxId' : 'cbebirrTxId', amtInput = method === 'cbe' ? 'cbeAmount' : 'cbebirrAmount';
             const paymentId = document.getElementById(txIdInput).value.trim(), amount = document.getElementById(amtInput).value.trim();
-            if (!paymentId) { showMessage('error', 'Please enter the Transaction ID.'); return; }
-            if (!amount)    { showMessage('error', 'Please enter the amount.'); return; }
-            closePaymentPopup(); showLoadingOverlay('Submitting payment…');
+            if (!paymentId) { setPaymentFieldError(txIdInput, 'Transaction ID is required'); return; }
+            if (!amount)    { setPaymentFieldError(amtInput, 'Amount is required'); return; }
+            const numericAmount = parseFloat(String(amount).replace(/[^\d.]/g, ''));
+            if (isNaN(numericAmount) || numericAmount < 100) { setPaymentFieldError(amtInput, 'Minimum amount is 100 ETB'); return; }
+            closePaymentPopup(); showLoadingOverlay('Submitting payment\u2026');
             try {
-                const response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
-                const result = await response.json();
-                if (response.ok && result.success) showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
-                else showMessage('error', result.error || result.message || 'Payment submission failed.');
-            } catch { showMessage('error', 'An unexpected error occurred. Please try again.'); }
+                let response, result;
+                try {
+                    response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
+                    result = await response.json();
+                } catch (networkErr) {
+                    hideLoadingOverlay();
+                    showNetworkErrorPopup();
+                    return;
+                }
+                if (response.ok && result.success) {
+                    showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
+                } else if (response.status >= 500 || response.status === 0) {
+                    hideLoadingOverlay();
+                    showSystemErrorPopup();
+                    return;
+                } else {
+                    showMessage('error', result.error || result.message || 'Payment submission failed.');
+                }
+            } catch (e) {
+                hideLoadingOverlay();
+                showSystemErrorPopup();
+                return;
+            }
             finally { hideLoadingOverlay(); }
+        }
+
+        function setPaymentFieldError(fieldId, message) {
+            const el = document.getElementById(fieldId);
+            if (!el) return;
+            el.classList.add('border-red-400');
+            el.classList.remove('border-gray-300');
+            let errEl = document.getElementById(fieldId + '-perr');
+            if (!errEl) {
+                errEl = document.createElement('p');
+                errEl.id = fieldId + '-perr';
+                errEl.className = 'text-xs text-red-500 mt-1';
+                el.parentNode.insertBefore(errEl, el.nextSibling);
+            }
+            errEl.textContent = message;
+            errEl.classList.remove('hidden');
+            el.addEventListener('input', function clearErr() {
+                el.classList.remove('border-red-400');
+                el.classList.add('border-gray-300');
+                if (errEl) errEl.classList.add('hidden');
+                el.removeEventListener('input', clearErr);
+            }, { once: true });
+        }
+
+        function showSystemErrorPopup() {
+            document.getElementById('systemErrorPopup').classList.remove('hidden');
+        }
+        function closeSystemErrorPopup() {
+            document.getElementById('systemErrorPopup').classList.add('hidden');
+        }
+        function showNetworkErrorPopup() {
+            document.getElementById('networkErrorPopup').classList.remove('hidden');
+        }
+        function closeNetworkErrorPopup() {
+            document.getElementById('networkErrorPopup').classList.add('hidden');
         }
     </script>
     <style>
@@ -1888,6 +2011,37 @@
             <p class="text-xs text-gray-500 mb-3">After sending, enter your transaction details below:</p>
             <div class="flex gap-2 mb-3"><input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"><input type="number" id="cbebirrAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
             <button onclick="submitPayment('cbebirr')" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">Submit Payment</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- Payment Disclaimer Popup -->
+<div id="paymentDisclaimerPopup" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] px-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h3 id="disclaimerTitle" class="text-base font-bold text-gray-800"></h3>
+        </div>
+        <p id="disclaimerMsg" class="text-sm text-gray-600 mb-5 leading-relaxed"></p>
+        <div class="space-y-3 mb-5">
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" id="disclaimerCheck1" onchange="onDisclaimerCheckChange()" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
+                <span class="text-sm text-gray-700">I understand the payment rules above</span>
+            </label>
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" id="disclaimerCheck2" onchange="onDisclaimerCheckChange()" class="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0">
+                <span class="text-sm text-gray-700">Don't show this again for this payment method</span>
+            </label>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="closeDisclaimerPopup()" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-full font-semibold hover:bg-gray-200 transition text-sm">Cancel</button>
+            <button id="disclaimerContinueBtn" onclick="continueAfterDisclaimer()" disabled
+                class="flex-1 bg-indigo-500 text-white py-2 rounded-full font-semibold transition text-sm opacity-50 cursor-not-allowed">
+                Continue
+            </button>
         </div>
     </div>
 </div>
@@ -2241,5 +2395,30 @@
         });
     });
 </script>
+
+<!-- System Error Popup -->
+<div id="systemErrorPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center">
+        <div class="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-800 mb-2">We're on it</h3>
+        <p class="text-sm text-gray-600 mb-5">We are unable to complete your request at the moment. We are working on it — please try again later.</p>
+        <button onclick="closeSystemErrorPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">OK</button>
+    </div>
+</div>
+
+<!-- Network Error Popup -->
+<div id="networkErrorPopup" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M6.343 6.343a9 9 0 000 12.728m2.829-2.829a5 5 0 000-7.072M12 12h.01"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-800 mb-2">No Connection</h3>
+        <p class="text-sm text-gray-600 mb-5">Please check your internet connection and try again.</p>
+        <button onclick="closeNetworkErrorPopup()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">OK</button>
+    </div>
+</div>
+
 </body>
 </html>
