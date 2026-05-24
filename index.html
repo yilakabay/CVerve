@@ -633,6 +633,87 @@
             finally { hideLoadingOverlay(); }
         }
 
+        // ── Delete Account Flow ───────────────────────────────────────────────
+
+        function startDeleteAccount() {
+            document.getElementById('deleteStep1').classList.remove('hidden');
+            document.getElementById('deleteStep2').classList.add('hidden');
+            document.getElementById('deleteOtpInput').value = '';
+            document.getElementById('deleteAccountModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteAccountModal').classList.add('hidden');
+        }
+
+        async function sendDeleteOtp() {
+            if (!userId) return;
+            showLoadingOverlay('Sending confirmation code...');
+            try {
+                const response = await fetch('/.netlify/functions/send-delete-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: userId })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    document.getElementById('deleteStep1').classList.add('hidden');
+                    document.getElementById('deleteStep2').classList.remove('hidden');
+                    document.getElementById('deleteOtpInput').focus();
+                    showMessage('success', 'Confirmation code sent to your Telegram.');
+                } else {
+                    showMessage('error', data.error || 'Could not send code. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        async function resendDeleteOtp() {
+            if (!userId) return;
+            showLoadingOverlay('Resending code...');
+            try {
+                const response = await fetch('/.netlify/functions/send-delete-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: userId })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    document.getElementById('deleteOtpInput').value = '';
+                    document.getElementById('deleteOtpInput').focus();
+                    showMessage('success', 'A new code was sent to your Telegram.');
+                } else {
+                    showMessage('error', data.error || 'Could not resend code.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
+        async function confirmDeleteAccount() {
+            const otp = document.getElementById('deleteOtpInput').value.trim();
+            if (!otp || otp.length !== 6) { showMessage('error', 'Please enter the 6-digit code'); return; }
+            if (!userId) return;
+            showLoadingOverlay('Deleting your account...');
+            try {
+                const response = await fetch('/.netlify/functions/delete-account', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: userId, otp })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    closeDeleteModal();
+                    userId = null;
+                    userBalance = 0;
+                    showMessage('success', 'Your account has been deleted.');
+                    setTimeout(() => toggleLoginScreen(true), 1500);
+                } else {
+                    showMessage('error', data.error || 'Deletion failed. Please try again.');
+                }
+            } catch { showMessage('error', 'Network error. Please try again.'); }
+            finally { hideLoadingOverlay(); }
+        }
+
         function showMessage(type, message) {
             const messageBox = document.getElementById('messageBox'), messageText = document.getElementById('messageText');
             const color = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-yellow-500';
@@ -2759,8 +2840,66 @@
                 <h2 class="text-xl font-semibold mb-4 text-center">Payment &amp; Balance</h2>
                 <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow mb-4"><span class="text-lg font-bold text-gray-700">Balance: <span id="balanceDisplay">0.00</span> ETB</span><button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-md">Top Up</button></div>
                 <div class="bg-blue-50 rounded-lg p-4 text-sm text-blue-800"><p class="font-semibold mb-1">How top-ups work:</p><p>After you submit a payment receipt, it will be reviewed by our team and credited to your account within <strong>6 hours</strong>. Your balance will update automatically once verified.</p></div>
+
+                <!-- Account actions -->
+                <div class="mt-6 border-t border-gray-200 pt-5">
+                    <p class="text-xs text-gray-400 text-center mb-3">Account</p>
+                    <button onclick="toggleLoginScreen(true)" class="w-full mb-3 py-2 px-4 rounded-full font-semibold text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
+                        Log Out
+                    </button>
+                    <button onclick="startDeleteAccount()" class="w-full py-2 px-4 rounded-full font-semibold text-sm border border-red-300 text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        Delete My Account
+                    </button>
+                </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Delete Account Modal -->
+<div id="deleteAccountModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 px-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+
+        <!-- Step 1: Warning / confirm intent -->
+        <div id="deleteStep1" class="p-6">
+            <div class="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-gray-800 text-center mb-2">Delete Account?</h3>
+            <p class="text-sm text-gray-500 text-center mb-4">This will permanently delete your account and all your data. <strong class="text-red-600">This cannot be undone.</strong></p>
+            <div class="bg-red-50 rounded-xl p-3 mb-5 text-xs text-red-700 space-y-1">
+                <p>&#8226; Your balance will be lost</p>
+                <p>&#8226; Your stored profile and CV will be deleted</p>
+                <p>&#8226; You will not be able to log in again</p>
+            </div>
+            <p class="text-sm text-gray-600 text-center mb-4">To confirm, we'll send a verification code to your Telegram.</p>
+            <button onclick="sendDeleteOtp()" class="w-full bg-red-600 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-red-700 transition-colors shadow-md mb-3">
+                Send Confirmation Code
+            </button>
+            <button onclick="closeDeleteModal()" class="w-full py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+        </div>
+
+        <!-- Step 2: Enter OTP -->
+        <div id="deleteStep2" class="hidden p-6">
+            <div class="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-gray-800 text-center mb-1">Enter Confirmation Code</h3>
+            <p class="text-sm text-gray-500 text-center mb-5">Enter the 6-digit code sent to your Telegram to confirm account deletion.</p>
+            <input type="tel" id="deleteOtpInput" maxlength="6" placeholder="000000"
+                class="w-full px-4 py-3 rounded-lg border border-red-300 focus:outline-none focus:ring-2 focus:ring-red-400 text-center text-2xl font-mono tracking-widest mb-5"
+                oninput="this.value=this.value.replace(/\D/g,'')"
+                onkeydown="if(event.key==='Enter') confirmDeleteAccount()">
+            <button onclick="confirmDeleteAccount()" class="w-full bg-red-600 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-red-700 transition-colors shadow-md mb-3">
+                Delete My Account Forever
+            </button>
+            <div class="flex items-center justify-between text-sm px-1">
+                <button onclick="closeDeleteModal()" class="text-gray-500 hover:text-gray-700">Cancel</button>
+                <button onclick="resendDeleteOtp()" class="text-red-500 font-semibold hover:underline">Resend code</button>
+            </div>
+        </div>
+
     </div>
 </div>
 
