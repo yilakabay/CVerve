@@ -413,7 +413,11 @@
             stopMergeAnimation();
             const dot = document.getElementById('mergeStepDot');
             const label = document.getElementById('mergeStepText');
-            if (dot) { dot.style.width='22px'; dot.style.height='22px'; }
+            if (dot) {
+                dot.style.width='22px'; dot.style.height='22px';
+                // Re-inject SVG to restart the CSS animation cleanly
+                dot.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:22px;height:22px;flex-shrink:0;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#miniLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`;
+            }
             if (label) {
                 label.style.background='linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
                 label.style.webkitBackgroundClip='text'; label.style.webkitTextFillColor='transparent'; label.style.backgroundClip='text';
@@ -662,7 +666,12 @@
             const step = STEPS[idx];
             const icon = document.getElementById(`${step.id}-icon`), label = document.getElementById(`${step.id}-label`);
             const chevronBtn = document.getElementById(`${step.id}-chevron`);
-            if (icon) { icon.className = 'step-icon flex-shrink-0'; icon.style.width='22px'; icon.style.height='22px'; icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:22px;height:22px;flex-shrink:0;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#miniLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`; }
+            if (icon) {
+                icon.className = 'step-icon flex-shrink-0';
+                icon.style.width='22px'; icon.style.height='22px';
+                // Re-inject to restart the CSS dash animation
+                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:22px;height:22px;flex-shrink:0;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#miniLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`;
+            }
             if (label) {
                 label.className = 'step-label text-sm font-medium flex-1';
                 label.style.background = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
@@ -715,6 +724,8 @@
             const dot = document.getElementById('currentStepDot');
             if (!label || !dot) return;
             dot.style.width = '22px'; dot.style.height = '22px';
+            // Re-inject SVG to restart the CSS dash animation cleanly
+            dot.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:22px;height:22px;flex-shrink:0;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#miniLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>`;
             label.style.background = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
             label.style.webkitBackgroundClip = 'text';
             label.style.webkitTextFillColor = 'transparent';
@@ -1636,11 +1647,42 @@
             flex-shrink:0; pointer-events:auto;
         }
         #editorCopyBtn:hover { background:#f0f0ff; border-color:#a5b4fc; }
+
+        /* ── CVerve Logo Animation ─────────────────────────────── */
+        @keyframes logoSpin {
+            0%   { stroke-dashoffset: 3000; opacity: 0.3; }
+            30%  { opacity: 1; }
+            70%  { stroke-dashoffset: 600; opacity: 1; }
+            100% { stroke-dashoffset: 0; opacity: 0.4; }
+        }
+        @keyframes logoLoop {
+            0%   { stroke-dashoffset: 3000; }
+            60%  { stroke-dashoffset: 0; }
+            80%  { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 3000; }
+        }
+        @keyframes logoGlow {
+            0%, 100% { filter: drop-shadow(0 0 2px #22c55e66); }
+            33%       { filter: drop-shadow(0 0 4px #f9731688); }
+            66%       { filter: drop-shadow(0 0 4px #3b82f688); }
+        }
+        .mini-logo-path {
+            stroke-dasharray: 3000;
+            stroke-dashoffset: 3000;
+            animation: logoLoop 2.2s ease-in-out infinite, logoGlow 2.2s ease-in-out infinite;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-[Inter]">
-<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden"></svg>
-
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden">
+    <defs>
+        <linearGradient id="miniLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"   stop-color="#22c55e"/>
+            <stop offset="50%"  stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#3b82f6"/>
+        </linearGradient>
+    </defs>
+</svg>
 
 <div id="messageBox" class="hidden"><p id="messageText"></p></div>
 
