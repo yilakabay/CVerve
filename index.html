@@ -367,7 +367,7 @@
                     // User hasn't linked Telegram yet — show the "open bot" step
                     document.getElementById('registerForm').classList.add('hidden');
                     document.getElementById('telegramLinkForm').classList.remove('hidden');
-                    const botName = process.env.TELEGRAM_BOT_USERNAME || (window.CVERVE_BOT_USERNAME || 'your_bot');
+                    const botName = 'cverve_bot';
                     document.getElementById('telegramBotLink').href = `https://t.me/${botName}`;
                     document.getElementById('telegramBotLink').textContent = `Open @${botName}`;
                 } else if (response.ok && data.success) {
