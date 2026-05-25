@@ -962,9 +962,10 @@
                 max-width:260px;
                 word-break:break-word;
             `;
+            const textColor = isSuccess ? '#059669' : isError ? '#dc2626' : '#b45309';
             toast.innerHTML = `
                 <span style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px;"></span>
-                <span style="font-size:0.78rem;font-weight:500;color:#111827;line-height:1.4;">${message}</span>
+                <span style="font-size:0.78rem;font-weight:500;color:${textColor};line-height:1.4;">${message}</span>
             `;
             container.appendChild(toast);
             requestAnimationFrame(() => { toast.style.opacity='1'; toast.style.transform='translateX(0)'; });
@@ -3223,15 +3224,19 @@
         <div id="drawerCvOverlay" class="hidden absolute inset-0 bg-white bg-opacity-97 flex flex-col items-center justify-center z-10" style="border-radius:inherit;">
             <!-- Brand logo loading animation -->
             <div id="drawerCvOverlaySpinner" class="flex flex-col items-center select-none">
-                <div class="relative flex items-center justify-center mb-5" style="width:72px;height:72px;">
-                    <!-- Outer pulse ring -->
-                    <span class="absolute inline-flex w-full h-full rounded-full bg-indigo-200 opacity-60" style="animation:cvRingPulse 1.8s ease-out infinite;"></span>
-                    <!-- Middle ring -->
-                    <span class="absolute inline-flex rounded-full bg-indigo-300 opacity-40" style="width:54px;height:54px;animation:cvRingPulse 1.8s ease-out 0.3s infinite;"></span>
-                    <!-- Core circle with C -->
-                    <span class="relative flex items-center justify-center w-11 h-11 rounded-full bg-indigo-600 shadow-lg">
-                        <span style="font-size:1.15rem;font-weight:900;color:#fff;font-family:system-ui,sans-serif;letter-spacing:-0.04em;line-height:1;">C</span>
-                    </span>
+                <div class="relative flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:72px;height:72px;display:block;">
+                        <defs>
+                            <linearGradient id="drawerLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%"   stop-color="#22c55e"/>
+                                <stop offset="50%"  stop-color="#f97316"/>
+                                <stop offset="100%" stop-color="#3b82f6"/>
+                            </linearGradient>
+                        </defs>
+                        <g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#drawerLogoGrad)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round">
+                            <path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/>
+                        </g>
+                    </svg>
                 </div>
                 <!-- Wordmark -->
                 <p style="font-size:1.25rem;font-weight:800;letter-spacing:-0.04em;color:#4f46e5;font-family:system-ui,sans-serif;">
