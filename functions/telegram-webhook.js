@@ -70,28 +70,29 @@ exports.handler = async (event, context) => {
   const msg = update.message;
   if (!msg) return { statusCode: 200, body: 'OK' };
 
-  const chatId    = msg.chat.id;
-  const tgUserId  = String(msg.from.id);   // Telegram's permanent unique user ID
-  const text      = (msg.text || '').trim();
-  // Store username if available (the @handle)
+  const chatId     = msg.chat.id;
+  const tgUserId   = String(msg.from.id);
+  const text       = (msg.text || '').trim();
   const tgUsername = msg.from.username || null;
 
   try {
     await client.connect();
     const db       = client.db('cverve');
-    const tgCol    = db.collection('telegram_chats');   // tgUserId/phone → chatId map
+    const tgCol    = db.collection('telegram_chats');
     const otpCol   = db.collection('otp_codes');
+    const resetCol = db.collection('reset_otp_codes');
     const usersCol = db.collection('users');
 
     // ── /start ────────────────────────────────────────────────────────────────
     if (text === '/start' || text.startsWith('/start ')) {
-      // Check if this Telegram account already has a CVerve account
+      // Check if this Telegram account is already linked to a CVerve account
       const existing = await tgCol.findOne({ tgUserId });
       if (existing && existing.phoneNumber) {
         const user = await usersCol.findOne({ phoneNumber: existing.phoneNumber });
         if (user) {
           await sendMessage(botToken, chatId,
-            `✅ You already have a CVerve account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nPlease log in on the website.`
+            `✅ You already have a CVerve account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nIf you need to reset your password, tap the button below to share your phone number again.`,
+            shareButton
           );
           return { statusCode: 200, body: 'OK' };
         }
@@ -120,10 +121,9 @@ exports.handler = async (event, context) => {
       const tgFirstName = msg.from.first_name || '';
 
       // ── FRAUD CHECK 1: Has this Telegram user ID already registered? ──────
+      // (Only blocks if the tgUserId is linked to a DIFFERENT phone number)
       const existingTgRecord = await tgCol.findOne({ tgUserId });
       if (existingTgRecord && existingTgRecord.phoneNumber !== phoneNumber) {
-        // This Telegram account previously linked a DIFFERENT phone number
-        // Check if that previous phone has a real account
         const prevUser = await usersCol.findOne({ phoneNumber: existingTgRecord.phoneNumber });
         if (prevUser) {
           await sendMessage(botToken, chatId,
@@ -133,16 +133,67 @@ exports.handler = async (event, context) => {
         }
       }
 
-      // ── FRAUD CHECK 2: Has this phone number already been used? ───────────
+      // ── CHECK: Does this phone already have a CVerve account? ────────────
+      // If yes, this is an EXISTING USER linking Telegram (e.g. for password reset).
+      // We allow it — link their Telegram and deliver any pending OTP.
       const existingUser = await usersCol.findOne({ phoneNumber });
       if (existingUser) {
+        // ── FRAUD CHECK 2b: Is this phone already linked to a DIFFERENT Telegram? ─
+        const existingPhoneRecord = await tgCol.findOne({ phoneNumber });
+        if (existingPhoneRecord && existingPhoneRecord.tgUserId !== tgUserId) {
+          await sendMessage(botToken, chatId,
+            `⛔ This phone number is already linked to a different Telegram account. If this is your number, please contact support.`
+          );
+          return { statusCode: 200, body: 'OK' };
+        }
+
+        // Link (or update) this existing user's Telegram
+        await tgCol.findOneAndUpdate(
+          { tgUserId },
+          { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
+          { upsert: true }
+        );
+        await tgCol.findOneAndUpdate(
+          { phoneNumber },
+          { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
+          { upsert: true }
+        );
+
+        // Also update tgUserId on the user doc itself
+        await usersCol.updateOne({ phoneNumber }, { $set: { tgUserId } });
+
+        // Deliver any pending reset OTP immediately
+        const pendingReset = await resetCol.findOne({ phoneNumber, verified: false });
+        if (pendingReset && new Date() < new Date(pendingReset.expiresAt)) {
+          await sendMessage(botToken, chatId,
+            `🔑 *Your CVerve password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`,
+            { remove_keyboard: true }
+          );
+          return { statusCode: 200, body: 'OK' };
+        }
+
+        // Deliver any pending registration OTP (edge case)
+        const pendingOtp = await otpCol.findOne({ phoneNumber, verified: false });
+        if (pendingOtp && new Date() < new Date(pendingOtp.expiresAt)) {
+          await sendMessage(botToken, chatId,
+            `🔐 *Your CVerve verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+            { remove_keyboard: true }
+          );
+          return { statusCode: 200, body: 'OK' };
+        }
+
+        // No pending OTP — just confirm the link
         await sendMessage(botToken, chatId,
-          `⚠️ This phone number already has a CVerve account. Please log in on the website instead.`
+          `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nYou can now use password reset and will receive verification codes here.`,
+          { remove_keyboard: true }
         );
         return { statusCode: 200, body: 'OK' };
       }
 
-      // ── FRAUD CHECK 3: Is this phone number linked to a DIFFERENT Telegram? ─
+      // ── NEW USER registration path ────────────────────────────────────────
+      // (No existing account for this phone — proceed with registration flow)
+
+      // FRAUD CHECK 3: Is this phone linked to a DIFFERENT Telegram?
       const existingPhoneRecord = await tgCol.findOne({ phoneNumber });
       if (existingPhoneRecord && existingPhoneRecord.tgUserId !== tgUserId) {
         await sendMessage(botToken, chatId,
@@ -151,23 +202,20 @@ exports.handler = async (event, context) => {
         return { statusCode: 200, body: 'OK' };
       }
 
-      // All checks passed — store / update the mapping (now includes tgUsername)
+      // All checks passed — store / update the mapping
       await tgCol.findOneAndUpdate(
         { tgUserId },
         { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
         { upsert: true }
       );
-
-      // Also index by phoneNumber for fast lookup in send-otp
       await tgCol.findOneAndUpdate(
         { phoneNumber },
         { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
         { upsert: true }
       );
 
-      // Check for a pending OTP for this phone and send it immediately
+      // Check for a pending registration OTP and send it immediately
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
-
       if (pending && new Date() < new Date(pending.expiresAt)) {
         await sendMessage(botToken, chatId,
           `🔐 *Your CVerve verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
