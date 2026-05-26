@@ -1,8 +1,11 @@
 // functions/send-otp.js
-// POST body: { phoneNumber }
+// POST body: { phoneNumber, checkOnly? }
 //
-// Looks up the user's Telegram chat_id (stored when they shared their phone with the bot),
-// generates a 6-digit OTP, stores it, then sends it via Telegram.
+// If checkOnly === true:  just checks whether the user's Telegram chat_id exists
+//   and returns { needsTelegram: true/false } without generating or sending an OTP.
+//
+// Otherwise: looks up the user's Telegram chat_id (stored when they shared their
+//   phone with the bot), generates a 6-digit OTP, stores it, then sends it via Telegram.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -46,7 +49,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { phoneNumber } = body;
+  const { phoneNumber, checkOnly } = body;
 
   if (!phoneNumber) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Phone number is required' }) };
@@ -55,17 +58,34 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Phone number must start with 09 or 07 and be 10 digits total' }) };
   }
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Telegram bot not configured' }) };
-  }
-
   try {
     await client.connect();
     const db       = client.db('cverve');
     const usersCol = db.collection('users');
     const otpCol   = db.collection('otp_codes');
     const tgCol    = db.collection('telegram_chats');
+
+    // ── checkOnly mode: just report whether Telegram is linked, never send ──
+    if (checkOnly) {
+      const tgRecord = await tgCol.findOne({ phoneNumber });
+      if (!tgRecord) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: false, needsTelegram: true })
+        };
+      }
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true, needsTelegram: false })
+      };
+    }
+
+    // ── Full send mode ────────────────────────────────────────────────────────
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      return { statusCode: 500, body: JSON.stringify({ error: 'Telegram bot not configured' }) };
+    }
 
     // Check if user already exists
     const existing = await usersCol.findOne({ phoneNumber });
