@@ -49,10 +49,17 @@ function normalizePhone(phone) {
   return p;
 }
 
+// ── CHANGE: Button is now always visible in the chat bar.
+//   - removed one_time_keyboard: true  → button no longer disappears after one tap
+//   - added persistent: true           → button stays pinned below the text input
+//     at all times so users never have to type manually
+// NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
+//   that is a limitation of the Telegram platform itself and cannot be changed
+//   from the bot/webhook side.
 const shareButton = {
   keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
   resize_keyboard: true,
-  one_time_keyboard: true
+  persistent: true
 };
 
 exports.handler = async (event, context) => {
