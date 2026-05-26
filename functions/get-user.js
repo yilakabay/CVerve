@@ -32,11 +32,17 @@ exports.handler = async (event, context) => {
       const isPasswordValid = await bcrypt.compare(password, user.password);
       
       if (isPasswordValid) {
+        // Look up Telegram info for this phone
+        const tgCol = db.collection('telegram_chats');
+        const tgRecord = await tgCol.findOne({ phoneNumber });
+
         return {
           statusCode: 200,
           body: JSON.stringify({ 
             phoneNumber: user.phoneNumber, 
-            balance: user.balance 
+            balance: user.balance,
+            tgUsername: tgRecord?.username || null,
+            hasTelegram: !!tgRecord
           })
         };
       } else {
