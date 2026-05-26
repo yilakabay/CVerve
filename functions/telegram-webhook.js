@@ -73,6 +73,8 @@ exports.handler = async (event, context) => {
   const chatId    = msg.chat.id;
   const tgUserId  = String(msg.from.id);   // Telegram's permanent unique user ID
   const text      = (msg.text || '').trim();
+  // Store username if available (the @handle)
+  const tgUsername = msg.from.username || null;
 
   try {
     await client.connect();
@@ -149,17 +151,17 @@ exports.handler = async (event, context) => {
         return { statusCode: 200, body: 'OK' };
       }
 
-      // All checks passed — store / update the mapping
+      // All checks passed — store / update the mapping (now includes tgUsername)
       await tgCol.findOneAndUpdate(
         { tgUserId },
-        { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, updatedAt: new Date() } },
+        { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
         { upsert: true }
       );
 
       // Also index by phoneNumber for fast lookup in send-otp
       await tgCol.findOneAndUpdate(
         { phoneNumber },
-        { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, updatedAt: new Date() } },
+        { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
         { upsert: true }
       );
 
