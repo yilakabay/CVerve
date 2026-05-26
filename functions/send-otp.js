@@ -3,6 +3,10 @@
 //
 // Looks up the user's Telegram chat_id (stored when they shared their phone with the bot),
 // generates a 6-digit OTP, stores it, then sends it via Telegram.
+//
+// FIX: If a valid OTP was already sent (not expired, already delivered), we return
+// success immediately without generating/sending a new one. This prevents the
+// autopoll from firing a second OTP when Telegram is linked right after the first send.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -89,19 +93,17 @@ exports.handler = async (event, context) => {
     // Look up Telegram chat_id for this phone number
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
-    const otp       = generateOtp();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    // Store the OTP regardless — even if we can't send yet,
-    // the webhook will send it when the user shares their phone in Telegram
-    await otpCol.findOneAndUpdate(
-      { phoneNumber },
-      { $set: { phoneNumber, otp, expiresAt, verified: false, createdAt: new Date() } },
-      { upsert: true }
-    );
-
     if (!tgRecord) {
-      // User hasn't linked Telegram yet — tell them to open the bot first
+      // User hasn't linked Telegram yet.
+      // Store the OTP so the webhook can deliver it the moment they share their phone.
+      const otp       = generateOtp();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await otpCol.findOneAndUpdate(
+        { phoneNumber },
+        { $set: { phoneNumber, otp, expiresAt, verified: false, delivered: false, createdAt: new Date() } },
+        { upsert: true }
+      );
+
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -111,6 +113,29 @@ exports.handler = async (event, context) => {
         })
       };
     }
+
+    // ── Telegram IS linked — check if a valid OTP was already sent ──────────
+    // This is the key fix: the autopoll calls send-otp again after the user
+    // shares their phone. If we already sent an OTP that hasn't expired, we
+    // just return success without sending a second one.
+    const existingOtp = await otpCol.findOne({ phoneNumber, verified: false });
+    if (existingOtp && new Date() < new Date(existingOtp.expiresAt) && existingOtp.delivered) {
+      console.log(`OTP already delivered for ${phoneNumber}, skipping duplicate send`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true, message: 'Verification code already sent to your Telegram!' })
+      };
+    }
+
+    // Generate and send a fresh OTP
+    const otp       = generateOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await otpCol.findOneAndUpdate(
+      { phoneNumber },
+      { $set: { phoneNumber, otp, expiresAt, verified: false, delivered: false, createdAt: new Date() } },
+      { upsert: true }
+    );
 
     // Send OTP via Telegram
     const result = await httpsPost(
@@ -129,6 +154,9 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({ error: 'Failed to send Telegram message. Please try again.' })
       };
     }
+
+    // Mark as delivered so autopoll won't send again
+    await otpCol.updateOne({ phoneNumber }, { $set: { delivered: true } });
 
     console.log(`OTP sent via Telegram to chat_id ${tgRecord.chatId} for phone ${phoneNumber}`);
 
