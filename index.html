@@ -6,6 +6,11 @@
     <title>CVerve</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes onAutoFillStart { from {} to {} }
+        input:-webkit-autofill { animation-name: onAutoFillStart; animation-duration: 1ms; }
+        input:autofill         { animation-name: onAutoFillStart; animation-duration: 1ms; }
+    </style>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -198,10 +203,13 @@
                 jdUrl = e.target.value.trim();
                 if (jdUrl) { e.target.classList.remove('border-red-400'); e.target.classList.add('border-gray-300'); clearUploadError('jdError', null); }
             });
-            // Clear field errors on input
+            // Clear field errors on input, change, and browser autofill (animationstart)
             ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
-                document.getElementById(id)?.addEventListener('input', () => clearFieldError(id));
-                document.getElementById(id)?.addEventListener('change', () => clearFieldError(id));
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('input',          () => clearFieldError(id));
+                el.addEventListener('change',         () => clearFieldError(id));
+                el.addEventListener('animationstart', () => clearFieldError(id));
             });
         }
 
@@ -1206,6 +1214,7 @@
             document.getElementById('phone').value    = storedProfile.phone    || '';
             document.getElementById('email').value    = storedProfile.email    || '';
             document.getElementById('address').value  = storedProfile.address  || '';
+            ['fullName','phone','email','address'].forEach(clearFieldError);
             if (storedProfile.cvText) { storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true; cvFilesArray = []; updateCvFilesList(); document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'); document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename); document.getElementById('cvFileInputContainer').classList.add('hidden'); showMessage('success', 'Form autofilled with stored data.'); }
             else { showMessage('info', 'Form autofilled, but no CV text stored. Please upload CV files.'); }
         }
