@@ -343,7 +343,7 @@
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); toggleLoginScreen(false); }
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); toggleLoginScreen(false); }
                 else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
@@ -898,6 +898,9 @@
             userId = null;
             userBalance = 0;
             storedProfile = null;
+            localStorage.removeItem('cv_userId');
+            localStorage.removeItem('cv_userBalance');
+            localStorage.removeItem('cv_activeTab');
             document.getElementById('passwordInput').value = '';
             toggleLoginScreen(true);
         }
@@ -975,6 +978,9 @@
                     userId = null;
                     userBalance = 0;
                     storedProfile = null;
+                    localStorage.removeItem('cv_userId');
+                    localStorage.removeItem('cv_userBalance');
+                    localStorage.removeItem('cv_activeTab');
                     showMessage('success', 'Your account has been deleted.');
                     setTimeout(() => toggleLoginScreen(true), 1500);
                 } else {
@@ -1053,6 +1059,7 @@
             document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('border-b-2', 'border-indigo-500'));
             document.getElementById(`${tabName}-content`).classList.remove('hidden');
             document.getElementById(`${tabName}-button`).classList.add('border-b-2', 'border-indigo-500');
+            localStorage.setItem('cv_activeTab', tabName);
         };
 
         let mergedPdf = null;
@@ -2206,7 +2213,7 @@
             try {
                 const response = await fetch('/.netlify/functions/update-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, amount }) });
                 const data = await response.json();
-                if (response.ok) { userBalance = data.balance; const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); return true; }
+                if (response.ok) { userBalance = data.balance; localStorage.setItem('cv_userBalance', userBalance); const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); return true; }
             } catch { /* silent */ }
             return false;
         }
@@ -3363,7 +3370,20 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
+        // ── Restore session from localStorage ────────────────────────────────
+        const savedUserId = localStorage.getItem('cv_userId');
+        if (savedUserId) {
+            userId = savedUserId;
+            userBalance = parseFloat(localStorage.getItem('cv_userBalance') || '0');
+            const _bd = document.getElementById('drawerBalance');
+            if (_bd) _bd.textContent = userBalance.toFixed(2);
+            toggleLoginScreen(false);
+            // Restore active tab
+            const savedTab = localStorage.getItem('cv_activeTab');
+            if (savedTab) switchTab(savedTab);
+        }
+
         document.getElementById('sidebarGenerateBtn')?.addEventListener('click', () => {
             document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
             document.getElementById('phone').value    = document.getElementById('sb-phone').value;
