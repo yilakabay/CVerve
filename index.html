@@ -3787,10 +3787,10 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-// DESKTOP LAYOUT WIRING
+// DESKTOP LAYOUT WIRING  — never re-declares any existing function
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── Mirror desktop fields → hidden mobile fields (which the generate logic reads)
+// ── Mirror a desktop field value into the hidden mobile field
 function mirrorToMain(id, value) {
     const el = document.getElementById(id);
     if (el) el.value = value;
@@ -3798,232 +3798,112 @@ function mirrorToMain(id, value) {
 
 // ── Sync desktop fields ← mobile fields (e.g. after autofill)
 function syncDesktopFromMain() {
-    ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
-        const main = document.getElementById(id);
-        const dt   = document.getElementById('dt-' + id);
+    ['fullName','phone','email','address','appDate','targetPosition'].forEach(function(id) {
+        var main = document.getElementById(id);
+        var dt   = document.getElementById('dt-' + id);
         if (main && dt) dt.value = main.value;
     });
 }
 
-// ── Desktop tab switch
+// ── Desktop tab UI switch (visual only — real tab logic stays in original switchTab)
 function setDesktopTab(tab) {
-    const btnM = document.getElementById('dt-merger-btn');
-    const btnL = document.getElementById('dt-letter-btn');
-    const dlM  = document.getElementById('dl-merger');
-    const dlL  = document.getElementById('dl-letter');
-    const dcM  = document.getElementById('dc-merger');
-    const dcL  = document.getElementById('dc-letter');
-    const drNote = document.getElementById('dr-merger-note');
-
+    var btnM  = document.getElementById('dt-merger-btn');
+    var btnL  = document.getElementById('dt-letter-btn');
+    var dlM   = document.getElementById('dl-merger');
+    var dlL   = document.getElementById('dl-letter');
+    var dcM   = document.getElementById('dc-merger');
+    var dcL   = document.getElementById('dc-letter');
+    var drNote= document.getElementById('dr-merger-note');
+    if (!btnM) return;
     if (tab === 'merger') {
-        btnM?.classList.add('active');    btnL?.classList.remove('active');
-        dlM?.classList.remove('hidden');  dlL?.classList.add('hidden');
-        dcM?.classList.remove('hidden');  dcL?.classList.add('hidden');
-        drNote?.classList.remove('hidden');
+        btnM.classList.add('active');    btnL.classList.remove('active');
+        dlM.classList.remove('hidden');  dlL.classList.add('hidden');
+        dcM.classList.remove('hidden');  dcL.classList.add('hidden');
+        drNote && drNote.classList.remove('hidden');
     } else {
-        btnL?.classList.add('active');    btnM?.classList.remove('active');
-        dlL?.classList.remove('hidden');  dlM?.classList.add('hidden');
-        dcL?.classList.remove('hidden');  dcM?.classList.add('hidden');
-        drNote?.classList.add('hidden');
+        btnL.classList.add('active');    btnM.classList.remove('active');
+        dlL.classList.remove('hidden');  dlM.classList.add('hidden');
+        dcL.classList.remove('hidden');  dcM.classList.add('hidden');
+        drNote && drNote.classList.add('hidden');
         syncDesktopFromMain();
     }
 }
 
-// Patch switchTab to also update desktop
-const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
-function switchTab(tab) {
-    if (_origSwitchTab) _origSwitchTab(tab);
-    setDesktopTab(tab);
-}
-
-// ── Desktop generate button
+// ── Desktop Generate button handler
 function dtGenerate() {
-    // Push desktop fields → hidden main fields first
-    ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
-        const dt   = document.getElementById('dt-' + id);
-        const main = document.getElementById(id);
+    ['fullName','phone','email','address','appDate','targetPosition'].forEach(function(id) {
+        var dt   = document.getElementById('dt-' + id);
+        var main = document.getElementById(id);
         if (dt && main) main.value = dt.value;
     });
-    // Sync JD URL
-    const dtJdUrl = document.getElementById('jdUrlInput-dt');
+    var dtJdUrl = document.getElementById('jdUrlInput-dt');
     if (dtJdUrl && jdInputMode === 'url') {
         document.getElementById('jdUrlInput').value = dtJdUrl.value;
         jdUrl = dtJdUrl.value.trim();
     }
-    // Show desktop progress
-    dtShowLetterProgress();
     generateLetter();
 }
 
-// ── Desktop workspace state helpers: Letter
+// ── Desktop workspace state: Letter
 function dtShowLetterIdle()     { _dtLetterState('idle'); }
 function dtShowLetterProgress() { _dtLetterState('progress'); }
 function dtShowLetterResult()   { _dtLetterState('result'); }
 function _dtLetterState(s) {
-    const idle = document.getElementById('dc-letter-idle');
-    const prog = document.getElementById('dc-letter-progress');
-    const res  = document.getElementById('dc-letter-result');
+    var idle = document.getElementById('dc-letter-idle');
+    var prog = document.getElementById('dc-letter-progress');
+    var res  = document.getElementById('dc-letter-result');
     if (idle) idle.classList.toggle('hidden', s !== 'idle');
     if (prog) prog.classList.toggle('hidden', s !== 'progress');
     if (res)  res.classList.toggle('hidden',  s !== 'result');
 }
 
-// ── Desktop workspace state helpers: Merger
+// ── Desktop workspace state: Merger
 function dtShowMergerIdle()     { _dtMergerState('idle'); }
 function dtShowMergerProgress() { _dtMergerState('progress'); }
 function dtShowMergerResult()   { _dtMergerState('result'); }
 function _dtMergerState(s) {
-    const idle = document.getElementById('dc-merger-idle');
-    const prog = document.getElementById('dc-merger-progress');
-    const res  = document.getElementById('dc-merger-result');
+    var idle = document.getElementById('dc-merger-idle');
+    var prog = document.getElementById('dc-merger-progress');
+    var res  = document.getElementById('dc-merger-result');
     if (idle) idle.classList.toggle('hidden', s !== 'idle');
     if (prog) prog.classList.toggle('hidden', s !== 'progress');
     if (res)  res.classList.toggle('hidden',  s !== 'result');
 }
 
-// ── Keep desktop step text in sync with mobile
-const _stepTextObserver = new MutationObserver(() => {
-    const src = document.getElementById('currentStepText');
-    const dst = document.getElementById('dc-currentStepText');
-    if (src && dst) dst.textContent = src.textContent;
-});
-document.addEventListener('DOMContentLoaded', () => {
-    const el = document.getElementById('currentStepText');
-    if (el) _stepTextObserver.observe(el, { childList: true, subtree: true, characterData: true });
-
-    const elM = document.getElementById('mergeStepText');
-    if (elM) {
-        new MutationObserver(() => {
-            const dst = document.getElementById('dc-mergeStepText');
-            if (dst) dst.textContent = elM.textContent;
-        }).observe(elM, { childList: true, subtree: true, characterData: true });
-    }
-});
-
-// ── Mirror letterResult visibility → desktop
-const _letterResultObserver = new MutationObserver(() => {
-    const src = document.getElementById('letterResult');
-    if (!src) return;
-    if (!src.classList.contains('hidden')) {
-        dtShowLetterResult();
-        const fn = document.getElementById('letterFilename');
-        const dfn = document.getElementById('dc-letterFilename');
-        if (fn && dfn) dfn.textContent = fn.textContent;
-    }
-});
-document.addEventListener('DOMContentLoaded', () => {
-    const el = document.getElementById('letterResult');
-    if (el) _letterResultObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
-
-    const mr = document.getElementById('mergeResultCard');
-    if (mr) {
-        new MutationObserver(() => {
-            if (!mr.classList.contains('hidden')) dtShowMergerResult();
-        }).observe(mr, { attributes: true, attributeFilter: ['class'] });
-    }
-
-    // mirror mergerProgressView visibility
-    const mpv = document.getElementById('mergerProgressView');
-    if (mpv) {
-        new MutationObserver(() => {
-            if (!mpv.classList.contains('hidden')) dtShowMergerProgress();
-        }).observe(mpv, { attributes: true, attributeFilter: ['class'] });
-    }
-
-    // mirror generationView visibility
-    const gv = document.getElementById('generationView');
-    if (gv) {
-        new MutationObserver(() => {
-            if (!gv.classList.contains('hidden')) dtShowLetterProgress();
-            else if (document.getElementById('letterResult')?.classList.contains('hidden')) dtShowLetterIdle();
-        }).observe(gv, { attributes: true, attributeFilter: ['class'] });
-    }
-});
-
-// ── Mirror PDF file list to desktop panel
+// ── Sync file lists to desktop mirrors
 function syncPdfListDesktop() {
-    const src = document.getElementById('pdfFilesList');
-    const dst = document.getElementById('pdfFilesList-dt');
+    var src = document.getElementById('pdfFilesList');
+    var dst = document.getElementById('pdfFilesList-dt');
     if (src && dst) dst.innerHTML = src.innerHTML;
 }
-const _origUpdatePdfFilesList = typeof updatePdfFilesList === 'function' ? updatePdfFilesList : null;
-function updatePdfFilesList() {
-    if (_origUpdatePdfFilesList) _origUpdatePdfFilesList();
-    setTimeout(syncPdfListDesktop, 50);
-}
-
-// ── Mirror CV file list to desktop panel
 function syncCvListDesktop() {
-    const src = document.getElementById('cvFilesList');
-    const dst = document.getElementById('cvFilesList-dt');
+    var src = document.getElementById('cvFilesList');
+    var dst = document.getElementById('cvFilesList-dt');
     if (src && dst) dst.innerHTML = src.innerHTML;
-    // stored badge
-    const badge = document.getElementById('cvStoredBadgeContainer');
-    const badgeDt = document.getElementById('cvStoredBadgeContainer-dt');
+    var badge   = document.getElementById('cvStoredBadgeContainer');
+    var badgeDt = document.getElementById('cvStoredBadgeContainer-dt');
     if (badge && badgeDt) {
         badgeDt.classList.toggle('hidden', badge.classList.contains('hidden'));
-        const fn = document.getElementById('cvStoredFilename');
-        const fnDt = document.getElementById('cvStoredFilename-dt');
+        var fn   = document.getElementById('cvStoredFilename');
+        var fnDt = document.getElementById('cvStoredFilename-dt');
         if (fn && fnDt) fnDt.textContent = fn.textContent;
     }
 }
-const _origUpdateCvFilesList = typeof updateCvFilesList === 'function' ? updateCvFilesList : null;
-function updateCvFilesList() {
-    if (_origUpdateCvFilesList) _origUpdateCvFilesList();
-    setTimeout(syncCvListDesktop, 50);
-}
 
-// ── Mirror JD mode toggle to desktop
-const _origSwitchJdInputMode = typeof switchJdInputMode === 'function' ? switchJdInputMode : null;
-function switchJdInputMode(mode) {
-    if (_origSwitchJdInputMode) _origSwitchJdInputMode(mode);
-    // sync desktop toggle
-    const urlBtn  = document.getElementById('jdBtnUrl-dt');
-    const fileBtn = document.getElementById('jdBtnFile-dt');
-    const urlPnl  = document.getElementById('jdUrlPanel-dt');
-    const filePnl = document.getElementById('jdFilePanel-dt');
-    if (!urlBtn) return;
-    if (mode === 'url') {
-        urlBtn.className  = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all';
-        fileBtn.className = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all';
-        urlPnl?.classList.remove('hidden');
-        filePnl?.classList.add('hidden');
-    } else {
-        fileBtn.className = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all';
-        urlBtn.className  = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all';
-        filePnl?.classList.remove('hidden');
-        urlPnl?.classList.add('hidden');
-        // sync jd files list
-        setTimeout(() => {
-            const src = document.getElementById('jdFilesList');
-            const dst = document.getElementById('jdFilesList-dt');
-            if (src && dst) dst.innerHTML = src.innerHTML;
-        }, 50);
-    }
-}
-
-// ── Mirror autofill to desktop fields
-const _origAutofillForm = typeof autofillForm === 'function' ? autofillForm : null;
-function autofillForm() {
-    if (_origAutofillForm) _origAutofillForm();
-    setTimeout(syncDesktopFromMain, 100);
-}
-
-// ── Update right panel balance & profile on desktop
+// ── Update right panel balance & profile
 function updateDesktopRight() {
-    const balEl = document.getElementById('dr-balance');
+    var balEl = document.getElementById('dr-balance');
     if (balEl) balEl.textContent = (userBalance || 0).toFixed(2);
-
-    const noP   = document.getElementById('dr-no-profile');
-    const card  = document.getElementById('dr-profile-card');
+    var noP  = document.getElementById('dr-no-profile');
+    var card = document.getElementById('dr-profile-card');
     if (!noP || !card) return;
     if (storedProfile) {
         noP.classList.add('hidden');
         card.classList.remove('hidden');
-        document.getElementById('dr-pName').textContent    = storedProfile.fullName  || '—';
-        document.getElementById('dr-pPhone').textContent   = storedProfile.phone     || '—';
-        document.getElementById('dr-pEmail').textContent   = storedProfile.email     || '—';
-        document.getElementById('dr-pAddress').textContent = storedProfile.address   || '—';
+        document.getElementById('dr-pName').textContent    = storedProfile.fullName   || '—';
+        document.getElementById('dr-pPhone').textContent   = storedProfile.phone      || '—';
+        document.getElementById('dr-pEmail').textContent   = storedProfile.email      || '—';
+        document.getElementById('dr-pAddress').textContent = storedProfile.address    || '—';
         document.getElementById('dr-pCv').textContent      = storedProfile.cvFilename || 'No CV uploaded';
     } else {
         noP.classList.remove('hidden');
@@ -4031,49 +3911,144 @@ function updateDesktopRight() {
     }
 }
 
-// Patch loadStoredProfileFromServer to also refresh desktop right panel
-const _origLoadStoredProfile = typeof loadStoredProfileFromServer === 'function' ? loadStoredProfileFromServer : null;
-async function loadStoredProfileFromServer() {
-    if (_origLoadStoredProfile) await _origLoadStoredProfile();
-    updateDesktopRight();
-    syncCvListDesktop();
-    syncDesktopFromMain();
-}
-
-// Also patch updateBalance to refresh dr-balance
-const _origUpdateBalance = typeof updateBalance === 'function' ? updateBalance : null;
-async function updateBalance(amount) {
-    if (_origUpdateBalance) await _origUpdateBalance(amount);
-    const balEl = document.getElementById('dr-balance');
-    if (balEl) balEl.textContent = (userBalance || 0).toFixed(2);
-}
-
-// ── resetMerger: bring desktop back to idle
-const _origResetMerger = typeof resetMerger === 'function' ? resetMerger : null;
-function resetMerger() {
-    if (_origResetMerger) _origResetMerger();
-    dtShowMergerIdle();
-}
-
-// ── resetToForm: bring desktop letter back to idle
-const _origResetToForm = typeof resetToForm === 'function' ? resetToForm : null;
-function resetToForm() {
-    if (_origResetToForm) _origResetToForm();
-    dtShowLetterIdle();
-}
-
-// ── Init desktop on page load (called from toggleLoginScreen)
-const _origToggleLoginScreen = typeof toggleLoginScreen === 'function' ? toggleLoginScreen : null;
-function toggleLoginScreen(show) {
-    if (_origToggleLoginScreen) _origToggleLoginScreen(show);
-    if (!show) {
-        setTimeout(() => {
-            setDesktopTab('merger'); // default tab
-            updateDesktopRight();
-            syncDesktopFromMain();
-        }, 200);
+// ── Sync desktop JD toggle appearance
+function syncDtJdMode(mode) {
+    var urlBtn  = document.getElementById('jdBtnUrl-dt');
+    var fileBtn = document.getElementById('jdBtnFile-dt');
+    var urlPnl  = document.getElementById('jdUrlPanel-dt');
+    var filePnl = document.getElementById('jdFilePanel-dt');
+    if (!urlBtn) return;
+    var activeClass   = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all';
+    var inactiveClass = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all';
+    if (mode === 'url') {
+        urlBtn.className  = activeClass;
+        fileBtn.className = inactiveClass;
+        urlPnl  && urlPnl.classList.remove('hidden');
+        filePnl && filePnl.classList.add('hidden');
+    } else {
+        fileBtn.className = activeClass;
+        urlBtn.className  = inactiveClass;
+        filePnl && filePnl.classList.remove('hidden');
+        urlPnl  && urlPnl.classList.add('hidden');
+        setTimeout(function() {
+            var src = document.getElementById('jdFilesList');
+            var dst = document.getElementById('jdFilesList-dt');
+            if (src && dst) dst.innerHTML = src.innerHTML;
+        }, 50);
     }
 }
+
+// ── All observers + hooks wired up after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+
+    // ── Observe mobile tab buttons to mirror desktop tab highlight
+    document.getElementById('merger-button')?.addEventListener('click', function() { setDesktopTab('merger'); });
+    document.getElementById('letter-button')?.addEventListener('click', function() { setDesktopTab('letter'); syncDesktopFromMain(); });
+
+    // ── Observe pdfFilesList changes → sync desktop
+    var pdfList = document.getElementById('pdfFilesList');
+    if (pdfList) new MutationObserver(syncPdfListDesktop).observe(pdfList, { childList: true, subtree: true });
+
+    // ── Observe cvFilesList changes → sync desktop
+    var cvList = document.getElementById('cvFilesList');
+    if (cvList) new MutationObserver(syncCvListDesktop).observe(cvList, { childList: true, subtree: true });
+
+    // ── Observe cvStoredBadgeContainer visibility → sync desktop badge
+    var cvBadge = document.getElementById('cvStoredBadgeContainer');
+    if (cvBadge) new MutationObserver(syncCvListDesktop).observe(cvBadge, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
+
+    // ── Observe JD toggle buttons → mirror to desktop
+    document.getElementById('jdBtnUrl')?.addEventListener('click',  function() { syncDtJdMode('url');  });
+    document.getElementById('jdBtnFile')?.addEventListener('click', function() { syncDtJdMode('file'); });
+
+    // ── Observe mergerProgressView → desktop merger workspace
+    var mpv = document.getElementById('mergerProgressView');
+    if (mpv) new MutationObserver(function() {
+        if (!mpv.classList.contains('hidden')) dtShowMergerProgress();
+    }).observe(mpv, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe mergeResultCard → desktop merger result
+    var mrc = document.getElementById('mergeResultCard');
+    if (mrc) new MutationObserver(function() {
+        if (!mrc.classList.contains('hidden')) dtShowMergerResult();
+    }).observe(mrc, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe generationView → desktop letter workspace
+    var gv = document.getElementById('generationView');
+    if (gv) new MutationObserver(function() {
+        if (!gv.classList.contains('hidden')) dtShowLetterProgress();
+        else {
+            var lr = document.getElementById('letterResult');
+            if (!lr || lr.classList.contains('hidden')) dtShowLetterIdle();
+        }
+    }).observe(gv, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe letterResult → desktop letter result
+    var lr = document.getElementById('letterResult');
+    if (lr) new MutationObserver(function() {
+        if (!lr.classList.contains('hidden')) {
+            dtShowLetterResult();
+            var fn  = document.getElementById('letterFilename');
+            var dfn = document.getElementById('dc-letterFilename');
+            if (fn && dfn) dfn.textContent = fn.textContent;
+        }
+    }).observe(lr, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe mergeStepText → desktop
+    var mst = document.getElementById('mergeStepText');
+    if (mst) new MutationObserver(function() {
+        var dst = document.getElementById('dc-mergeStepText');
+        if (dst) dst.textContent = mst.textContent;
+    }).observe(mst, { childList: true, subtree: true, characterData: true });
+
+    // ── Observe currentStepText → desktop
+    var cst = document.getElementById('currentStepText');
+    if (cst) new MutationObserver(function() {
+        var dst = document.getElementById('dc-currentStepText');
+        if (dst) dst.textContent = cst.textContent;
+    }).observe(cst, { childList: true, subtree: true, characterData: true });
+
+    // ── Observe mainApp visibility → init desktop panels once logged in
+    var mainApp = document.getElementById('mainApp');
+    if (mainApp) new MutationObserver(function() {
+        if (!mainApp.classList.contains('hidden')) {
+            setTimeout(function() {
+                var savedTab = localStorage.getItem('cv_activeTab') || 'merger';
+                setDesktopTab(savedTab);
+                updateDesktopRight();
+                syncDesktopFromMain();
+                syncCvListDesktop();
+            }, 150);
+        }
+    }).observe(mainApp, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe drawerBalance → sync dr-balance
+    var db = document.getElementById('drawerBalance');
+    if (db) new MutationObserver(function() {
+        var drb = document.getElementById('dr-balance');
+        if (drb) drb.textContent = db.textContent;
+    }).observe(db, { childList: true, subtree: true, characterData: true });
+
+    // ── Observe autofillHint visibility as proxy for autofill completing
+    var afi = document.getElementById('autofillHint');
+    if (afi) new MutationObserver(function() { syncDesktopFromMain(); })
+        .observe(afi, { attributes: true, attributeFilter: ['class'] });
+
+    // ── Observe storedProfile changes via drawerProfileFields visibility
+    var dpf = document.getElementById('drawerProfileFields');
+    if (dpf) new MutationObserver(function() {
+        updateDesktopRight();
+    }).observe(dpf, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+
+    // initial tab state (in case already logged in via localStorage restore)
+    setTimeout(function() {
+        if (!document.getElementById('mainApp').classList.contains('hidden')) {
+            var savedTab = localStorage.getItem('cv_activeTab') || 'merger';
+            setDesktopTab(savedTab);
+            updateDesktopRight();
+        }
+    }, 300);
+});
 </script>
 
 <!-- System Error Popup -->
