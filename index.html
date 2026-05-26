@@ -1052,7 +1052,10 @@
         }
         function closeImageBasedPdfPopup() { document.getElementById('imageBasedPdfPopup').classList.add('hidden'); }
 
-        window.onload = () => toggleLoginScreen(true);
+        window.onload = () => {
+            const savedUserId = localStorage.getItem('cv_userId');
+            if (!savedUserId) toggleLoginScreen(true);
+        };
 
         window.switchTab = (tabName) => {
             document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
