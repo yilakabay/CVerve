@@ -10,6 +10,146 @@
         @keyframes onAutoFillStart { from {} to {} }
         input:-webkit-autofill { animation-name: onAutoFillStart; animation-duration: 1ms; }
         input:autofill         { animation-name: onAutoFillStart; animation-duration: 1ms; }
+
+        /* ── Desktop 3-column layout ─────────────────────────────────────── */
+        @media (min-width: 1024px) {
+            body { background: #f1f5f9; }
+
+            #mainApp {
+                display: flex !important;
+                flex-direction: column;
+                min-height: 100vh;
+            }
+
+            /* Top nav bar */
+            #desktopNav {
+                display: flex !important;
+            }
+
+            /* Hide the mobile header inside the card on desktop */
+            #mobileAppHeader { display: none !important; }
+            /* Hide the mobile tab bar on desktop */
+            #mobileTabBar { display: none !important; }
+
+            /* Full-width wrapper that holds the 3 columns */
+            #desktopLayout {
+                display: grid !important;
+                flex: 1;
+                grid-template-columns: 340px 1fr 300px;
+                gap: 0;
+                min-height: calc(100vh - 56px);
+            }
+
+            /* Left panel */
+            #desktopLeft {
+                background: #ffffff;
+                border-right: 1px solid #e2e8f0;
+                overflow-y: auto;
+                padding: 24px 20px;
+                display: flex !important;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            /* Center workspace */
+            #desktopCenter {
+                background: #f8fafc;
+                display: flex !important;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 32px 40px;
+                min-height: 100%;
+            }
+
+            /* Right info panel */
+            #desktopRight {
+                background: #ffffff;
+                border-left: 1px solid #e2e8f0;
+                overflow-y: auto;
+                padding: 24px 20px;
+                display: flex !important;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            /* Tab switcher inside left panel */
+            #desktopTabBar {
+                display: flex !important;
+            }
+
+            /* The original single-column card is hidden on desktop */
+            #mobileCard { display: none !important; }
+
+            /* Center workspace content fills nicely */
+            #desktopCenter .workspace-inner {
+                width: 100%;
+                max-width: 600px;
+            }
+        }
+
+        @media (max-width: 1023px) {
+            #desktopNav    { display: none !important; }
+            #desktopLayout { display: none !important; }
+            #mobileCard    { display: block !important; }
+        }
+
+        /* Desktop nav bar style */
+        #desktopNav {
+            height: 56px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 24px;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 30;
+        }
+
+        /* Desktop tab buttons */
+        .desktop-tab-btn {
+            padding: 6px 18px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+            background: transparent;
+            color: #64748b;
+        }
+        .desktop-tab-btn.active {
+            background: #4f46e5;
+            color: #fff;
+        }
+        .desktop-tab-btn:not(.active):hover {
+            background: #f1f5f9;
+            color: #4f46e5;
+        }
+
+        /* Right panel section heading */
+        .right-section-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin-bottom: 6px;
+        }
+
+        /* Workspace idle state */
+        .workspace-idle {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 12px;
+            color: #94a3b8;
+            padding: 48px 0;
+        }
+        .workspace-idle svg { opacity: 0.35; }
     </style>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -2926,15 +3066,257 @@
 
 <!-- Main Application -->
 <div id="mainApp" class="hidden">
+
+    <!-- ══ DESKTOP NAV BAR ══════════════════════════════════════════════════ -->
+    <nav id="desktopNav" style="display:none;">
+        <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="133 415 371 243" style="height:1.4em;width:auto;display:inline-block;vertical-align:middle;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="#4f46e5" stroke="none"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>
+            <span class="text-xl font-bold text-indigo-600" style="letter-spacing:-0.04em;">C<span class="text-indigo-400">Verve</span></span>
+        </div>
+        <!-- Desktop tab switcher -->
+        <div id="desktopTabBar" style="display:none;" class="flex items-center gap-1 bg-gray-100 p-1 rounded-full">
+            <button id="dt-merger-btn" class="desktop-tab-btn active" onclick="switchTab('merger');setDesktopTab('merger')">PDF Merger</button>
+            <button id="dt-letter-btn" class="desktop-tab-btn" onclick="switchTab('letter');setDesktopTab('letter')">Application Letter</button>
+        </div>
+        <button onclick="openAccountDrawer()" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors text-sm font-semibold text-indigo-600">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Account
+        </button>
+    </nav>
+
+    <!-- ══ DESKTOP 3-COLUMN LAYOUT ══════════════════════════════════════════ -->
+    <div id="desktopLayout" style="display:none;">
+
+        <!-- LEFT: User action panel -->
+        <div id="desktopLeft">
+            <!-- PDF MERGER LEFT -->
+            <div id="dl-merger" class="desktop-left-panel">
+                <p class="right-section-title">Upload PDFs</p>
+                <div class="space-y-3">
+                    <div class="file-input-container">
+                        <div id="pdfError-dt" class="hidden text-xs text-red-500 mb-1"></div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-sm font-bold text-gray-700">Upload PDFs in order</span>
+                            <button type="button" onclick="document.getElementById('pdfInput').click()"
+                                class="p-1.5 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition flex-shrink-0" title="Upload PDF">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <!-- Mirror of the mobile pdfFilesList — we reference the same array but show in desktop -->
+                        <div id="pdfFilesList-dt" class="overflow-y-auto" style="max-height:300px;"></div>
+                    </div>
+                    <button onclick="mergePdfs()" class="w-full bg-indigo-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-sm text-sm">Merge PDFs</button>
+                </div>
+            </div>
+
+            <!-- LETTER FORM LEFT -->
+            <div id="dl-letter" class="desktop-left-panel hidden">
+                <p class="right-section-title">Fill In Details</p>
+                <div class="space-y-3">
+                    <div id="autofillHint-dt" class="hidden text-xs text-green-600 bg-green-50 p-1.5 rounded text-center">Saved profile — click Autofill</div>
+                    <button onclick="autofillForm()" class="w-full text-xs bg-indigo-50 text-indigo-700 rounded-full px-3 py-1.5 hover:bg-indigo-100 transition flex items-center justify-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        Autofill from stored profile
+                    </button>
+                    <input type="text"  id="dt-fullName" placeholder="Full Name"     class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('fullName',this.value)" onchange="mirrorToMain('fullName',this.value)">
+                    <input type="tel"   id="dt-phone"    placeholder="Phone Number"  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('phone',this.value)" onchange="mirrorToMain('phone',this.value)">
+                    <input type="email" id="dt-email"    placeholder="Email"         class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('email',this.value)" onchange="mirrorToMain('email',this.value)">
+                    <input type="text"  id="dt-address"  placeholder="Address"       class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('address',this.value)" onchange="mirrorToMain('address',this.value)">
+                    <input type="date"  id="dt-appDate"  placeholder="Application Date" class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('appDate',this.value)" onchange="mirrorToMain('appDate',this.value)">
+                    <input type="text"  id="dt-targetPosition" placeholder="Position (e.g. Software Engineer)" class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('targetPosition',this.value)" onchange="mirrorToMain('targetPosition',this.value)">
+
+                    <!-- CV upload -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-bold text-gray-700">CV (Image, Word or PDF)</span>
+                            <button type="button" onclick="document.getElementById('cvFile').click()"
+                                class="p-1 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition" title="Upload CV">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="cvStoredBadgeContainer-dt" class="hidden mt-1">
+                            <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                    <span class="text-xs text-indigo-800">Stored CV: <span id="cvStoredFilename-dt" class="font-mono"></span></span>
+                                </div>
+                                <button onclick="replaceStoredCv()" class="text-xs bg-white text-indigo-600 border border-indigo-300 rounded-full px-2 py-0.5 hover:bg-indigo-100 transition">Replace</button>
+                            </div>
+                        </div>
+                        <div id="cvFilesList-dt" class="mt-1 overflow-y-auto" style="max-height:120px;"></div>
+                    </div>
+
+                    <!-- JD input -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-xs font-bold text-gray-700">Job Description</span>
+                            <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+                                <button id="jdBtnUrl-dt"  onclick="switchJdInputMode('url')"  class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all">🔗 Link</button>
+                                <button id="jdBtnFile-dt" onclick="switchJdInputMode('file')" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all">📄 File</button>
+                            </div>
+                        </div>
+                        <div id="jdUrlPanel-dt">
+                            <input type="url" id="jdUrlInput-dt" placeholder="Paste job posting URL…"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                                oninput="document.getElementById('jdUrlInput').value=this.value;jdUrl=this.value.trim()">
+                        </div>
+                        <div id="jdFilePanel-dt" class="hidden">
+                            <button type="button" onclick="document.getElementById('jdFile').click()" class="flex items-center gap-1 text-xs text-indigo-600 hover:underline">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/></svg>
+                                Upload JD file
+                            </button>
+                            <div id="jdFilesList-dt" class="mt-1 overflow-y-auto" style="max-height:80px;"></div>
+                        </div>
+                    </div>
+
+                    <button onclick="dtGenerate()" class="w-full bg-indigo-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-sm text-sm">Generate Application Letter</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: Workspace / results -->
+        <div id="desktopCenter">
+            <div class="workspace-inner w-full">
+
+                <!-- MERGER workspace -->
+                <div id="dc-merger">
+                    <!-- Idle -->
+                    <div id="dc-merger-idle" class="workspace-idle">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <p class="text-base font-semibold text-slate-400">Upload PDFs and click Merge</p>
+                        <p class="text-sm text-slate-300">The merged file will appear here</p>
+                    </div>
+                    <!-- Progress (mirror of mobile) -->
+                    <div id="dc-merger-progress" class="hidden w-full">
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 flex flex-col items-center gap-4">
+                            <div id="dc-mergeStepDot" style="width:64px;height:64px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:64px;height:64px;display:block;"><defs><linearGradient id="pgLogoGrad2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#f97316"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad2)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
+                            <span id="dc-mergeStepText" class="text-base font-medium" style="background:linear-gradient(90deg,#22c55e,#f97316,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Merging your PDFs…</span>
+                        </div>
+                    </div>
+                    <!-- Result -->
+                    <div id="dc-merger-result" class="hidden w-full">
+                        <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-8 flex flex-col items-center gap-5">
+                            <div class="w-16 h-16 bg-red-50 rounded-xl flex items-center justify-center">
+                                <svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            </div>
+                            <div class="text-center">
+                                <p class="font-semibold text-gray-800">cverve_merged.pdf</p>
+                                <p class="text-xs text-gray-400 mt-0.5">Merged PDF — ready to download</p>
+                            </div>
+                            <button onclick="downloadMergedPdf()" class="flex items-center gap-2 bg-emerald-500 text-white py-2.5 px-8 rounded-full font-semibold hover:bg-emerald-600 transition shadow-md">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                Download
+                            </button>
+                            <button onclick="resetMerger()" class="text-xs text-gray-400 hover:text-indigo-600 transition">← Merge another PDFs</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LETTER workspace -->
+                <div id="dc-letter" class="hidden">
+                    <!-- Idle -->
+                    <div id="dc-letter-idle" class="workspace-idle">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        <p class="text-base font-semibold text-slate-400">Fill in your details and generate</p>
+                        <p class="text-sm text-slate-300">Your letter will appear here</p>
+                    </div>
+                    <!-- Generation in progress -->
+                    <div id="dc-letter-progress" class="hidden w-full">
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 flex flex-col items-center gap-4">
+                            <div id="dc-currentStepDot" style="width:64px;height:64px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1066" style="width:64px;height:64px;display:block;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="none" stroke="url(#pgLogoGrad2)" stroke-width="240" stroke-linecap="round" stroke-linejoin="round"><path class="mini-logo-path" d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg></div>
+                            <span id="dc-currentStepText" class="text-base font-medium" style="background:linear-gradient(90deg,#22c55e,#f97316,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Organising your CV…</span>
+                            <div class="flex gap-2 mt-2">
+                                <button onclick="stopGeneration()" class="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition px-3 py-1.5 rounded-full hover:bg-red-50 border border-gray-200">
+                                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Result -->
+                    <div id="dc-letter-result" class="hidden w-full">
+                        <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-8 flex flex-col items-center gap-5">
+                            <div class="w-16 h-16 bg-red-50 rounded-xl flex items-center justify-center">
+                                <svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            </div>
+                            <div class="text-center">
+                                <p id="dc-letterFilename" class="font-semibold text-gray-800">Letter.pdf</p>
+                                <p class="text-xs text-gray-400 mt-0.5">Application Letter — ready</p>
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="downloadLetterAsPdf()" class="flex items-center gap-1.5 bg-indigo-500 text-white py-2 px-5 rounded-full font-semibold hover:bg-indigo-600 transition shadow-sm text-sm">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    Download
+                                </button>
+                                <button onclick="openEditPopup()" class="flex items-center gap-1.5 bg-gray-100 text-gray-700 py-2 px-5 rounded-full font-semibold hover:bg-gray-200 transition text-sm">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                    Edit
+                                </button>
+                                <button onclick="mergeLetterTextWithCv()" class="flex items-center gap-1.5 bg-amber-500 text-white py-2 px-5 rounded-full font-semibold hover:bg-amber-600 transition shadow-sm text-sm">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                    Merge with CV
+                                </button>
+                            </div>
+                            <button onclick="resetToForm();dtShowLetterIdle()" class="text-xs text-gray-400 hover:text-indigo-600 transition">← Generate another letter</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- RIGHT: Info / balance panel -->
+        <div id="desktopRight">
+            <!-- Balance (always visible) -->
+            <div>
+                <p class="right-section-title">Balance</p>
+                <div class="bg-white border border-gray-200 rounded-xl px-4 py-3">
+                    <div class="flex items-center justify-between">
+                        <p class="text-2xl font-bold text-gray-800"><span id="dr-balance">0.00</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
+                        <button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-1.5 px-4 rounded-full font-semibold text-xs hover:bg-indigo-600 transition shadow-sm">Top Up</button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
+                </div>
+            </div>
+
+            <!-- Stored profile info -->
+            <div id="dr-profile-section">
+                <p class="right-section-title">Stored Profile</p>
+                <div id="dr-no-profile" class="text-xs text-gray-400 bg-gray-50 rounded-xl p-4 text-center">No profile saved yet.<br>Generate a letter to save your info.</div>
+                <div id="dr-profile-card" class="hidden bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-2 text-sm">
+                    <div><span class="text-xs text-gray-400 block">Name</span><span id="dr-pName" class="font-medium text-gray-700">—</span></div>
+                    <div><span class="text-xs text-gray-400 block">Phone</span><span id="dr-pPhone" class="font-medium text-gray-700">—</span></div>
+                    <div><span class="text-xs text-gray-400 block">Email</span><span id="dr-pEmail" class="font-medium text-gray-700 break-all">—</span></div>
+                    <div><span class="text-xs text-gray-400 block">Address</span><span id="dr-pAddress" class="font-medium text-gray-700">—</span></div>
+                    <div><span class="text-xs text-gray-400 block">CV</span><span id="dr-pCv" class="font-medium text-gray-700">—</span></div>
+                    <button onclick="openAccountDrawer()" class="w-full mt-1 text-xs text-indigo-500 hover:underline">Edit in Account →</button>
+                </div>
+            </div>
+
+            <!-- PDF merger: show uploaded files count / right panel note -->
+            <div id="dr-merger-note" class="hidden">
+                <p class="right-section-title">Ready to Merge</p>
+                <p class="text-xs text-gray-400">Upload your PDFs on the left panel and click Merge. The result will appear in the center.</p>
+            </div>
+        </div>
+
+    </div><!-- end desktopLayout -->
+
+    <!-- ══ MOBILE CARD (hidden on desktop) ══════════════════════════════════ -->
+    <div id="mobileCard">
     <div class="container mx-auto p-4 max-w-lg mt-8 rounded-xl shadow-lg bg-white">
-        <div class="flex items-center justify-between mb-6">
+        <div id="mobileAppHeader" class="flex items-center justify-between mb-6">
             <h1 class="text-3xl font-bold text-indigo-600 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="133 415 371 243" style="height:1em;width:auto;display:inline-block;vertical-align:middle;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="#4f46e5" stroke="none"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>CVerve</h1>
             <button onclick="openAccountDrawer()" class="w-9 h-9 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center transition-colors" title="Account">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </button>
         </div>
 
-        <div class="flex border-b border-gray-200 mb-4">
+        <div id="mobileTabBar" class="flex border-b border-gray-200 mb-4">
             <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/2 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
             <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/2 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
         </div>
@@ -3154,7 +3536,9 @@
         </div>
 
     </div>
-</div>
+    </div><!-- end mobileCard inner container -->
+    </div><!-- end mobileCard -->
+</div><!-- end mainApp -->
 
 <!-- Account Drawer Backdrop -->
 <div id="accountDrawerBackdrop" class="hidden fixed inset-0 bg-black bg-opacity-40 z-40" onclick="closeAccountDrawer()"></div>
@@ -3399,6 +3783,297 @@
             generateLetter();
         });
     });
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// DESKTOP LAYOUT WIRING
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Mirror desktop fields → hidden mobile fields (which the generate logic reads)
+function mirrorToMain(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+}
+
+// ── Sync desktop fields ← mobile fields (e.g. after autofill)
+function syncDesktopFromMain() {
+    ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
+        const main = document.getElementById(id);
+        const dt   = document.getElementById('dt-' + id);
+        if (main && dt) dt.value = main.value;
+    });
+}
+
+// ── Desktop tab switch
+function setDesktopTab(tab) {
+    const btnM = document.getElementById('dt-merger-btn');
+    const btnL = document.getElementById('dt-letter-btn');
+    const dlM  = document.getElementById('dl-merger');
+    const dlL  = document.getElementById('dl-letter');
+    const dcM  = document.getElementById('dc-merger');
+    const dcL  = document.getElementById('dc-letter');
+    const drNote = document.getElementById('dr-merger-note');
+
+    if (tab === 'merger') {
+        btnM?.classList.add('active');    btnL?.classList.remove('active');
+        dlM?.classList.remove('hidden');  dlL?.classList.add('hidden');
+        dcM?.classList.remove('hidden');  dcL?.classList.add('hidden');
+        drNote?.classList.remove('hidden');
+    } else {
+        btnL?.classList.add('active');    btnM?.classList.remove('active');
+        dlL?.classList.remove('hidden');  dlM?.classList.add('hidden');
+        dcL?.classList.remove('hidden');  dcM?.classList.add('hidden');
+        drNote?.classList.add('hidden');
+        syncDesktopFromMain();
+    }
+}
+
+// Patch switchTab to also update desktop
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+function switchTab(tab) {
+    if (_origSwitchTab) _origSwitchTab(tab);
+    setDesktopTab(tab);
+}
+
+// ── Desktop generate button
+function dtGenerate() {
+    // Push desktop fields → hidden main fields first
+    ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
+        const dt   = document.getElementById('dt-' + id);
+        const main = document.getElementById(id);
+        if (dt && main) main.value = dt.value;
+    });
+    // Sync JD URL
+    const dtJdUrl = document.getElementById('jdUrlInput-dt');
+    if (dtJdUrl && jdInputMode === 'url') {
+        document.getElementById('jdUrlInput').value = dtJdUrl.value;
+        jdUrl = dtJdUrl.value.trim();
+    }
+    // Show desktop progress
+    dtShowLetterProgress();
+    generateLetter();
+}
+
+// ── Desktop workspace state helpers: Letter
+function dtShowLetterIdle()     { _dtLetterState('idle'); }
+function dtShowLetterProgress() { _dtLetterState('progress'); }
+function dtShowLetterResult()   { _dtLetterState('result'); }
+function _dtLetterState(s) {
+    const idle = document.getElementById('dc-letter-idle');
+    const prog = document.getElementById('dc-letter-progress');
+    const res  = document.getElementById('dc-letter-result');
+    if (idle) idle.classList.toggle('hidden', s !== 'idle');
+    if (prog) prog.classList.toggle('hidden', s !== 'progress');
+    if (res)  res.classList.toggle('hidden',  s !== 'result');
+}
+
+// ── Desktop workspace state helpers: Merger
+function dtShowMergerIdle()     { _dtMergerState('idle'); }
+function dtShowMergerProgress() { _dtMergerState('progress'); }
+function dtShowMergerResult()   { _dtMergerState('result'); }
+function _dtMergerState(s) {
+    const idle = document.getElementById('dc-merger-idle');
+    const prog = document.getElementById('dc-merger-progress');
+    const res  = document.getElementById('dc-merger-result');
+    if (idle) idle.classList.toggle('hidden', s !== 'idle');
+    if (prog) prog.classList.toggle('hidden', s !== 'progress');
+    if (res)  res.classList.toggle('hidden',  s !== 'result');
+}
+
+// ── Keep desktop step text in sync with mobile
+const _stepTextObserver = new MutationObserver(() => {
+    const src = document.getElementById('currentStepText');
+    const dst = document.getElementById('dc-currentStepText');
+    if (src && dst) dst.textContent = src.textContent;
+});
+document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('currentStepText');
+    if (el) _stepTextObserver.observe(el, { childList: true, subtree: true, characterData: true });
+
+    const elM = document.getElementById('mergeStepText');
+    if (elM) {
+        new MutationObserver(() => {
+            const dst = document.getElementById('dc-mergeStepText');
+            if (dst) dst.textContent = elM.textContent;
+        }).observe(elM, { childList: true, subtree: true, characterData: true });
+    }
+});
+
+// ── Mirror letterResult visibility → desktop
+const _letterResultObserver = new MutationObserver(() => {
+    const src = document.getElementById('letterResult');
+    if (!src) return;
+    if (!src.classList.contains('hidden')) {
+        dtShowLetterResult();
+        const fn = document.getElementById('letterFilename');
+        const dfn = document.getElementById('dc-letterFilename');
+        if (fn && dfn) dfn.textContent = fn.textContent;
+    }
+});
+document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('letterResult');
+    if (el) _letterResultObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
+
+    const mr = document.getElementById('mergeResultCard');
+    if (mr) {
+        new MutationObserver(() => {
+            if (!mr.classList.contains('hidden')) dtShowMergerResult();
+        }).observe(mr, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // mirror mergerProgressView visibility
+    const mpv = document.getElementById('mergerProgressView');
+    if (mpv) {
+        new MutationObserver(() => {
+            if (!mpv.classList.contains('hidden')) dtShowMergerProgress();
+        }).observe(mpv, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // mirror generationView visibility
+    const gv = document.getElementById('generationView');
+    if (gv) {
+        new MutationObserver(() => {
+            if (!gv.classList.contains('hidden')) dtShowLetterProgress();
+            else if (document.getElementById('letterResult')?.classList.contains('hidden')) dtShowLetterIdle();
+        }).observe(gv, { attributes: true, attributeFilter: ['class'] });
+    }
+});
+
+// ── Mirror PDF file list to desktop panel
+function syncPdfListDesktop() {
+    const src = document.getElementById('pdfFilesList');
+    const dst = document.getElementById('pdfFilesList-dt');
+    if (src && dst) dst.innerHTML = src.innerHTML;
+}
+const _origUpdatePdfFilesList = typeof updatePdfFilesList === 'function' ? updatePdfFilesList : null;
+function updatePdfFilesList() {
+    if (_origUpdatePdfFilesList) _origUpdatePdfFilesList();
+    setTimeout(syncPdfListDesktop, 50);
+}
+
+// ── Mirror CV file list to desktop panel
+function syncCvListDesktop() {
+    const src = document.getElementById('cvFilesList');
+    const dst = document.getElementById('cvFilesList-dt');
+    if (src && dst) dst.innerHTML = src.innerHTML;
+    // stored badge
+    const badge = document.getElementById('cvStoredBadgeContainer');
+    const badgeDt = document.getElementById('cvStoredBadgeContainer-dt');
+    if (badge && badgeDt) {
+        badgeDt.classList.toggle('hidden', badge.classList.contains('hidden'));
+        const fn = document.getElementById('cvStoredFilename');
+        const fnDt = document.getElementById('cvStoredFilename-dt');
+        if (fn && fnDt) fnDt.textContent = fn.textContent;
+    }
+}
+const _origUpdateCvFilesList = typeof updateCvFilesList === 'function' ? updateCvFilesList : null;
+function updateCvFilesList() {
+    if (_origUpdateCvFilesList) _origUpdateCvFilesList();
+    setTimeout(syncCvListDesktop, 50);
+}
+
+// ── Mirror JD mode toggle to desktop
+const _origSwitchJdInputMode = typeof switchJdInputMode === 'function' ? switchJdInputMode : null;
+function switchJdInputMode(mode) {
+    if (_origSwitchJdInputMode) _origSwitchJdInputMode(mode);
+    // sync desktop toggle
+    const urlBtn  = document.getElementById('jdBtnUrl-dt');
+    const fileBtn = document.getElementById('jdBtnFile-dt');
+    const urlPnl  = document.getElementById('jdUrlPanel-dt');
+    const filePnl = document.getElementById('jdFilePanel-dt');
+    if (!urlBtn) return;
+    if (mode === 'url') {
+        urlBtn.className  = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all';
+        fileBtn.className = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all';
+        urlPnl?.classList.remove('hidden');
+        filePnl?.classList.add('hidden');
+    } else {
+        fileBtn.className = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all';
+        urlBtn.className  = 'flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all';
+        filePnl?.classList.remove('hidden');
+        urlPnl?.classList.add('hidden');
+        // sync jd files list
+        setTimeout(() => {
+            const src = document.getElementById('jdFilesList');
+            const dst = document.getElementById('jdFilesList-dt');
+            if (src && dst) dst.innerHTML = src.innerHTML;
+        }, 50);
+    }
+}
+
+// ── Mirror autofill to desktop fields
+const _origAutofillForm = typeof autofillForm === 'function' ? autofillForm : null;
+function autofillForm() {
+    if (_origAutofillForm) _origAutofillForm();
+    setTimeout(syncDesktopFromMain, 100);
+}
+
+// ── Update right panel balance & profile on desktop
+function updateDesktopRight() {
+    const balEl = document.getElementById('dr-balance');
+    if (balEl) balEl.textContent = (userBalance || 0).toFixed(2);
+
+    const noP   = document.getElementById('dr-no-profile');
+    const card  = document.getElementById('dr-profile-card');
+    if (!noP || !card) return;
+    if (storedProfile) {
+        noP.classList.add('hidden');
+        card.classList.remove('hidden');
+        document.getElementById('dr-pName').textContent    = storedProfile.fullName  || '—';
+        document.getElementById('dr-pPhone').textContent   = storedProfile.phone     || '—';
+        document.getElementById('dr-pEmail').textContent   = storedProfile.email     || '—';
+        document.getElementById('dr-pAddress').textContent = storedProfile.address   || '—';
+        document.getElementById('dr-pCv').textContent      = storedProfile.cvFilename || 'No CV uploaded';
+    } else {
+        noP.classList.remove('hidden');
+        card.classList.add('hidden');
+    }
+}
+
+// Patch loadStoredProfileFromServer to also refresh desktop right panel
+const _origLoadStoredProfile = typeof loadStoredProfileFromServer === 'function' ? loadStoredProfileFromServer : null;
+async function loadStoredProfileFromServer() {
+    if (_origLoadStoredProfile) await _origLoadStoredProfile();
+    updateDesktopRight();
+    syncCvListDesktop();
+    syncDesktopFromMain();
+}
+
+// Also patch updateBalance to refresh dr-balance
+const _origUpdateBalance = typeof updateBalance === 'function' ? updateBalance : null;
+async function updateBalance(amount) {
+    if (_origUpdateBalance) await _origUpdateBalance(amount);
+    const balEl = document.getElementById('dr-balance');
+    if (balEl) balEl.textContent = (userBalance || 0).toFixed(2);
+}
+
+// ── resetMerger: bring desktop back to idle
+const _origResetMerger = typeof resetMerger === 'function' ? resetMerger : null;
+function resetMerger() {
+    if (_origResetMerger) _origResetMerger();
+    dtShowMergerIdle();
+}
+
+// ── resetToForm: bring desktop letter back to idle
+const _origResetToForm = typeof resetToForm === 'function' ? resetToForm : null;
+function resetToForm() {
+    if (_origResetToForm) _origResetToForm();
+    dtShowLetterIdle();
+}
+
+// ── Init desktop on page load (called from toggleLoginScreen)
+const _origToggleLoginScreen = typeof toggleLoginScreen === 'function' ? toggleLoginScreen : null;
+function toggleLoginScreen(show) {
+    if (_origToggleLoginScreen) _origToggleLoginScreen(show);
+    if (!show) {
+        setTimeout(() => {
+            setDesktopTab('merger'); // default tab
+            updateDesktopRight();
+            syncDesktopFromMain();
+        }, 200);
+    }
+}
 </script>
 
 <!-- System Error Popup -->
