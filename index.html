@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=1280">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
     <title>CVerve</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,31 +11,10 @@
         input:-webkit-autofill { animation-name: onAutoFillStart; animation-duration: 1ms; }
         input:autofill         { animation-name: onAutoFillStart; animation-duration: 1ms; }
 
-        /* ── Reset body defaults ─────────────────────────────────────────── */
-        html, body { margin: 0; padding: 0; }
-
-        /* Default: hide desktop elements */
-        #desktopNav    { display: none; }
-        #desktopLayout { display: none; }
-        #desktopTabBar { display: none; }
-
-        /* ── MOBILE (< 768px): show mobile card ─────────────────────────── */
-        @media (max-width: 767px) {
-            #desktopNav    { display: none !important; }
-            #desktopLayout { display: none !important; }
-            #mobileCard    { display: block !important; }
-        }
-
-        /* ── DESKTOP (≥ 768px): full-width 3-column layout ──────────────── */
+        /* ── Desktop 3-column layout ─────────────────────────────────────── */
         @media (min-width: 768px) {
             body { background: #f1f5f9; }
 
-            /* Hide the phone-style card entirely */
-            #mobileCard      { display: none !important; }
-            #mobileAppHeader { display: none !important; }
-            #mobileTabBar    { display: none !important; }
-
-            /* mainApp fills full viewport */
             #mainApp {
                 display: flex !important;
                 flex-direction: column;
@@ -46,25 +25,19 @@
                 box-sizing: border-box;
             }
 
-            /* Sticky full-width top nav */
+            /* Top nav bar */
             #desktopNav {
                 display: flex !important;
                 width: 100%;
-                height: 56px;
-                background: #ffffff;
-                border-bottom: 1px solid #e2e8f0;
-                padding: 0 24px;
-                align-items: center;
-                justify-content: space-between;
-                position: sticky;
-                top: 0;
-                z-index: 30;
                 box-sizing: border-box;
             }
 
-            #desktopTabBar { display: flex !important; }
+            /* Hide the mobile header inside the card on desktop */
+            #mobileAppHeader { display: none !important; }
+            /* Hide the mobile tab bar on desktop */
+            #mobileTabBar { display: none !important; }
 
-            /* True full-width 3-column grid */
+            /* Full-width wrapper that holds the 3 columns */
             #desktopLayout {
                 display: grid !important;
                 flex: 1;
@@ -99,7 +72,7 @@
                 box-sizing: border-box;
             }
 
-            /* Right panel */
+            /* Right info panel */
             #desktopRight {
                 background: #ffffff;
                 border-left: 1px solid #e2e8f0;
@@ -111,10 +84,44 @@
                 box-sizing: border-box;
             }
 
+            /* Tab switcher inside left panel */
+            #desktopTabBar {
+                display: flex !important;
+            }
+
+            /* The original single-column card is hidden on desktop */
+            #mobileCard { display: none !important; }
+
+            /* Center workspace content fills nicely */
             #desktopCenter .workspace-inner {
                 width: 100%;
                 max-width: 600px;
             }
+        }
+
+        @media (max-width: 767px) {
+            #desktopNav    { display: none !important; }
+            #desktopLayout { display: none !important; }
+            #mobileCard    { display: block !important; }
+        }
+
+        /* Default: hide desktop elements (mobile-first) */
+        #desktopNav    { display: none; }
+        #desktopLayout { display: none; }
+        #desktopTabBar { display: none; }
+
+        /* Desktop nav bar style */
+        #desktopNav {
+            height: 56px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 24px;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            box-sizing: border-box;
         }
 
         /* Desktop tab buttons */
@@ -3281,7 +3288,7 @@
 
         <!-- RIGHT: Info / balance panel -->
         <div id="desktopRight">
-            <!-- Balance — always visible -->
+            <!-- Balance (always visible) -->
             <div>
                 <p class="right-section-title">Balance</p>
                 <div class="bg-white border border-gray-200 rounded-xl px-4 py-3">
@@ -3293,8 +3300,8 @@
                 </div>
             </div>
 
-            <!-- Stored Profile — Letter tab only -->
-            <div id="dr-profile-section" class="hidden">
+            <!-- Stored profile info -->
+            <div id="dr-profile-section">
                 <p class="right-section-title">Stored Profile</p>
                 <div id="dr-no-profile" class="text-xs text-gray-400 bg-gray-50 rounded-xl p-4 text-center">No profile saved yet.<br>Generate a letter to save your info.</div>
                 <div id="dr-profile-card" class="hidden bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-2 text-sm">
@@ -3305,6 +3312,12 @@
                     <div><span class="text-xs text-gray-400 block">CV</span><span id="dr-pCv" class="font-medium text-gray-700">—</span></div>
                     <button onclick="openAccountDrawer()" class="w-full mt-1 text-xs text-indigo-500 hover:underline">Edit in Account →</button>
                 </div>
+            </div>
+
+            <!-- PDF merger: show uploaded files count / right panel note -->
+            <div id="dr-merger-note" class="hidden">
+                <p class="right-section-title">Ready to Merge</p>
+                <p class="text-xs text-gray-400">Upload your PDFs on the left panel and click Merge. The result will appear in the center.</p>
             </div>
         </div>
 
@@ -3811,24 +3824,24 @@ function syncDesktopFromMain() {
 
 // ── Desktop tab UI switch (visual only — real tab logic stays in original switchTab)
 function setDesktopTab(tab) {
-    var btnM      = document.getElementById('dt-merger-btn');
-    var btnL      = document.getElementById('dt-letter-btn');
-    var dlM       = document.getElementById('dl-merger');
-    var dlL       = document.getElementById('dl-letter');
-    var dcM       = document.getElementById('dc-merger');
-    var dcL       = document.getElementById('dc-letter');
-    var drProfile = document.getElementById('dr-profile-section');
+    var btnM  = document.getElementById('dt-merger-btn');
+    var btnL  = document.getElementById('dt-letter-btn');
+    var dlM   = document.getElementById('dl-merger');
+    var dlL   = document.getElementById('dl-letter');
+    var dcM   = document.getElementById('dc-merger');
+    var dcL   = document.getElementById('dc-letter');
+    var drNote= document.getElementById('dr-merger-note');
     if (!btnM) return;
     if (tab === 'merger') {
         btnM.classList.add('active');    btnL.classList.remove('active');
         dlM.classList.remove('hidden');  dlL.classList.add('hidden');
         dcM.classList.remove('hidden');  dcL.classList.add('hidden');
-        if (drProfile) drProfile.classList.add('hidden');
+        drNote && drNote.classList.remove('hidden');
     } else {
         btnL.classList.add('active');    btnM.classList.remove('active');
         dlL.classList.remove('hidden');  dlM.classList.add('hidden');
         dcL.classList.remove('hidden');  dcM.classList.add('hidden');
-        if (drProfile) drProfile.classList.remove('hidden');
+        drNote && drNote.classList.add('hidden');
         syncDesktopFromMain();
     }
 }
