@@ -13,8 +13,6 @@
     <script>
         let userId = null;
         let userBalance = 0;
-        let userTgUsername = null;  // Telegram @username
-        let userHasTelegram = false; // Whether this account has Telegram linked
         let cvFilesArray = [];
         let jdFilesArray = [];
         let jdInputMode = 'url'; // 'url' | 'file'
@@ -337,7 +335,7 @@
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; userTgUsername = data.tgUsername || null; userHasTelegram = !!data.hasTelegram; const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); toggleLoginScreen(false); }
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); toggleLoginScreen(false); }
                 else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
@@ -370,10 +368,9 @@
                     document.getElementById('registerForm').classList.add('hidden');
                     document.getElementById('telegramLinkForm').classList.remove('hidden');
                     document.getElementById('telegramBotLink').href = 'https://t.me/cverve_bot';
-                    // Populate phone reminder and reset mismatch warning
                     document.getElementById('tgLinkPhoneDisplay').textContent = phoneNumber;
-                    document.getElementById('tgMismatchPhone').textContent = phoneNumber;
-                    document.getElementById('telegramMismatchWarning').classList.add('hidden');
+                    document.getElementById('tgPollStatus').textContent = 'Waiting for you to share on Telegram…';
+                    startTgPolling();
                 } else if (response.ok && data.success) {
                     // OTP sent — show OTP entry
                     showOtpStep();
@@ -385,32 +382,57 @@
             finally { hideLoadingOverlay(); }
         }
 
-        // Called after user has opened the bot and shared their phone
-        async function handleDoneInTelegram() {
-            if (!window._pendingReg) { showRegisterForm(); return; }
-            showLoadingOverlay('Checking Telegram...');
-            try {
-                const response = await fetch('/.netlify/functions/send-otp', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber })
-                });
-                const data = await response.json();
+        // ── Telegram auto-polling ─────────────────────────────────────────────────
+        // Polls every 3s; when Telegram is linked and code sent, auto-advances to OTP field.
 
-                if (data.needsTelegram) {
-                    // Show the inline mismatch warning — clearer than a toast
-                    document.getElementById('telegramMismatchWarning').classList.remove('hidden');
-                    showMessage('error', "Not found. Make sure you shared the number shown above.");
-                } else if (response.ok && data.success) {
-                    document.getElementById('telegramLinkForm').classList.add('hidden');
-                    showOtpStep();
-                    showMessage('success', 'Code sent to your Telegram!');
-                } else {
-                    showMessage('error', data.error || 'Something went wrong. Please try again.');
-                }
-            } catch { showMessage('error', 'Network error. Please try again.'); }
-            finally { hideLoadingOverlay(); }
+        let _tgPollTimer = null;
+        let _fgtTgPollTimer = null;
+
+        function stopTgPolling()    { if (_tgPollTimer)    { clearInterval(_tgPollTimer);    _tgPollTimer = null;    } }
+        function stopFgtTgPolling() { if (_fgtTgPollTimer) { clearInterval(_fgtTgPollTimer); _fgtTgPollTimer = null; } }
+
+        function startTgPolling() {
+            stopTgPolling();
+            _tgPollTimer = setInterval(async () => {
+                if (!window._pendingReg) { stopTgPolling(); return; }
+                try {
+                    const res  = await fetch('/.netlify/functions/send-otp', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber })
+                    });
+                    const data = await res.json();
+                    if (!data.needsTelegram && res.ok && data.success) {
+                        stopTgPolling();
+                        document.getElementById('telegramLinkForm').classList.add('hidden');
+                        showOtpStep();
+                        showMessage('success', 'Code sent to your Telegram!');
+                    }
+                } catch { /* network hiccup — keep polling */ }
+            }, 3000);
         }
+
+        function startFgtTgPolling() {
+            stopFgtTgPolling();
+            _fgtTgPollTimer = setInterval(async () => {
+                if (!window._pendingReset) { stopFgtTgPolling(); return; }
+                try {
+                    const res  = await fetch('/.netlify/functions/send-reset-otp', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
+                    });
+                    const data = await res.json();
+                    if (!data.needsTelegram && res.ok && data.success) {
+                        stopFgtTgPolling();
+                        document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+                        showForgotOtpStep();
+                        showMessage('success', 'Code sent to your Telegram!');
+                    }
+                } catch { /* keep polling */ }
+            }, 3000);
+        }
+
+        // Kept for any residual references — polling replaces the manual check
+        async function handleDoneInTelegram()       { /* replaced by auto-polling */ }
 
         function showOtpStep() {
             document.getElementById('registerForm').classList.add('hidden');
@@ -469,6 +491,7 @@
         }
 
         function showRegisterForm() {
+            stopTgPolling(); stopFgtTgPolling();
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('otpForm').classList.add('hidden');
             document.getElementById('telegramLinkForm').classList.add('hidden');
@@ -479,6 +502,7 @@
             document.getElementById('registerForm').classList.remove('hidden');
         }
         function showLoginForm() {
+            stopTgPolling(); stopFgtTgPolling();
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('otpForm').classList.add('hidden');
             document.getElementById('telegramLinkForm').classList.add('hidden');
@@ -518,6 +542,8 @@
                     document.getElementById('forgotForm').classList.add('hidden');
                     document.getElementById('forgotTelegramLinkForm').classList.remove('hidden');
                     document.getElementById('forgotTelegramBotLink').href = 'https://t.me/cverve_bot';
+                    document.getElementById('fgtTgPollStatus').textContent = 'Waiting for you to share on Telegram…';
+                    startFgtTgPolling();
                 } else if (response.ok && data.success) {
                     showForgotOtpStep();
                     showMessage('success', 'Code sent to your Telegram!');
@@ -528,29 +554,7 @@
             finally { hideLoadingOverlay(); }
         }
 
-        async function handleForgotDoneInTelegram() {
-            if (!window._pendingReset) { showLoginForm(); return; }
-            showLoadingOverlay('Checking Telegram...');
-            try {
-                const response = await fetch('/.netlify/functions/send-reset-otp', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
-                });
-                const data = await response.json();
-
-                if (data.needsTelegram) {
-                    showMessage('error', "We still can't find your Telegram. Please open the bot and tap \"Share my phone number\", then try again.");
-                } else if (response.ok && data.success) {
-                    document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
-                    showForgotOtpStep();
-                    showMessage('success', 'Code sent to your Telegram!');
-                } else {
-                    showMessage('error', data.error || 'Something went wrong. Please try again.');
-                }
-            } catch { showMessage('error', 'Network error. Please try again.'); }
-            finally { hideLoadingOverlay(); }
-        }
+        async function handleForgotDoneInTelegram() { /* replaced by auto-polling */ }
 
         function showForgotOtpStep() {
             document.getElementById('forgotForm').classList.add('hidden');
@@ -646,19 +650,8 @@
             document.getElementById('drawerPhone').textContent = userId || '';
             // Populate balance
             document.getElementById('drawerBalance').textContent = (userBalance || 0).toFixed(2);
-            // Populate Telegram username
-            const tgUsernameEl = document.getElementById('drawerTgUsername');
-            if (tgUsernameEl) {
-                tgUsernameEl.textContent = userTgUsername ? '@' + userTgUsername : '';
-                document.getElementById('drawerTgUsernameRow').classList.toggle('hidden', !userTgUsername);
-            }
-            // Show "Share Telegram" button for accounts without Telegram linked
-            const shareTgBtn = document.getElementById('drawerShareTelegramBtn');
-            if (shareTgBtn) shareTgBtn.classList.toggle('hidden', userHasTelegram);
-            // Show loading state for stored info, then populate
-            showDrawerProfileLoading();
-            // Populate immediately (uses cached storedProfile; refreshes if loadStoredProfileFromServer still in progress)
-            setTimeout(() => populateDrawerProfile(), 0);
+            // Populate stored profile
+            populateDrawerProfile();
             // Slide open
             document.getElementById('accountDrawerBackdrop').classList.remove('hidden');
             requestAnimationFrame(() => {
@@ -674,28 +667,11 @@
             cancelDrawerEdit();
         }
 
-        function showDrawerProfileLoading() {
-            const noProfile   = document.getElementById('drawerNoProfile');
-            const fields      = document.getElementById('drawerProfileFields');
-            const deleteRow   = document.getElementById('drawerDeleteProfileRow');
-            const editActions = document.getElementById('drawerEditActions');
-            const loadingEl   = document.getElementById('drawerProfileLoading');
-            if (loadingEl) loadingEl.classList.remove('hidden');
-            if (noProfile)   noProfile.classList.add('hidden');
-            if (fields)      fields.classList.add('hidden');
-            if (deleteRow)   deleteRow.classList.add('hidden');
-            if (editActions) editActions.classList.add('hidden');
-        }
-
         function populateDrawerProfile() {
             const noProfile   = document.getElementById('drawerNoProfile');
             const fields      = document.getElementById('drawerProfileFields');
             const deleteRow   = document.getElementById('drawerDeleteProfileRow');
             const editActions = document.getElementById('drawerEditActions');
-
-            // Hide loading indicator
-            const loadingEl = document.getElementById('drawerProfileLoading');
-            if (loadingEl) loadingEl.classList.add('hidden');
 
             if (!storedProfile) {
                 noProfile.classList.remove('hidden');
@@ -883,8 +859,6 @@
             closeAccountDrawer();
             userId = null;
             userBalance = 0;
-            userTgUsername = null;
-            userHasTelegram = false;
             storedProfile = null;
             toggleLoginScreen(true);
         }
@@ -1156,10 +1130,6 @@
                     document.getElementById('sbAutofillHint')?.classList.add('hidden');
                 }
             } catch(e) { console.error('Load profile error', e); }
-            // If account drawer is open, refresh the stored info display
-            if (!document.getElementById('accountDrawerBackdrop').classList.contains('hidden')) {
-                populateDrawerProfile();
-            }
         }
 
         async function saveProfileToServer(profileData) {
@@ -2791,17 +2761,18 @@
                     <svg viewBox="0 0 24 24" class="h-8 w-8 text-blue-500" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 </div>
                 <h3 class="font-semibold text-gray-800 mb-1">One more step</h3>
-                <p class="text-sm text-gray-500">Open our Telegram bot and tap <strong>"Share my phone number"</strong> so we can send your reset code.</p>
+                <p class="text-sm text-gray-500">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your reset code will appear here automatically.</p>
+            </div>
+            <div class="flex items-center justify-center gap-2 mb-4 text-sm text-gray-400">
+                <div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+                <span id="fgtTgPollStatus">Waiting for you to share on Telegram…</span>
             </div>
             <a id="forgotTelegramBotLink" href="https://t.me/cverve_bot" target="_blank" rel="noopener"
                 class="w-full bg-blue-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-blue-600 transition-colors shadow-md mb-3 flex items-center justify-center gap-2">
                 <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 Open @cverve_bot
             </a>
-            <button onclick="handleForgotDoneInTelegram()" class="w-full bg-emerald-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-3">
-                I've shared my number →
-            </button>
-            <div class="text-center"><button onclick="showForgotForm()" class="text-gray-500 text-sm hover:text-gray-700">← Go back</button></div>
+            <div class="text-center"><button onclick="stopFgtTgPolling(); showForgotForm();" class="text-gray-500 text-sm hover:text-gray-700">← Go back</button></div>
         </div>
 
         <!-- Forgot Password: Step 3 — enter OTP -->
@@ -2861,27 +2832,22 @@
                     <svg viewBox="0 0 24 24" class="h-8 w-8 text-blue-500" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 </div>
                 <h3 class="font-semibold text-gray-800 mb-1">One more step</h3>
-                <p class="text-sm text-gray-500 mb-3">Open our Telegram bot and tap <strong>"Share my phone number"</strong> to link your account.</p>
-                <!-- Phone number reminder pill -->
+                <p class="text-sm text-gray-500 mb-3">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.</p>
                 <div class="inline-flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-full px-4 py-1.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span class="text-xs font-semibold text-amber-700">Make sure Telegram uses <span id="tgLinkPhoneDisplay" class="font-bold text-amber-800"></span></span>
                 </div>
             </div>
-            <!-- "Wrong number?" warning — hidden until the user clicks "I've shared" and fails -->
-            <div id="telegramMismatchWarning" class="hidden bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2.5">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                <p class="text-sm text-red-700 font-medium">You haven't shared your number yet — or the number on your Telegram is different from <strong id="tgMismatchPhone" class="font-bold"></strong>. Please share the exact number you registered with.</p>
+            <div class="flex items-center justify-center gap-2 mb-4 text-sm text-gray-400">
+                <div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+                <span id="tgPollStatus">Waiting for you to share on Telegram…</span>
             </div>
-            <a id="telegramBotLink" href="#" target="_blank" rel="noopener"
+            <a id="telegramBotLink" href="https://t.me/cverve_bot" target="_blank" rel="noopener"
                 class="w-full bg-blue-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-blue-600 transition-colors shadow-md mb-3 flex items-center justify-center gap-2">
                 <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 Open @cverve_bot
             </a>
-            <button onclick="handleDoneInTelegram()" class="w-full bg-emerald-500 text-white py-2.5 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md mb-3">
-                I've shared my number →
-            </button>
-            <div class="text-center"><button onclick="showRegisterForm()" class="text-gray-500 text-sm hover:text-gray-700">← Go back</button></div>
+            <div class="text-center"><button onclick="stopTgPolling(); showRegisterForm();" class="text-gray-500 text-sm hover:text-gray-700">← Go back</button></div>
         </div>
 
         <!-- Step 3: Enter the OTP received on Telegram -->
@@ -3162,27 +3128,9 @@
             <div class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
             </div>
-            <div class="flex-1">
+            <div>
                 <p class="text-xs text-indigo-400 font-medium">Phone Number</p>
                 <p id="drawerPhone" class="text-sm font-bold text-indigo-700"></p>
-            </div>
-            <!-- Show only for accounts that haven't linked Telegram yet -->
-            <a id="drawerShareTelegramBtn" href="https://t.me/cverve_bot" target="_blank" rel="noopener"
-                class="hidden flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500 text-white rounded-full px-2.5 py-1 hover:bg-blue-600 transition font-semibold"
-                title="Link your Telegram to enable password reset">
-                <svg viewBox="0 0 24 24" class="h-3 w-3" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
-                Share
-            </a>
-        </div>
-
-        <!-- Telegram Username (shown if linked) -->
-        <div id="drawerTgUsernameRow" class="hidden bg-blue-50 rounded-xl px-4 py-3 flex items-center gap-3">
-            <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg viewBox="0 0 24 24" class="h-4 w-4 text-blue-500" fill="currentColor"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
-            </div>
-            <div>
-                <p class="text-xs text-blue-400 font-medium">Telegram User</p>
-                <p id="drawerTgUsername" class="text-sm font-bold text-blue-700"></p>
             </div>
         </div>
 
@@ -3209,12 +3157,6 @@
                     <button onclick="cancelDrawerEdit()" class="text-xs bg-gray-100 text-gray-600 rounded-full px-3 py-1 hover:bg-gray-200 font-medium transition-colors">Cancel</button>
                     <button onclick="saveDrawerEdit()" class="text-xs bg-indigo-500 text-white rounded-full px-3 py-1 hover:bg-indigo-600 font-medium transition-colors">Save</button>
                 </div>
-            </div>
-
-            <!-- Loading state for stored information -->
-            <div id="drawerProfileLoading" class="hidden px-4 py-5 flex items-center justify-center gap-2">
-                <div class="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
-                <p class="text-sm text-gray-400 font-medium">Loading...</p>
             </div>
 
             <div id="drawerNoProfile" class="hidden px-4 py-4 text-center">
