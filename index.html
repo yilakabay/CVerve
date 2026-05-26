@@ -396,16 +396,31 @@
             _tgPollTimer = setInterval(async () => {
                 if (!window._pendingReg) { stopTgPolling(); return; }
                 try {
+                    // checkOnly=true: poll only checks Telegram linkage, never sends an OTP.
                     const res  = await fetch('/.netlify/functions/send-otp', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber })
+                        body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber, checkOnly: true })
                     });
                     const data = await res.json();
-                    if (!data.needsTelegram && res.ok && data.success) {
+                    if (!data.needsTelegram && res.ok) {
+                        // Telegram is linked — stop poll, then send the OTP exactly once.
                         stopTgPolling();
-                        document.getElementById('telegramLinkForm').classList.add('hidden');
-                        showOtpStep();
-                        showMessage('success', 'Code sent to your Telegram!');
+                        try {
+                            const sendRes  = await fetch('/.netlify/functions/send-otp', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phoneNumber: window._pendingReg.phoneNumber })
+                            });
+                            const sendData = await sendRes.json();
+                            if (sendRes.ok && sendData.success) {
+                                document.getElementById('telegramLinkForm').classList.add('hidden');
+                                showOtpStep();
+                                showMessage('success', 'Code sent to your Telegram!');
+                            } else {
+                                showMessage('error', sendData.error || 'Could not send OTP. Please try again.');
+                            }
+                        } catch {
+                            showMessage('error', 'Network error. Please try again.');
+                        }
                     }
                 } catch { /* network hiccup — keep polling */ }
             }, 3000);
@@ -416,16 +431,31 @@
             _fgtTgPollTimer = setInterval(async () => {
                 if (!window._pendingReset) { stopFgtTgPolling(); return; }
                 try {
+                    // checkOnly=true: poll only checks Telegram linkage, never sends an OTP.
                     const res  = await fetch('/.netlify/functions/send-reset-otp', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
+                        body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber, checkOnly: true })
                     });
                     const data = await res.json();
-                    if (!data.needsTelegram && res.ok && data.success) {
+                    if (!data.needsTelegram && res.ok) {
+                        // Telegram is linked — stop poll, then send the reset OTP exactly once.
                         stopFgtTgPolling();
-                        document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
-                        showForgotOtpStep();
-                        showMessage('success', 'Code sent to your Telegram!');
+                        try {
+                            const sendRes  = await fetch('/.netlify/functions/send-reset-otp', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phoneNumber: window._pendingReset.phoneNumber })
+                            });
+                            const sendData = await sendRes.json();
+                            if (sendRes.ok && sendData.success) {
+                                document.getElementById('forgotTelegramLinkForm').classList.add('hidden');
+                                showForgotOtpStep();
+                                showMessage('success', 'Code sent to your Telegram!');
+                            } else {
+                                showMessage('error', sendData.error || 'Could not send code. Please try again.');
+                            }
+                        } catch {
+                            showMessage('error', 'Network error. Please try again.');
+                        }
                     }
                 } catch { /* keep polling */ }
             }, 3000);
