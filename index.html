@@ -1760,15 +1760,44 @@
         // ── Balance visibility (hidden by default) ────────────────────────────
         let balanceVisible = localStorage.getItem('cv_balanceVisible') === 'true'; // default false
 
+        function formatBalance(amount) {
+            if (amount >= 1000000)      return (amount / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+            if (amount >= 100000)       return (amount / 1000).toFixed(0) + 'K';
+            if (amount >= 10000)        return (amount / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+            return amount.toFixed(2);
+        }
+
+        function balanceFontSize(shown) {
+            // shown is the string that will be displayed (formatted or masked)
+            var len = shown.length;
+            if (len <= 6)  return { size: null, weight: null };   // keep CSS class default
+            if (len <= 8)  return { size: '1.1rem', weight: '800' };
+            if (len <= 10) return { size: '0.95rem', weight: '800' };
+            return            { size: '0.85rem', weight: '700' };
+        }
+
         function renderBalanceDisplays() {
             const mask = '••••';
-            const val  = (userBalance || 0).toFixed(2);
-            const shown = balanceVisible ? val : mask;
+            const raw  = userBalance || 0;
+            const formatted = formatBalance(raw);
+            const shown = balanceVisible ? formatted : mask;
+            const fs = balanceFontSize(shown);
 
             // All span elements showing balance
             ['dr-balance', 'drawerBalance'].forEach(function(id) {
                 var el = document.getElementById(id);
-                if (el) el.textContent = shown;
+                if (!el) return;
+                el.textContent = shown;
+                // Adjust font size on the parent <p> dynamically
+                var p = el.parentElement;
+                if (!p) return;
+                if (fs.size) {
+                    p.style.fontSize   = fs.size;
+                    p.style.fontWeight = fs.weight;
+                } else {
+                    p.style.fontSize   = '';
+                    p.style.fontWeight = '';
+                }
             });
 
             // Eye icon buttons — show eye-open when hidden, eye-closed when visible
