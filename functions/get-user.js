@@ -1,5 +1,6 @@
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
@@ -8,10 +9,24 @@ const client = new MongoClient(uri, {
     maxIdleTimeMS: 30000
 });
 
-// Reuse the same admin token verification logic as admin-auth
-const ADMIN_TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || 'cverve_admin_secret';
+// Validate the signed token produced by admin-auth.js makeToken()
+function isValidAdminToken(token) {
+  try {
+    const lastDot = token.lastIndexOf('.');
+    if (lastDot === -1) return false;
+    const payload = token.substring(0, lastDot);
+    const sig     = token.substring(lastDot + 1);
+    const secret  = process.env.ADMIN_SECRET || 'cverve_admin_secret_change_me';
+    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
 
 exports.handler = async (event, context) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -25,20 +40,16 @@ exports.handler = async (event, context) => {
 
   // ── Admin lookup path (token + userId) ──────────────────────────────────
   if (body.token && body.userId) {
-    // Validate admin token
     const { token, userId } = body;
+
+    if (!isValidAdminToken(token)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+
     try {
       await client.connect();
       const db = client.db('cverve');
 
-      // Verify token against stored admin record
-      const adminsCol = db.collection('admins');
-      const adminRecord = await adminsCol.findOne({});
-      if (!adminRecord || adminRecord.token !== token) {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
-      }
-
-      // Look up the user by phone number
       const usersCol = db.collection('users');
       const user = await usersCol.findOne({ phoneNumber: userId });
 
@@ -46,7 +57,6 @@ exports.handler = async (event, context) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
       }
 
-      // Look up Telegram info
       const tgCol = db.collection('telegram_chats');
       const tgRecord = await tgCol.findOne({ phoneNumber: userId });
 
@@ -58,7 +68,6 @@ exports.handler = async (event, context) => {
             balance: user.balance || 0,
             createdAt: user.createdAt || null,
             email: user.email || null,
-            isBlocked: user.isBlocked || false,
             tgUsername: tgRecord?.username || null,
             hasTelegram: !!tgRecord
           }
@@ -88,14 +97,6 @@ exports.handler = async (event, context) => {
       const isPasswordValid = await bcrypt.compare(password, user.password);
 
       if (isPasswordValid) {
-        // Check if user is blocked
-        if (user.isBlocked) {
-          return {
-            statusCode: 403,
-            body: JSON.stringify({ error: 'Your account has been blocked. Please contact support.' })
-          };
-        }
-
         const tgCol = db.collection('telegram_chats');
         const tgRecord = await tgCol.findOne({ phoneNumber });
 
