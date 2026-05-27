@@ -1325,15 +1325,29 @@
                         document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
                         document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
                         document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-                    } else { usingStoredCv = false; document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden'); document.getElementById('cvFileInputContainer')?.classList.remove('hidden'); }
+                        // Desktop CV badge
+                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                        const dtFn = document.getElementById('cvStoredFilename-dt');
+                        if (dtFn) dtFn.innerText = truncateFilename(storedCvFilename);
+                    } else {
+                        usingStoredCv = false;
+                        document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                        document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
+                    }
                     document.getElementById('autofillHint')?.classList.remove('hidden');
+                    document.getElementById('autofillHint-dt')?.classList.remove('hidden');
                     document.getElementById('sbAutofillHint')?.classList.remove('hidden');
+                    updateDesktopRight();
                 } else {
                     storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false;
                     document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
                     document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                    document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
                     document.getElementById('autofillHint')?.classList.add('hidden');
+                    document.getElementById('autofillHint-dt')?.classList.add('hidden');
                     document.getElementById('sbAutofillHint')?.classList.add('hidden');
+                    updateDesktopRight();
                 }
             } catch(e) { console.error('Load profile error', e); }
         }
@@ -1345,7 +1359,16 @@
                 const data = await res.json();
                 if (res.ok) {
                     storedProfile = data.profile;
-                    if (storedProfile.cvText) { storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true; document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden'); document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename); document.getElementById('cvFileInputContainer')?.classList.add('hidden'); }
+                    if (storedProfile.cvText) {
+                        storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true;
+                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                        document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
+                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                        const dtFn = document.getElementById('cvStoredFilename-dt');
+                        if (dtFn) dtFn.innerText = truncateFilename(storedCvFilename);
+                    }
+                    updateDesktopRight();
                     showMessage('success', 'Profile saved for future autofill.'); return true;
                 } else { showMessage('error', data.error || 'Failed to save profile'); return false; }
             } catch(e) { showMessage('error', 'Network error while saving'); return false; }
@@ -1355,7 +1378,16 @@
             if (!userId) return false;
             try {
                 const res = await fetch('/.netlify/functions/manage-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, action: 'delete' }) });
-                if (res.ok) { storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false; document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden'); document.getElementById('cvFileInputContainer')?.classList.remove('hidden'); document.getElementById('autofillHint')?.classList.add('hidden'); showMessage('success', 'Stored profile deleted.'); return true; }
+                if (res.ok) {
+                    storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false;
+                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
+                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                    document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
+                    document.getElementById('autofillHint')?.classList.add('hidden');
+                    document.getElementById('autofillHint-dt')?.classList.add('hidden');
+                    updateDesktopRight();
+                    showMessage('success', 'Stored profile deleted.'); return true;
+                }
                 else { throw new Error(); }
             } catch(e) { showMessage('error', 'Could not delete profile'); return false; }
         }
@@ -1371,19 +1403,44 @@
             if (storedProfile) updateProfileWithCurrentData(storedProfile.fullName, storedProfile.phone, storedProfile.email, storedProfile.address, null, null);
             document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
             document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+            document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
             cvFilesArray = []; updateCvFilesList();
             showMessage('success', 'You can now upload new CV files.');
         }
 
         function autofillForm() {
             if (!storedProfile) { showMessage('error', 'No saved profile found.'); return; }
+            // Fill mobile fields
             document.getElementById('fullName').value = storedProfile.fullName || '';
             document.getElementById('phone').value    = storedProfile.phone    || '';
             document.getElementById('email').value    = storedProfile.email    || '';
             document.getElementById('address').value  = storedProfile.address  || '';
+            // Fill desktop fields
+            const dtFields = ['fullName','phone','email','address'];
+            dtFields.forEach(id => {
+                const el = document.getElementById('dt-' + id);
+                if (el) el.value = storedProfile[id] || '';
+            });
             ['fullName','phone','email','address'].forEach(clearFieldError);
-            if (storedProfile.cvText) { storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true; cvFilesArray = []; updateCvFilesList(); document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'); document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename); document.getElementById('cvFileInputContainer').classList.add('hidden'); showMessage('success', 'Form autofilled with stored data.'); }
-            else { showMessage('info', 'Form autofilled, but no CV text stored. Please upload CV files.'); }
+            if (storedProfile.cvText) {
+                storedCvText = storedProfile.cvText;
+                storedCvFilename = storedProfile.cvFilename || 'Stored CV document';
+                usingStoredCv = true;
+                cvFilesArray = [];
+                updateCvFilesList();
+                // Mobile CV badge
+                document.getElementById('cvStoredBadgeContainer').classList.remove('hidden');
+                document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
+                document.getElementById('cvFileInputContainer').classList.add('hidden');
+                // Desktop CV badge
+                const dtBadge = document.getElementById('cvStoredBadgeContainer-dt');
+                const dtFn = document.getElementById('cvStoredFilename-dt');
+                if (dtBadge) dtBadge.classList.remove('hidden');
+                if (dtFn) dtFn.innerText = truncateFilename(storedCvFilename);
+                showMessage('success', 'Form autofilled with stored data.');
+            } else {
+                showMessage('info', 'Form autofilled, but no CV text stored. Please upload CV files.');
+            }
         }
 
         function autofillSidebar() {
@@ -1410,6 +1467,11 @@
             await updateProfileWithCurrentData(fullName, phone, email, address, storedProfile.cvText||null, storedProfile.cvFilename||null);
             closeEditProfileModal();
             document.getElementById('fullName').value = fullName; document.getElementById('phone').value = phone; document.getElementById('email').value = email; document.getElementById('address').value = address;
+            // Also sync desktop fields
+            ['fullName','phone','email','address'].forEach(function(id) {
+                var dt = document.getElementById('dt-' + id);
+                if (dt) dt.value = {fullName,phone,email,address}[id] || '';
+            });
         }
 
         function closeEditProfileModal() { document.getElementById('editProfileModal').classList.add('hidden'); }
@@ -2129,37 +2191,52 @@
 
         // ── Inline Field Error Helpers ────────────────────────────────────────
         function setFieldError(fieldId, message) {
-            const el = document.getElementById(fieldId);
-            if (!el) return;
-            el.classList.add('border-red-400');
-            el.classList.remove('border-gray-300');
-            let errEl = document.getElementById(fieldId + '-err');
-            if (!errEl) {
-                errEl = document.createElement('p');
-                errEl.id = fieldId + '-err';
-                errEl.className = 'text-xs text-red-500 mb-1';
-                el.parentNode.insertBefore(errEl, el);
-            }
-            errEl.textContent = message;
-            errEl.classList.remove('hidden');
+            // Apply to both mobile and desktop (dt-) versions of the field
+            [fieldId, 'dt-' + fieldId].forEach(function(id) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.add('border-red-400');
+                el.classList.remove('border-gray-300');
+                let errEl = document.getElementById(id + '-err');
+                if (!errEl) {
+                    errEl = document.createElement('p');
+                    errEl.id = id + '-err';
+                    errEl.className = 'text-xs text-red-500 mb-1';
+                    el.parentNode.insertBefore(errEl, el);
+                }
+                errEl.textContent = message;
+                errEl.classList.remove('hidden');
+            });
         }
         function clearFieldError(fieldId) {
-            const el = document.getElementById(fieldId);
-            if (el) { el.classList.remove('border-red-400'); el.classList.add('border-gray-300'); }
-            const errEl = document.getElementById(fieldId + '-err');
-            if (errEl) errEl.classList.add('hidden');
+            [fieldId, 'dt-' + fieldId].forEach(function(id) {
+                const el = document.getElementById(id);
+                if (el) { el.classList.remove('border-red-400'); el.classList.add('border-gray-300'); }
+                const errEl = document.getElementById(id + '-err');
+                if (errEl) errEl.classList.add('hidden');
+            });
         }
         function setUploadError(errorDivId, btnId, message) {
+            // Show error on mobile version
             const errEl = document.getElementById(errorDivId);
             const btn   = document.getElementById(btnId);
             if (errEl) { errEl.textContent = message; errEl.classList.remove('hidden'); }
             if (btn)   { btn.classList.add('border-red-400'); btn.classList.remove('border-gray-300'); }
+            // Also show error on desktop version (dt- prefix)
+            const errElDt = document.getElementById(errorDivId + '-dt');
+            const btnDt   = btnId ? document.getElementById(btnId + '-dt') : null;
+            if (errElDt) { errElDt.textContent = message; errElDt.classList.remove('hidden'); }
+            if (btnDt)   { btnDt.classList.add('border-red-400'); btnDt.classList.remove('border-gray-300'); }
         }
         function clearUploadError(errorDivId, btnId) {
             const errEl = document.getElementById(errorDivId);
             const btn   = document.getElementById(btnId);
             if (errEl) errEl.classList.add('hidden');
             if (btn)   { btn.classList.remove('border-red-400'); btn.classList.add('border-gray-300'); }
+            const errElDt = document.getElementById(errorDivId + '-dt');
+            const btnDt   = btnId ? document.getElementById(btnId + '-dt') : null;
+            if (errElDt) errElDt.classList.add('hidden');
+            if (btnDt)   { btnDt.classList.remove('border-red-400'); btnDt.classList.add('border-gray-300'); }
         }
         function clearAllErrors() {
             ['fullName','phone','email','address','appDate','targetPosition'].forEach(clearFieldError);
@@ -2367,6 +2444,8 @@
             document.getElementById('generationView').classList.add('hidden');
             document.getElementById('letterResult').classList.add('hidden');
             generationStopped = false;
+            // Reset desktop workspace
+            if (typeof dtShowLetterIdle === 'function') dtShowLetterIdle();
         }
 
         async function updateBalance(amount) {
@@ -3137,18 +3216,19 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         Autofill from stored profile
                     </button>
-                    <input type="text"  id="dt-fullName" placeholder="Full Name"     class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('fullName',this.value)" onchange="mirrorToMain('fullName',this.value)">
-                    <input type="tel"   id="dt-phone"    placeholder="Phone Number"  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('phone',this.value)" onchange="mirrorToMain('phone',this.value)">
-                    <input type="email" id="dt-email"    placeholder="Email"         class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('email',this.value)" onchange="mirrorToMain('email',this.value)">
-                    <input type="text"  id="dt-address"  placeholder="Address"       class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('address',this.value)" onchange="mirrorToMain('address',this.value)">
-                    <input type="date"  id="dt-appDate"  placeholder="Application Date" class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('appDate',this.value)" onchange="mirrorToMain('appDate',this.value)">
-                    <input type="text"  id="dt-targetPosition" placeholder="Position (e.g. Software Engineer)" class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('targetPosition',this.value)" onchange="mirrorToMain('targetPosition',this.value)">
+                    <input type="text"  id="dt-fullName" placeholder="Full Name"     class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('fullName',this.value);clearFieldError('fullName')" onchange="mirrorToMain('fullName',this.value)">
+                    <input type="tel"   id="dt-phone"    placeholder="Phone Number"  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('phone',this.value);clearFieldError('phone')" onchange="mirrorToMain('phone',this.value)">
+                    <input type="email" id="dt-email"    placeholder="Email"         class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('email',this.value);clearFieldError('email')" onchange="mirrorToMain('email',this.value)">
+                    <input type="text"  id="dt-address"  placeholder="Address"       class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('address',this.value);clearFieldError('address')" onchange="mirrorToMain('address',this.value)">
+                    <input type="date"  id="dt-appDate"  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('appDate',this.value);clearFieldError('appDate')" onchange="mirrorToMain('appDate',this.value)">
+                    <input type="text"  id="dt-targetPosition" placeholder="Position (e.g. Software Engineer)" class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" oninput="mirrorToMain('targetPosition',this.value);clearFieldError('targetPosition')" onchange="mirrorToMain('targetPosition',this.value)">
 
                     <!-- CV upload -->
                     <div>
+                        <div id="cvError-dt" class="hidden text-xs text-red-500 mb-1"></div>
                         <div class="flex items-center justify-between mb-1">
                             <span class="text-xs font-bold text-gray-700">CV (Image, Word or PDF)</span>
-                            <button type="button" onclick="document.getElementById('cvFile').click()"
+                            <button type="button" id="cvUploadBtn-dt" onclick="document.getElementById('cvFile').click()"
                                 class="p-1 rounded-full border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50 transition" title="Upload CV">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/>
@@ -3169,6 +3249,7 @@
 
                     <!-- JD input -->
                     <div>
+                        <div id="jdError-dt" class="hidden text-xs text-red-500 mb-1"></div>
                         <div class="flex items-center justify-between mb-1.5">
                             <span class="text-xs font-bold text-gray-700">Job Description</span>
                             <div class="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
@@ -3179,10 +3260,10 @@
                         <div id="jdUrlPanel-dt">
                             <input type="url" id="jdUrlInput-dt" placeholder="Paste job posting URL…"
                                 class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                                oninput="document.getElementById('jdUrlInput').value=this.value;jdUrl=this.value.trim()">
+                                oninput="document.getElementById('jdUrlInput').value=this.value;jdUrl=this.value.trim();if(this.value.trim()){clearUploadError('jdError','jdUploadBtn');}">
                         </div>
                         <div id="jdFilePanel-dt" class="hidden">
-                            <button type="button" onclick="document.getElementById('jdFile').click()" class="flex items-center gap-1 text-xs text-indigo-600 hover:underline">
+                            <button type="button" id="jdUploadBtn-dt" onclick="document.getElementById('jdFile').click()" class="flex items-center gap-1 text-xs text-indigo-600 hover:underline border border-gray-300 rounded-full px-2 py-1 hover:border-indigo-400 transition">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/></svg>
                                 Upload JD file
                             </button>
@@ -3820,6 +3901,25 @@ function syncDesktopFromMain() {
         var dt   = document.getElementById('dt-' + id);
         if (main && dt) dt.value = main.value;
     });
+    // Sync JD URL
+    if (jdInputMode === 'url') {
+        var mainJd = document.getElementById('jdUrlInput');
+        var dtJd   = document.getElementById('jdUrlInput-dt');
+        if (mainJd && dtJd) dtJd.value = mainJd.value;
+    }
+    // Sync CV stored badge to desktop
+    var badge   = document.getElementById('cvStoredBadgeContainer');
+    var badgeDt = document.getElementById('cvStoredBadgeContainer-dt');
+    if (badge && badgeDt) {
+        badgeDt.classList.toggle('hidden', badge.classList.contains('hidden'));
+        var fn   = document.getElementById('cvStoredFilename');
+        var fnDt = document.getElementById('cvStoredFilename-dt');
+        if (fn && fnDt) fnDt.textContent = fn.textContent;
+    }
+    // Sync autofill hint
+    var hint   = document.getElementById('autofillHint');
+    var hintDt = document.getElementById('autofillHint-dt');
+    if (hint && hintDt) hintDt.classList.toggle('hidden', hint.classList.contains('hidden'));
 }
 
 // ── Desktop tab UI switch (visual only — real tab logic stays in original switchTab)
@@ -3848,15 +3948,17 @@ function setDesktopTab(tab) {
 
 // ── Desktop Generate button handler
 function dtGenerate() {
+    // Sync all desktop fields → mobile (hidden) fields so generateLetter() reads them
     ['fullName','phone','email','address','appDate','targetPosition'].forEach(function(id) {
         var dt   = document.getElementById('dt-' + id);
         var main = document.getElementById(id);
         if (dt && main) main.value = dt.value;
     });
-    var dtJdUrl = document.getElementById('jdUrlInput-dt');
-    if (dtJdUrl && jdInputMode === 'url') {
-        document.getElementById('jdUrlInput').value = dtJdUrl.value;
-        jdUrl = dtJdUrl.value.trim();
+    // Sync JD URL
+    if (jdInputMode === 'url') {
+        var dtJdUrl = document.getElementById('jdUrlInput-dt');
+        var mainJdUrl = document.getElementById('jdUrlInput');
+        if (dtJdUrl && mainJdUrl) { mainJdUrl.value = dtJdUrl.value; jdUrl = dtJdUrl.value.trim(); }
     }
     generateLetter();
 }
