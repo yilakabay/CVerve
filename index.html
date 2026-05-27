@@ -2809,12 +2809,13 @@
             if (!el) return;
             el.classList.add('border-red-400');
             el.classList.remove('border-gray-300');
+            // Place error above the field (before it in the DOM)
             let errEl = document.getElementById(fieldId + '-perr');
             if (!errEl) {
                 errEl = document.createElement('p');
                 errEl.id = fieldId + '-perr';
-                errEl.className = 'text-xs text-red-500 mt-1';
-                el.parentNode.insertBefore(errEl, el.nextSibling);
+                errEl.className = 'text-xs text-red-500 mb-1';
+                el.parentNode.insertBefore(errEl, el);
             }
             errEl.textContent = message;
             errEl.classList.remove('hidden');
