@@ -465,6 +465,15 @@
 
         function switchJdInputMode(mode) {
             jdInputMode = mode;
+            // Helper to set toggle button active/inactive
+            function setToggle(btnActive, btnInactive) {
+                if (!btnActive || !btnInactive) return;
+                btnActive.classList.add('bg-indigo-500', 'text-white');
+                btnActive.classList.remove('text-gray-500', 'bg-white', 'bg-transparent');
+                btnInactive.classList.remove('bg-indigo-500', 'text-white');
+                btnInactive.classList.add('text-gray-500', 'bg-white');
+            }
+            // Mobile
             const urlPanel  = document.getElementById('jdUrlPanel');
             const filePanel = document.getElementById('jdFilePanel');
             const btnUrl    = document.getElementById('jdBtnUrl');
@@ -473,10 +482,10 @@
             const jdUploadBtn = document.getElementById('jdUploadBtn');
             if (urlPanel)  urlPanel.classList.toggle('hidden',  mode !== 'url');
             if (filePanel) filePanel.classList.toggle('hidden', mode !== 'file');
-            if (btnUrl)  { btnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  btnUrl.classList.toggle('text-white', mode === 'url');  btnUrl.classList.toggle('text-gray-500', mode !== 'url');  btnUrl.classList.toggle('bg-white', mode !== 'url'); }
-            if (btnFile) { btnFile.classList.toggle('bg-indigo-500', mode === 'file'); btnFile.classList.toggle('text-white', mode === 'file'); btnFile.classList.toggle('text-gray-500', mode !== 'file'); btnFile.classList.toggle('bg-white', mode !== 'file'); }
+            if (mode === 'url') { setToggle(btnUrl, btnFile); } else { setToggle(btnFile, btnUrl); }
             if (jdLabel) jdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
             if (jdUploadBtn) jdUploadBtn.classList.toggle('hidden', mode !== 'file');
+            // Sidebar
             const sbUrlPanel  = document.getElementById('sbJdUrlPanel');
             const sbFilePanel = document.getElementById('sbJdFilePanel');
             const sbBtnUrl    = document.getElementById('sbJdBtnUrl');
@@ -485,10 +494,21 @@
             const sbJdUploadBtn = document.getElementById('sbJdUploadBtn');
             if (sbUrlPanel)  sbUrlPanel.classList.toggle('hidden',  mode !== 'url');
             if (sbFilePanel) sbFilePanel.classList.toggle('hidden', mode !== 'file');
-            if (sbBtnUrl)  { sbBtnUrl.classList.toggle('bg-indigo-500',  mode === 'url');  sbBtnUrl.classList.toggle('text-white', mode === 'url');  sbBtnUrl.classList.toggle('text-gray-500', mode !== 'url');  sbBtnUrl.classList.toggle('bg-white', mode !== 'url'); }
-            if (sbBtnFile) { sbBtnFile.classList.toggle('bg-indigo-500', mode === 'file'); sbBtnFile.classList.toggle('text-white', mode === 'file'); sbBtnFile.classList.toggle('text-gray-500', mode !== 'file'); sbBtnFile.classList.toggle('bg-white', mode !== 'file'); }
+            if (mode === 'url') { setToggle(sbBtnUrl, sbBtnFile); } else { setToggle(sbBtnFile, sbBtnUrl); }
             if (sbJdLabel) sbJdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
             if (sbJdUploadBtn) sbJdUploadBtn.classList.toggle('hidden', mode !== 'file');
+            // Desktop left panel
+            const dtUrlPanel  = document.getElementById('jdUrlPanel-dt');
+            const dtFilePanel = document.getElementById('jdFilePanel-dt');
+            const dtBtnUrl    = document.getElementById('jdBtnUrl-dt');
+            const dtBtnFile   = document.getElementById('jdBtnFile-dt');
+            const dtJdLabel   = document.getElementById('jdLabel-dt');
+            const dtJdUploadBtn = document.getElementById('jdUploadBtn-dt');
+            if (dtUrlPanel)  dtUrlPanel.classList.toggle('hidden',  mode !== 'url');
+            if (dtFilePanel) dtFilePanel.classList.toggle('hidden', mode !== 'file');
+            if (mode === 'url') { setToggle(dtBtnUrl, dtBtnFile); } else { setToggle(dtBtnFile, dtBtnUrl); }
+            if (dtJdLabel) dtJdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
+            if (dtJdUploadBtn) dtJdUploadBtn.classList.toggle('hidden', mode !== 'file');
             const urlVal = document.getElementById('jdUrlInput')?.value || document.getElementById('sbJdUrlInput')?.value || '';
             jdUrl = urlVal.trim();
         }
@@ -1221,9 +1241,15 @@
 
         window.switchTab = (tabName) => {
             document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('border-b-2', 'border-indigo-500'));
+            // Reset all tab buttons (both mobile pill style and desktop underline style)
+            document.querySelectorAll('.tab-button').forEach(b => {
+                b.classList.remove('border-b-2', 'border-indigo-500', 'bg-indigo-500', 'text-white');
+                b.classList.add('text-gray-500', 'bg-transparent');
+            });
             document.getElementById(`${tabName}-content`).classList.remove('hidden');
-            document.getElementById(`${tabName}-button`).classList.add('border-b-2', 'border-indigo-500');
+            const activeBtn = document.getElementById(`${tabName}-button`);
+            activeBtn.classList.add('bg-indigo-500', 'text-white');
+            activeBtn.classList.remove('text-gray-500', 'bg-transparent');
             localStorage.setItem('cv_activeTab', tabName);
         };
 
@@ -1312,6 +1338,7 @@
                     copiedPages.forEach(page => mergedDoc.addPage(page));
                 }
                 mergedPdf = await mergedDoc.save();
+                if (userBalance < cost) { showMessage('error', `Not enough balance. Cost: ${cost} ETB`); resetMerger(); return; }
                 await updateBalance(-cost);
 
                 setMergeDone();
@@ -2460,6 +2487,7 @@
                 if (generationStopped) return;
                 lastGeneratedLetterText = letterText;
                 lastGeneratedLetterHtml = null;
+                if (userBalance < 15) { showMessage('error', 'Not enough balance. Letter generation costs 15 ETB.'); resetToForm(); return; }
                 await updateBalance(-15);
 
                 advanceStep(3);
@@ -2493,6 +2521,11 @@
         }
 
         async function updateBalance(amount) {
+            // Guard: never deduct more than available balance
+            if (amount < 0 && userBalance + amount < 0) {
+                showMessage('error', 'Insufficient balance for this action.');
+                return false;
+            }
             try {
                 const response = await fetch('/.netlify/functions/update-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, amount }) });
                 const data = await response.json();
@@ -2503,8 +2536,32 @@
 
         // ── Payment ───────────────────────────────────────────────────────────
         let paymentPopupVisible = false;
-        function openPaymentPopup() { closeAccountDrawer(); document.getElementById('paymentPopupOverlay').classList.remove('hidden'); document.getElementById('paymentPopupSheet').classList.remove('translate-y-full'); paymentPopupVisible = true; showPaymentMethodChoice(); }
-        function closePaymentPopup() { document.getElementById('paymentPopupSheet').classList.add('translate-y-full'); setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300); paymentPopupVisible = false; }
+        function openPaymentPopup() {
+            closeAccountDrawer();
+            const overlay = document.getElementById('paymentPopupOverlay');
+            const sheet = document.getElementById('paymentPopupSheet');
+            overlay.classList.remove('hidden');
+            const isDesktop = window.innerWidth >= 768;
+            if (isDesktop) {
+                sheet.classList.remove('md:translate-x-full');
+                sheet.style.transform = 'translateX(0)';
+            } else {
+                sheet.classList.remove('translate-y-full');
+            }
+            paymentPopupVisible = true;
+            showPaymentMethodChoice();
+        }
+        function closePaymentPopup() {
+            const sheet = document.getElementById('paymentPopupSheet');
+            const isDesktop = window.innerWidth >= 768;
+            if (isDesktop) {
+                sheet.style.transform = 'translateX(100%)';
+            } else {
+                sheet.classList.add('translate-y-full');
+            }
+            setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300);
+            paymentPopupVisible = false;
+        }
         function showPaymentMethodChoice() { document.getElementById('payMethodChoice').classList.remove('hidden'); ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden')); }
         let _pendingPaymentMethod = null;
         // Per-method "don't show again" flags (in-memory; reset on page refresh)
@@ -2659,7 +2716,7 @@
         .file-input-wrapper   { position:relative; display:inline-block; width:100%; }
         .file-input-wrapper input[type="file"] { color:transparent; }
         .file-count-display   { position:absolute; right:100px; top:50%; transform:translateY(-50%); pointer-events:none; background:white; padding:2px 8px; border-radius:12px; font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap; }
-        #paymentPopupSheet    { transition: transform 0.3s ease-out; }
+        #paymentPopupSheet    { transition: transform 0.3s ease-out; } @media (min-width: 768px) { #paymentPopupSheet { transition: transform 0.3s ease-out; } }
         #editSidebar          { transition: transform 0.35s cubic-bezier(.4,0,.2,1); }
         .step-icon            { transition: background 0.3s, border-color 0.3s; }
         .step-chevron svg     { transition: transform 0.22s ease; }
@@ -2930,9 +2987,9 @@
 </div>
 
 <!-- PAYMENT POPUP -->
-<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center" onclick="if(event.target===this) closePaymentPopup()">
-    <div id="paymentPopupSheet" class="translate-y-full bg-white rounded-t-3xl shadow-2xl w-full max-w-lg px-6 pt-4 pb-8">
-        <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
+<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center md:flex md:items-stretch md:justify-end" onclick="if(event.target===this) closePaymentPopup()">
+    <div id="paymentPopupSheet" class="translate-y-full md:translate-y-0 md:translate-x-full bg-white rounded-t-3xl md:rounded-none shadow-2xl w-full md:w-96 px-6 pt-4 pb-8 md:h-full md:overflow-y-auto">
+        <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 md:hidden"></div>
         <div class="flex items-center justify-between mb-5">
             <h2 class="text-lg font-bold text-gray-800">Top Up Balance</h2>
             <button onclick="closePaymentPopup()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -3221,7 +3278,7 @@
     <nav id="desktopNav">
         <div class="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="133 415 371 243" style="height:1.4em;width:auto;display:inline-block;vertical-align:middle;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="#4f46e5" stroke="none"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>
-            <span class="text-xl font-bold text-indigo-600" style="letter-spacing:-0.04em;">C<span class="text-indigo-400">Verve</span></span>
+            <span class="text-xl font-bold text-indigo-600" style="letter-spacing:-0.04em;">CVerve</span>
         </div>
         <!-- Desktop tab switcher -->
         <div id="desktopTabBar" class="flex items-center gap-1 bg-gray-100 p-1 rounded-full">
@@ -3310,6 +3367,10 @@
                                 <button id="jdBtnUrl-dt"  onclick="switchJdInputMode('url')"  class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500 text-white transition-all">🔗 Link</button>
                                 <button id="jdBtnFile-dt" onclick="switchJdInputMode('file')" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full text-gray-500 bg-white transition-all">📄 File</button>
                             </div>
+                            <button type="button" id="jdUploadBtn-dt" onclick="document.getElementById('jdFile').click()" class="hidden flex items-center gap-1 text-xs text-indigo-600 hover:underline border border-gray-300 rounded-full px-2 py-1 hover:border-indigo-400 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/></svg>
+                                Upload
+                            </button>
                         </div>
                         <div id="jdUrlPanel-dt">
                             <input type="url" id="jdUrlInput-dt" placeholder="Paste job posting URL…"
@@ -3339,7 +3400,7 @@
                     <!-- Idle -->
                     <div id="dc-merger-idle" class="workspace-idle">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <p class="text-base font-semibold text-slate-400">Upload PDFs and click Merge</p>
+                        <p class="text-base font-semibold text-slate-400">Upload PDFs on the left and click Merge</p>
                         <p class="text-sm text-slate-300">The merged file will appear here</p>
                     </div>
                     <!-- Progress (mirror of mobile) -->
@@ -3468,9 +3529,11 @@
             </button>
         </div>
 
-        <div id="mobileTabBar" class="flex border-b border-gray-200 mb-4">
-            <button id="merger-button" onclick="switchTab('merger')" class="tab-button w-1/2 py-2 text-center text-sm font-semibold text-gray-600 border-b-2 border-indigo-500">PDF Merger</button>
-            <button id="letter-button" onclick="switchTab('letter')" class="tab-button w-1/2 py-2 text-center text-sm font-semibold text-gray-600">Application Letter</button>
+        <div id="mobileTabBar" class="flex justify-center mb-4">
+            <div class="flex items-center bg-gray-100 p-1 rounded-full gap-1">
+                <button id="merger-button" onclick="switchTab('merger')" class="tab-button px-4 py-1.5 rounded-full text-sm font-semibold transition-all bg-indigo-500 text-white border-b-2 border-indigo-500">PDF Merger</button>
+                <button id="letter-button" onclick="switchTab('letter')" class="tab-button px-4 py-1.5 rounded-full text-sm font-semibold transition-all text-gray-500 bg-transparent">Application Letter</button>
+            </div>
         </div>
 
         <!-- PDF Merger Tab -->
@@ -3826,10 +3889,6 @@
                         </g>
                     </svg>
                 </div>
-                <!-- Wordmark -->
-                <p style="font-size:1.25rem;font-weight:800;letter-spacing:-0.04em;color:#4f46e5;font-family:system-ui,sans-serif;">
-                    C<span style="color:#818cf8;">Verve</span>
-                </p>
                 <p class="text-xs text-gray-400 mt-2 font-medium">Organising your CV...</p>
             </div>
             <!-- Done state -->
@@ -3840,9 +3899,6 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                     </span>
                 </div>
-                <p style="font-size:1.25rem;font-weight:800;letter-spacing:-0.04em;color:#4f46e5;font-family:system-ui,sans-serif;">
-                    C<span style="color:#818cf8;">Verve</span>
-                </p>
                 <p class="text-xs text-emerald-600 mt-2 font-semibold">CV saved!</p>
             </div>
         </div>
