@@ -285,23 +285,6 @@
         </button>
       </div>
 
-      <!-- Delete Account -->
-      <div class="bg-white border border-red-100 rounded-xl p-4 shadow-sm">
-        <h3 class="font-semibold text-red-600 text-sm mb-1 flex items-center gap-2">
-          <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-          Delete Account
-        </h3>
-        <p class="text-xs text-red-400 mb-3">This action is irreversible.</p>
-        <div class="mb-3">
-          <input type="text" id="deleteUserId" placeholder="User phone number"
-            class="w-full px-3 py-2 rounded-lg border border-red-200 text-xs focus:outline-none focus:ring-2 focus:ring-red-400 bg-red-50">
-        </div>
-        <button onclick="doDeleteConfirm()"
-          class="w-full bg-red-500 text-white py-2 px-4 rounded-full text-sm font-semibold hover:bg-red-600 transition-colors shadow-sm">
-          Delete Account
-        </button>
-      </div>
-
     </div><!-- /desktopLeft -->
 
     <!-- CENTER: Results -->
@@ -389,25 +372,8 @@
 
 </div><!-- /adminApp -->
 
-<!-- Delete confirmation modal -->
-<div id="deleteModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-  <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center">
-    <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-      <svg class="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-    </div>
-    <h3 class="text-lg font-bold text-gray-800 mb-2">Delete Account?</h3>
-    <p class="text-sm text-gray-600 mb-1">You are about to permanently delete:</p>
-    <p id="deleteModalUser" class="text-sm font-bold text-red-600 mb-5"></p>
-    <div class="flex gap-3">
-      <button onclick="closeDeleteModal()" class="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-full font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
-      <button onclick="doDeleteAccount()" class="flex-1 bg-red-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-red-600 transition-colors">Delete</button>
-    </div>
-  </div>
-</div>
-
 <script>
   let adminToken = sessionStorage.getItem('cverve_admin_token') || null;
-  let pendingDeleteUserId = null;
 
   // ── Utilities ────────────────────────────────────────────────────────────
 
@@ -751,54 +717,6 @@
       `);
     } catch {
       showToast('Lookup failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ── Delete Account ────────────────────────────────────────────────────────
-
-  function doDeleteConfirm() {
-    const userId = document.getElementById('deleteUserId').value.trim();
-    if (!userId) { showToast('Please enter a user phone number', 'error'); return; }
-    pendingDeleteUserId = userId;
-    document.getElementById('deleteModalUser').textContent = userId;
-    document.getElementById('deleteModal').classList.remove('hidden');
-  }
-
-  function closeDeleteModal() {
-    pendingDeleteUserId = null;
-    document.getElementById('deleteModal').classList.add('hidden');
-  }
-
-  async function doDeleteAccount() {
-    if (!pendingDeleteUserId) return;
-    const userId = pendingDeleteUserId;
-    closeDeleteModal();
-    setLoading(true);
-    try {
-      const { ok, data } = await api('delete-account', { token: adminToken, userId });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Delete failed', 'error');
-        showDesktopResults('Delete Account', `
-          <div class="rounded-lg border p-3 bg-red-50 border-red-200 text-red-800">
-            <p class="font-semibold">Delete Failed</p>
-            <p class="text-xs mt-1">${data.error || 'Could not delete account'}</p>
-          </div>
-        `);
-        return;
-      }
-      showToast(`Account ${userId} deleted.`, 'success');
-      showDesktopResults('Delete Account', `
-        <div class="rounded-lg border p-3 bg-gray-50 border-gray-200 text-gray-700">
-          <p class="font-semibold">✓ Account Deleted</p>
-          <p class="text-xs mt-1">User <span class="font-mono font-bold">${userId}</span> has been permanently removed.</p>
-        </div>
-      `);
-      document.getElementById('deleteUserId').value = '';
-    } catch {
-      showToast('Delete failed. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
