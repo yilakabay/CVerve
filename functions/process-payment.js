@@ -55,7 +55,18 @@ exports.handler = async (event, context) => {
     const pendingCol  = db.collection('pending_payments');
     const verifiedCol = db.collection('payments');
 
-    // Check for duplicate
+    // Block if this user already has a pending payment
+    const userHasPending = await pendingCol.findOne({ userId, status: 'pending' });
+    if (userHasPending) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: 'You already have a pending payment awaiting verification. You cannot submit a new payment until it is verified.'
+        })
+      };
+    }
+
+    // Check for duplicate transaction ID
     const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId });
     const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId });
 
