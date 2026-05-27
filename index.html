@@ -2769,8 +2769,12 @@
             const txIdInput = method === 'cbe' ? 'cbeTxId' : 'cbebirrTxId', amtInput = method === 'cbe' ? 'cbeAmount' : 'cbebirrAmount';
             const paymentId = document.getElementById(txIdInput).value.trim(), amount = document.getElementById(amtInput).value.trim();
             if (!paymentId) { setPaymentFieldError(txIdInput, 'Transaction ID is required'); return; }
-            if (!amount)    { setPaymentFieldError(amtInput, 'Amount is required'); return; }
-            const numericAmount = parseFloat(String(amount).replace(/[^\d.]/g, ''));
+            // Transaction ID: only alphanumeric characters allowed — no spaces, punctuation or special chars
+            if (/[^a-zA-Z0-9]/.test(paymentId)) { setPaymentFieldError(txIdInput, 'Transaction ID must contain only letters and numbers — no spaces or special characters'); return; }
+            if (!amount) { setPaymentFieldError(amtInput, 'Amount is required'); return; }
+            // Amount: digits and a single dot only — nothing else allowed
+            if (/[^0-9.]/.test(amount) || (amount.match(/\./g) || []).length > 1) { setPaymentFieldError(amtInput, 'Amount must contain numbers only'); return; }
+            const numericAmount = parseFloat(amount);
             if (isNaN(numericAmount) || numericAmount < 100) { setPaymentFieldError(amtInput, 'Minimum amount is 100 ETB'); return; }
             closePaymentPopup(); showLoadingOverlay('Submitting payment\u2026');
             try {
@@ -3144,14 +3148,28 @@
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
             <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2"><p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Account:</span> 1000577617639</span><button onclick="copyText('1000577617639','Account number')" class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div><p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p><p><span class="font-medium">Minimum:</span> 100 ETB</p></div>
             <p class="text-xs text-gray-500 mb-3">After transferring, enter your transaction details below:</p>
-            <div class="flex gap-2 mb-3"><input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"><input type="number" id="cbeAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+            <div class="flex gap-2 mb-3">
+                <div class="flex-[3] min-w-0">
+                    <input type="text" id="cbeTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <input type="text" inputmode="numeric" id="cbeAmount" placeholder="Amount" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+            </div>
             <button onclick="submitPayment('cbe')" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">Submit Payment</button>
         </div>
         <div id="payMethodCBEBirr" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
             <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2"><p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div><p><span class="font-medium">Minimum:</span> 100 ETB</p></div>
             <p class="text-xs text-gray-500 mb-3">After sending, enter your transaction details below:</p>
-            <div class="flex gap-2 mb-3"><input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="flex-[3] min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"><input type="number" id="cbebirrAmount" placeholder="Amount" class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
+            <div class="flex gap-2 mb-3">
+                <div class="flex-[3] min-w-0">
+                    <input type="text" id="cbebirrTxId" placeholder="Transaction ID (e.g. FT1234567890)" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <input type="text" inputmode="numeric" id="cbebirrAmount" placeholder="Amount" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
             <button onclick="submitPayment('cbebirr')" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">Submit Payment</button>
         </div>
     </div>
