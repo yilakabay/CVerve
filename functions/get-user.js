@@ -9,7 +9,6 @@ const client = new MongoClient(uri, {
     maxIdleTimeMS: 30000
 });
 
-// Validate the signed token produced by admin-auth.js makeToken()
 function isValidAdminToken(token) {
   try {
     const lastDot = token.lastIndexOf('.');
@@ -57,6 +56,11 @@ exports.handler = async (event, context) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
       }
 
+      // Check for pending payment
+      const pendingCol = db.collection('pending_payments');
+      const pendingPayment = await pendingCol.findOne({ userId, status: 'pending' });
+
+      // Look up Telegram info
       const tgCol = db.collection('telegram_chats');
       const tgRecord = await tgCol.findOne({ phoneNumber: userId });
 
@@ -69,7 +73,13 @@ exports.handler = async (event, context) => {
             createdAt: user.createdAt || null,
             email: user.email || null,
             tgUsername: tgRecord?.username || null,
-            hasTelegram: !!tgRecord
+            hasTelegram: !!tgRecord,
+            pendingPayment: pendingPayment ? {
+              paymentId: pendingPayment.paymentId,
+              amount: pendingPayment.amount,
+              paymentMethod: pendingPayment.paymentMethod,
+              submittedAt: pendingPayment.submittedAt
+            } : null
           }
         })
       };
