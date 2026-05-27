@@ -525,7 +525,7 @@
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); toggleLoginScreen(false); }
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); renderBalanceDisplays(); toggleLoginScreen(false); }
                 else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
@@ -869,7 +869,7 @@
             // Populate phone
             document.getElementById('drawerPhone').textContent = userId || '';
             // Populate balance
-            document.getElementById('drawerBalance').textContent = (userBalance || 0).toFixed(2);
+            renderBalanceDisplays();
             // Populate stored profile
             populateDrawerProfile();
             // Slide open
@@ -1756,6 +1756,38 @@
             if (jdInputMode === 'url') { const v = document.getElementById('sbJdUrlInput').value; document.getElementById('jdUrlInput').value = v; jdUrl = v.trim(); }
         }
 
+
+        // ── Balance visibility (hidden by default) ────────────────────────────
+        let balanceVisible = localStorage.getItem('cv_balanceVisible') === 'true'; // default false
+
+        function renderBalanceDisplays() {
+            const mask = '••••';
+            const val  = (userBalance || 0).toFixed(2);
+            const shown = balanceVisible ? val : mask;
+
+            // All span elements showing balance
+            ['dr-balance', 'drawerBalance'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.textContent = shown;
+            });
+
+            // Eye icon buttons — show eye-open when hidden, eye-closed when visible
+            var eyeOpen   = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
+            var eyeClosed = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
+            ['dr-eyeBtn', 'drawer-eyeBtn'].forEach(function(id) {
+                var btn = document.getElementById(id);
+                if (!btn) return;
+                btn.innerHTML = balanceVisible ? eyeOpen : eyeClosed;
+                btn.title = balanceVisible ? 'Hide balance' : 'Show balance';
+            });
+        }
+
+        function toggleBalanceVisibility() {
+            balanceVisible = !balanceVisible;
+            localStorage.setItem('cv_balanceVisible', balanceVisible);
+            renderBalanceDisplays();
+        }
+
         // ── Stop & Retry ─────────────────────────────────────────────────────
         function stopGeneration() {
             generationStopped = true;
@@ -2573,7 +2605,7 @@
             try {
                 const response = await fetch('/.netlify/functions/update-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, amount }) });
                 const data = await response.json();
-                if (response.ok) { userBalance = data.balance; localStorage.setItem('cv_userBalance', userBalance); const _bd = document.getElementById('drawerBalance'); if(_bd) _bd.textContent = userBalance.toFixed(2); return true; }
+                if (response.ok) { userBalance = data.balance; localStorage.setItem('cv_userBalance', userBalance); renderBalanceDisplays(); return true; }
             } catch { /* silent */ }
             return false;
         }
@@ -3546,7 +3578,10 @@
                 <p class="right-section-title">Balance</p>
                 <div class="bg-white border border-gray-200 rounded-xl px-4 py-3">
                     <div class="flex items-center justify-between">
-                        <p class="text-2xl font-bold text-gray-800"><span id="dr-balance">0.00</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
+                        <div class="flex items-center gap-2">
+                            <p class="text-2xl font-bold text-gray-800"><span id="dr-balance">••••</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
+                            <button onclick="toggleBalanceVisibility()" id="dr-eyeBtn" class="text-gray-400 hover:text-gray-600 transition" title="Show/hide balance"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg></button>
+                        </div>
                         <button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-1.5 px-4 rounded-full font-semibold text-xs hover:bg-indigo-600 transition shadow-sm">Top Up</button>
                     </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
@@ -3845,7 +3880,10 @@
             <div class="flex items-center justify-between mb-3">
                 <div>
                     <p class="text-xs text-gray-400 font-medium mb-0.5">Balance</p>
-                    <p class="text-xl font-bold text-gray-800"><span id="drawerBalance">0.00</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
+                    <div class="flex items-center gap-2">
+                        <p class="text-xl font-bold text-gray-800"><span id="drawerBalance">••••</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
+                        <button onclick="toggleBalanceVisibility()" id="drawer-eyeBtn" class="text-gray-400 hover:text-gray-600 transition" title="Show/hide balance"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg></button>
+                    </div>
                 </div>
                 <button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-1.5 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-sm">Top Up</button>
             </div>
@@ -4186,7 +4224,7 @@ function syncCvListDesktop() {
 // ── Update right panel balance & profile
 function updateDesktopRight() {
     var balEl = document.getElementById('dr-balance');
-    if (balEl) balEl.textContent = (userBalance || 0).toFixed(2);
+    renderBalanceDisplays();
     var noP  = document.getElementById('dr-no-profile');
     var card = document.getElementById('dr-profile-card');
     if (!noP || !card) return;
