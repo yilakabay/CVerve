@@ -1,7 +1,5 @@
 // functions/admin-verify.js
-// Authenticated admin endpoints for viewing and verifying pending payments.
-//
-// POST body: { token, action: 'list' | 'verify', entries?: [{ paymentId, amount }] }
+// POST body: { token, action: 'list' | 'verify' | 'reject', entries?, paymentId? }
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -19,7 +17,6 @@ function verifyToken(token) {
   if (sig !== expected) return false;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64').toString());
-    // Token valid for 24 hours
     if (Date.now() - data.ts > 24 * 60 * 60 * 1000) return false;
     return data.admin === true;
   } catch { return false; }
@@ -61,7 +58,7 @@ exports.handler = async (event, context) => {
 
     // ── verify ─────────────────────────────────────────────────────────────
     if (action === 'verify') {
-      const { entries } = body; // [{ paymentId, amount }]
+      const { entries } = body;
       if (!Array.isArray(entries) || entries.length === 0) {
         return { statusCode: 400, body: JSON.stringify({ error: 'entries array is required' }) };
       }
@@ -88,7 +85,6 @@ exports.handler = async (event, context) => {
           continue;
         }
 
-        // Amount must match (allow ±1 ETB tolerance for rounding)
         if (Math.abs(pending.amount - entryAmt) > 1) {
           results.push({
             paymentId: entryId,
@@ -98,7 +94,6 @@ exports.handler = async (event, context) => {
           continue;
         }
 
-        // Move to verified
         await verifiedCol.insertOne({
           paymentId: pending.paymentId,
           userId:    pending.userId,
@@ -111,7 +106,6 @@ exports.handler = async (event, context) => {
 
         await pendingCol.deleteOne({ _id: pending._id });
 
-        // Credit user balance
         await usersCol.findOneAndUpdate(
           { phoneNumber: pending.userId },
           { $inc: { balance: pending.amount } },
@@ -130,6 +124,30 @@ exports.handler = async (event, context) => {
       return {
         statusCode: 200,
         body: JSON.stringify({ success: true, results, verifiedCount })
+      };
+    }
+
+    // ── reject ─────────────────────────────────────────────────────────────
+    if (action === 'reject') {
+      const { paymentId } = body;
+      if (!paymentId) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'paymentId is required' }) };
+      }
+
+      const pending = await pendingCol.findOne({ paymentId: String(paymentId).trim(), status: 'pending' });
+
+      if (!pending) {
+        return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
+      }
+
+      await pendingCol.deleteOne({ _id: pending._id });
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          message: `Payment ${paymentId} has been rejected and removed.`
+        })
       };
     }
 
