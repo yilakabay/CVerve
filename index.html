@@ -66,8 +66,8 @@
                 display: flex !important;
                 flex-direction: column;
                 align-items: center;
-                justify-content: center;
-                padding: 28px 32px;
+                justify-content: flex-start;
+                padding: 32px 32px 28px;
                 min-height: 100%;
                 box-sizing: border-box;
             }
@@ -96,6 +96,9 @@
             #desktopCenter .workspace-inner {
                 width: 100%;
                 max-width: 600px;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
             }
         }
 
@@ -157,6 +160,7 @@
 
         /* Workspace idle state */
         .workspace-idle {
+            flex: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -165,6 +169,7 @@
             gap: 12px;
             color: #94a3b8;
             padding: 48px 0;
+            min-height: 300px;
         }
         .workspace-idle svg { opacity: 0.35; }
     </style>
@@ -1232,16 +1237,31 @@
             stopMergeAnimation();
             const dot = document.getElementById('mergeStepDot');
             const label = document.getElementById('mergeStepText');
+            const dcDot = document.getElementById('dc-mergeStepDot');
+            const dcLabel = document.getElementById('dc-mergeStepText');
+            const LOGO_LG = PROGRESS_LOGO_SVG.replace(/width:48px;height:48px/g,'width:64px;height:64px');
             if (dot) {
                 dot.style.width = '48px'; dot.style.height = '48px';
                 dot.innerHTML = PROGRESS_LOGO_SVG;
             }
-            if (label) {
-                label.style.background='linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
-                label.style.webkitBackgroundClip='text'; label.style.webkitTextFillColor='transparent'; label.style.backgroundClip='text';
-                label.innerHTML=text;
+            if (dcDot) {
+                dcDot.style.width = '64px'; dcDot.style.height = '64px';
+                dcDot.innerHTML = LOGO_LG;
+            }
+            const gradStyle = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
+            [label, dcLabel].forEach(el => {
+                if (!el) return;
+                el.style.background = gradStyle;
+                el.style.webkitBackgroundClip = 'text'; el.style.webkitTextFillColor = 'transparent'; el.style.backgroundClip = 'text';
+                el.textContent = text;
+            });
+            if (label || dcLabel) {
                 let dir=-1,opacity=1;
-                mergeTopFadeAnim=setInterval(()=>{opacity+=dir*0.04;if(opacity<=0.15)dir=1;if(opacity>=1)dir=-1;label.style.opacity=opacity;},40);
+                mergeTopFadeAnim=setInterval(()=>{
+                    opacity+=dir*0.04;if(opacity<=0.15)dir=1;if(opacity>=1)dir=-1;
+                    if(label) label.style.opacity=opacity;
+                    if(dcLabel) dcLabel.style.opacity=opacity;
+                },40);
             }
         }
 
@@ -1252,9 +1272,13 @@
 
         function setMergeDone() {
             stopMergeAnimation();
+            const checkSvg = `<svg style="width:20px;height:20px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
             const dot=document.getElementById('mergeStepDot'), label=document.getElementById('mergeStepText');
+            const dcDot=document.getElementById('dc-mergeStepDot'), dcLabel=document.getElementById('dc-mergeStepText');
             if(dot){dot.className='flex-shrink-0 flex items-center justify-center';dot.style.width='';dot.style.height='';dot.innerHTML=`<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;}
             if(label){label.style.background='';label.style.webkitBackgroundClip='';label.style.webkitTextFillColor='';label.style.backgroundClip='';label.style.opacity=1;label.className='text-sm font-medium text-emerald-600';label.textContent='Done';}
+            if(dcDot){dcDot.className='flex items-center justify-center';dcDot.style.width='';dcDot.style.height='';dcDot.innerHTML=checkSvg;}
+            if(dcLabel){dcLabel.style.background='';dcLabel.style.webkitBackgroundClip='';dcLabel.style.webkitTextFillColor='';dcLabel.style.backgroundClip='';dcLabel.style.opacity=1;dcLabel.className='text-base font-medium text-emerald-600';dcLabel.textContent='Done';}
         }
 
         function resetMerger() {
@@ -1602,20 +1626,27 @@
             stopTopIndicatorAnimation();
             const label = document.getElementById('currentStepText');
             const dot = document.getElementById('currentStepDot');
-            if (!label || !dot) return;
-            dot.style.width = '48px'; dot.style.height = '48px';
-            dot.innerHTML = PROGRESS_LOGO_SVG;
-            label.style.background = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
-            label.style.webkitBackgroundClip = 'text';
-            label.style.webkitTextFillColor = 'transparent';
-            label.style.backgroundClip = 'text';
-            label.innerHTML = text;
+            const dcDot = document.getElementById('dc-currentStepDot');
+            const dcLabel = document.getElementById('dc-currentStepText');
+            const LOGO_LG = PROGRESS_LOGO_SVG.replace(/width:48px;height:48px/g,'width:64px;height:64px');
+            if (dot) { dot.style.width = '48px'; dot.style.height = '48px'; dot.innerHTML = PROGRESS_LOGO_SVG; }
+            if (dcDot) { dcDot.style.width = '64px'; dcDot.style.height = '64px'; dcDot.innerHTML = LOGO_LG; }
+            const gradStyle = 'linear-gradient(90deg,#22c55e,#f97316,#3b82f6)';
+            [label, dcLabel].forEach(el => {
+                if (!el) return;
+                el.style.background = gradStyle;
+                el.style.webkitBackgroundClip = 'text';
+                el.style.webkitTextFillColor = 'transparent';
+                el.style.backgroundClip = 'text';
+                el.textContent = text;
+            });
             let dir = -1, opacity = 1;
             topFadeAnimFrame = setInterval(() => {
                 opacity += dir * 0.04;
                 if (opacity <= 0.15) dir = 1;
                 if (opacity >= 1) dir = -1;
-                label.style.opacity = opacity;
+                if (label) label.style.opacity = opacity;
+                if (dcLabel) dcLabel.style.opacity = opacity;
             }, 40);
         }
 
@@ -1628,20 +1659,33 @@
             stopTopIndicatorAnimation();
             const label = document.getElementById('currentStepText');
             const dot = document.getElementById('currentStepDot');
+            const dcDot = document.getElementById('dc-currentStepDot');
+            const dcLabel = document.getElementById('dc-currentStepText');
+            const checkSvgSm = `<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
+            const checkSvgLg = `<svg style="width:20px;height:20px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
             if (dot) {
                 dot.className = 'flex-shrink-0 flex items-center justify-center';
-                dot.style.width = '';
-                dot.style.height = '';
-                dot.innerHTML = `<svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
+                dot.style.width = ''; dot.style.height = '';
+                dot.innerHTML = checkSvgSm;
+            }
+            if (dcDot) {
+                dcDot.className = 'flex items-center justify-center';
+                dcDot.style.width = ''; dcDot.style.height = '';
+                dcDot.innerHTML = checkSvgLg;
             }
             if (label) {
-                label.style.background = '';
-                label.style.webkitBackgroundClip = '';
-                label.style.webkitTextFillColor = '';
-                label.style.backgroundClip = '';
+                label.style.background = ''; label.style.webkitBackgroundClip = '';
+                label.style.webkitTextFillColor = ''; label.style.backgroundClip = '';
                 label.style.opacity = 1;
                 label.className = 'text-sm font-medium text-emerald-600';
                 label.textContent = 'Done';
+            }
+            if (dcLabel) {
+                dcLabel.style.background = ''; dcLabel.style.webkitBackgroundClip = '';
+                dcLabel.style.webkitTextFillColor = ''; dcLabel.style.backgroundClip = '';
+                dcLabel.style.opacity = 1;
+                dcLabel.className = 'text-base font-medium text-emerald-600';
+                dcLabel.textContent = 'Done';
             }
         }
 
@@ -2676,6 +2720,16 @@
             <stop offset="50%"  stop-color="#f97316"/>
             <stop offset="100%" stop-color="#3b82f6"/>
         </linearGradient>
+        <linearGradient id="pgLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"  stop-color="#22c55e"/>
+            <stop offset="50%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#3b82f6"/>
+        </linearGradient>
+        <linearGradient id="pgLogoGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"  stop-color="#22c55e"/>
+            <stop offset="50%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#3b82f6"/>
+        </linearGradient>
     </defs>
 </svg>
 
@@ -3281,7 +3335,7 @@
             <div class="workspace-inner w-full">
 
                 <!-- MERGER workspace -->
-                <div id="dc-merger">
+                <div id="dc-merger" style="display:flex;flex-direction:column;flex:1;">
                     <!-- Idle -->
                     <div id="dc-merger-idle" class="workspace-idle">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -3315,7 +3369,7 @@
                 </div>
 
                 <!-- LETTER workspace -->
-                <div id="dc-letter" class="hidden">
+                <div id="dc-letter" class="hidden" style="display:none;flex-direction:column;flex:1;">
                     <!-- Idle -->
                     <div id="dc-letter-idle" class="workspace-idle">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
