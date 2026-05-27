@@ -2539,27 +2539,39 @@
         function openPaymentPopup() {
             closeAccountDrawer();
             const overlay = document.getElementById('paymentPopupOverlay');
-            const sheet = document.getElementById('paymentPopupSheet');
-            overlay.classList.remove('hidden');
+            const sheet   = document.getElementById('paymentPopupSheet');
+            const bg      = document.getElementById('paymentPopupBg');
+            const drag    = document.getElementById('paymentDragBar');
             const isDesktop = window.innerWidth >= 768;
+            // Position the sheet
             if (isDesktop) {
-                sheet.classList.remove('md:translate-x-full');
-                sheet.style.transform = 'translateX(0)';
+                // Right-side drawer: full height, fixed width, no dim on left
+                sheet.style.cssText = 'position:absolute;top:0;right:0;bottom:0;width:400px;border-radius:0;overflow-y:auto;transform:translateX(100%);transition:transform 0.3s ease-out;padding:24px;';
+                bg.style.cssText = 'display:none;'; // no dark overlay on desktop
+                if (drag) drag.style.display = 'none';
             } else {
-                sheet.classList.remove('translate-y-full');
+                // Bottom sheet on mobile
+                sheet.style.cssText = 'position:absolute;bottom:0;left:0;right:0;border-radius:24px 24px 0 0;transform:translateY(100%);transition:transform 0.3s ease-out;padding:24px 24px 32px;max-height:90vh;overflow-y:auto;';
+                bg.style.cssText = '';
+                if (drag) drag.style.display = '';
             }
+            overlay.classList.remove('hidden');
+            // Trigger animation
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    sheet.style.transform = isDesktop ? 'translateX(0)' : 'translateY(0)';
+                });
+            });
             paymentPopupVisible = true;
             showPaymentMethodChoice();
         }
         function closePaymentPopup() {
             const sheet = document.getElementById('paymentPopupSheet');
             const isDesktop = window.innerWidth >= 768;
-            if (isDesktop) {
-                sheet.style.transform = 'translateX(100%)';
-            } else {
-                sheet.classList.add('translate-y-full');
-            }
-            setTimeout(() => document.getElementById('paymentPopupOverlay').classList.add('hidden'), 300);
+            sheet.style.transform = isDesktop ? 'translateX(100%)' : 'translateY(100%)';
+            setTimeout(() => {
+                document.getElementById('paymentPopupOverlay').classList.add('hidden');
+            }, 300);
             paymentPopupVisible = false;
         }
         function showPaymentMethodChoice() { document.getElementById('payMethodChoice').classList.remove('hidden'); ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden')); }
@@ -2716,7 +2728,7 @@
         .file-input-wrapper   { position:relative; display:inline-block; width:100%; }
         .file-input-wrapper input[type="file"] { color:transparent; }
         .file-count-display   { position:absolute; right:100px; top:50%; transform:translateY(-50%); pointer-events:none; background:white; padding:2px 8px; border-radius:12px; font-size:.75rem; z-index:10; border:1px solid #e5e7eb; white-space:nowrap; }
-        #paymentPopupSheet    { transition: transform 0.3s ease-out; } @media (min-width: 768px) { #paymentPopupSheet { transition: transform 0.3s ease-out; } }
+        /* payment sheet transition handled inline */
         #editSidebar          { transition: transform 0.35s cubic-bezier(.4,0,.2,1); }
         .step-icon            { transition: background 0.3s, border-color 0.3s; }
         .step-chevron svg     { transition: transform 0.22s ease; }
@@ -2987,9 +2999,10 @@
 </div>
 
 <!-- PAYMENT POPUP -->
-<div id="paymentPopupOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end justify-center md:flex md:items-stretch md:justify-end" onclick="if(event.target===this) closePaymentPopup()">
-    <div id="paymentPopupSheet" class="translate-y-full md:translate-y-0 md:translate-x-full bg-white rounded-t-3xl md:rounded-none shadow-2xl w-full md:w-96 px-6 pt-4 pb-8 md:h-full md:overflow-y-auto">
-        <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 md:hidden"></div>
+<div id="paymentPopupOverlay" class="hidden fixed inset-0 z-50" onclick="if(event.target===this) closePaymentPopup()">
+    <div id="paymentPopupBg" class="absolute inset-0 bg-black bg-opacity-50"></div>
+    <div id="paymentPopupSheet" class="absolute bg-white shadow-2xl" style="transform:translateY(100%);transition:transform 0.3s ease-out;">
+        <div id="paymentDragBar" class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
         <div class="flex items-center justify-between mb-5">
             <h2 class="text-lg font-bold text-gray-800">Top Up Balance</h2>
             <button onclick="closePaymentPopup()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
