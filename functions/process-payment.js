@@ -27,7 +27,7 @@ exports.handler = async (event, context) => {
 
   const { userId, paymentId, amount, paymentMethod, checkOnly } = body;
 
-  // ── checkOnly mode: just tell the frontend if the user has a pending payment ──
+  // ── checkOnly mode ────────────────────────────────────────────────────────
   if (checkOnly) {
     if (!userId) {
       return { statusCode: 400, body: JSON.stringify({ error: 'userId is required for checkOnly.' }) };
@@ -80,6 +80,8 @@ exports.handler = async (event, context) => {
     const db = client.db('cverve');
     const pendingCol  = db.collection('pending_payments');
     const verifiedCol = db.collection('payments');
+    const smsCol      = db.collection('sms_detections');
+    const usersCol    = db.collection('users');
 
     // Block if this user already has a pending payment
     const userHasPending = await pendingCol.findOne({ userId, status: 'pending' });
@@ -94,23 +96,65 @@ exports.handler = async (event, context) => {
 
     // Check for duplicate transaction ID
     const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId });
-    const alreadyVerified = verifiedCol.findOne({ paymentId: trimmedPaymentId });
+    const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId });
 
-    if (alreadyPending || await alreadyVerified) {
+    if (alreadyPending || alreadyVerified) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'This transaction ID has already been submitted or used. Please do not resubmit the same transaction.' })
       };
     }
 
-    // Store as pending
+    // ── Check if SMS already received for this transaction ID ─────────────────
+    // This handles the case where the bank SMS arrived before the user submitted
+    const existingSms = await smsCol.findOne({
+      paymentId: trimmedPaymentId,
+      status: { $in: ['extracted', 'waiting'] }
+    });
+
+    if (existingSms && existingSms.amount) {
+      const amountMatches = Math.abs(existingSms.amount - numericAmount) <= 1;
+      if (amountMatches) {
+        // SMS already received and amounts match — auto verify instantly
+        await verifiedCol.insertOne({
+          paymentId:     trimmedPaymentId,
+          userId,
+          amount:        numericAmount,
+          paymentMethod: paymentMethod || 'unknown',
+          verifiedAt:    new Date(),
+          submittedAt:   new Date(),
+          autoVerified:  true,
+          smsBody:       existingSms.smsBody
+        });
+        await usersCol.findOneAndUpdate(
+          { phoneNumber: userId },
+          { $inc: { balance: numericAmount } },
+          { upsert: false }
+        );
+        await smsCol.updateOne(
+          { _id: existingSms._id },
+          { $set: { status: 'verified', matchedUserId: userId, resolvedAt: new Date() } }
+        );
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            success:      true,
+            autoVerified: true,
+            message:      '✓ Payment instantly verified! Your balance has been updated.',
+            amount:       numericAmount
+          })
+        };
+      }
+    }
+
+    // ── Store as pending (normal flow) ────────────────────────────────────────
     await pendingCol.insertOne({
       paymentId: trimmedPaymentId,
       userId,
-      amount: numericAmount,
+      amount:        numericAmount,
       paymentMethod: paymentMethod || 'unknown',
-      status: 'pending',
-      submittedAt: new Date()
+      status:        'pending',
+      submittedAt:   new Date()
     });
 
     console.log('Payment stored as pending:', trimmedPaymentId, 'amount:', numericAmount, 'user:', userId);
@@ -122,7 +166,7 @@ exports.handler = async (event, context) => {
         pending: true,
         message: 'Payment submitted. Awaiting admin verification (within 6 hours).',
         paymentId: trimmedPaymentId,
-        amount: numericAmount
+        amount:    numericAmount
       })
     };
 
