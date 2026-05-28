@@ -1756,8 +1756,6 @@
             if (jdInputMode === 'url') { const v = document.getElementById('sbJdUrlInput').value; document.getElementById('jdUrlInput').value = v; jdUrl = v.trim(); }
         }
 
-
-
         // ── Password visibility toggle ────────────────────────────────────────
         function togglePwVisibility(...args) {
             // Last arg is always the button id, rest are field ids
@@ -1816,6 +1814,13 @@
                     p.style.fontSize   = '';
                     p.style.fontWeight = '';
                 }
+            });
+
+            // Pending payment badge — show/hide in all balance containers
+            ['balance-pending-badge', 'dr-balance-pending-badge'].forEach(function(id) {
+                var badge = document.getElementById(id);
+                if (!badge) return;
+                badge.classList.toggle('hidden', !hasPendingPayment);
             });
 
             // Eye icon buttons — show eye-open when hidden, eye-closed when visible
@@ -2659,7 +2664,9 @@
 
         // ── Payment ───────────────────────────────────────────────────────────
         let paymentPopupVisible = false;
-        function openPaymentPopup() {
+        let hasPendingPayment = false; // tracks whether the current user has a pending payment
+
+        async function openPaymentPopup() {
             closeAccountDrawer();
             const overlay = document.getElementById('paymentPopupOverlay');
             const sheet   = document.getElementById('paymentPopupSheet');
@@ -2668,25 +2675,52 @@
             const isDesktop = window.innerWidth >= 768;
             // Position the sheet
             if (isDesktop) {
-                // Right-side drawer: full height, fixed width, no dim on left
                 sheet.style.cssText = 'position:absolute;top:0;right:0;bottom:0;width:400px;border-radius:0;overflow-y:auto;transform:translateX(100%);transition:transform 0.3s ease-out;padding:24px;';
-                bg.style.cssText = 'display:none;'; // no dark overlay on desktop
+                bg.style.cssText = 'display:none;';
                 if (drag) drag.style.display = 'none';
             } else {
-                // Bottom sheet on mobile
                 sheet.style.cssText = 'position:absolute;bottom:0;left:0;right:0;border-radius:24px 24px 0 0;transform:translateY(100%);transition:transform 0.3s ease-out;padding:24px 24px 32px;max-height:90vh;overflow-y:auto;';
                 bg.style.cssText = '';
                 if (drag) drag.style.display = '';
             }
             overlay.classList.remove('hidden');
-            // Trigger animation
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     sheet.style.transform = isDesktop ? 'translateX(0)' : 'translateY(0)';
                 });
             });
             paymentPopupVisible = true;
-            showPaymentMethodChoice();
+
+            // Check for pending payment BEFORE showing payment methods
+            try {
+                const res = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, checkOnly: true })
+                });
+                const data = await res.json();
+                hasPendingPayment = !!(data && data.hasPending);
+            } catch (e) {
+                hasPendingPayment = false;
+            }
+
+            renderBalanceDisplays(); // refresh pending badge in balance section
+
+            if (hasPendingPayment) {
+                showPendingPaymentNotice();
+            } else {
+                showPaymentMethodChoice();
+            }
+        }
+
+        function showPendingPaymentNotice() {
+            // Hide all payment method panels
+            ['payMethodChoice','payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            const notice = document.getElementById('payPendingNotice');
+            if (notice) notice.classList.remove('hidden');
         }
         function closePaymentPopup() {
             const sheet = document.getElementById('paymentPopupSheet');
@@ -2697,7 +2731,13 @@
             }, 300);
             paymentPopupVisible = false;
         }
-        function showPaymentMethodChoice() { document.getElementById('payMethodChoice').classList.remove('hidden'); ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden')); }
+        function showPaymentMethodChoice() {
+            document.getElementById('payMethodChoice').classList.remove('hidden');
+            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr','payPendingNotice'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+        }
         let _pendingPaymentMethod = null;
         // Per-method "don't show again" flags (in-memory; reset on page refresh)
         const _disclaimerShown = { telebirr: false, cbe: false, cbebirr: false };
@@ -2788,6 +2828,8 @@
                     return;
                 }
                 if (response.ok && result.success) {
+                    hasPendingPayment = true;
+                    renderBalanceDisplays(); // show pending badge immediately
                     showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
                 } else if (response.status >= 500 || response.status === 0) {
                     hideLoadingOverlay();
@@ -3172,6 +3214,19 @@
                 </div>
             </div>
             <button onclick="submitPayment('cbebirr')" class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">Submit Payment</button>
+        </div>
+        <!-- Pending payment notice — shown instead of payment methods when user has a pending payment -->
+        <div id="payPendingNotice" class="hidden">
+            <div class="flex flex-col items-center py-6 text-center">
+                <div class="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">Payment Pending</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">You already have a payment awaiting admin verification. You cannot submit a new payment until your current one is verified or rejected.</p>
+                <p class="text-xs text-gray-400 mt-3">Receipts are reviewed within 6 hours.</p>
+            </div>
         </div>
     </div>
 </div>
@@ -3659,6 +3714,11 @@
                         </div>
                         <button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-1.5 px-4 rounded-full font-semibold text-xs hover:bg-indigo-600 transition shadow-sm">Top Up</button>
                     </div>
+                    <!-- Pending payment badge -->
+                    <div id="dr-balance-pending-badge" class="hidden mt-1.5 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 w-fit">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                        <span class="text-xs font-medium text-amber-700">Payment pending review</span>
+                    </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
                 </div>
             </div>
@@ -3958,6 +4018,11 @@
                     <div class="flex items-center gap-2">
                         <p class="text-xl font-bold text-gray-800"><span id="drawerBalance">••••</span> <span class="text-sm font-medium text-gray-400">ETB</span></p>
                         <button onclick="toggleBalanceVisibility()" id="drawer-eyeBtn" class="text-gray-400 hover:text-gray-600 transition" title="Show/hide balance"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg></button>
+                    </div>
+                    <!-- Pending payment badge -->
+                    <div id="balance-pending-badge" class="hidden mt-1.5 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 w-fit">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                        <span class="text-xs font-medium text-amber-700">Payment pending review</span>
                     </div>
                 </div>
                 <button onclick="openPaymentPopup()" class="bg-indigo-500 text-white py-1.5 px-4 rounded-full font-semibold text-sm hover:bg-indigo-600 transition-colors shadow-sm">Top Up</button>
