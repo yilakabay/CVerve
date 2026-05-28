@@ -2839,8 +2839,8 @@
             const txIdInput = method === 'cbe' ? 'cbeTxId' : 'cbebirrTxId', amtInput = method === 'cbe' ? 'cbeAmount' : 'cbebirrAmount';
             const paymentId = document.getElementById(txIdInput).value.trim(), amount = document.getElementById(amtInput).value.trim();
             if (!paymentId) { setPaymentFieldError(txIdInput, 'Transaction ID is required'); return; }
-            // Transaction ID: only alphanumeric characters allowed — no spaces, punctuation or special chars
-            if (/[^a-zA-Z0-9]/.test(paymentId)) { setPaymentFieldError(txIdInput, 'Transaction ID must contain only letters and numbers — no spaces or special characters'); return; }
+            // Only block spaces — allow letters, numbers, punctuation and special characters
+            if (/\s/.test(paymentId)) { setPaymentFieldError(txIdInput, 'Transaction ID must not contain spaces'); return; }
             if (!amount) { setPaymentFieldError(amtInput, 'Amount is required'); return; }
             // Amount: digits and a single dot only — nothing else allowed
             if (/[^0-9.]/.test(amount) || (amount.match(/\./g) || []).length > 1) { setPaymentFieldError(amtInput, 'Amount must contain numbers only'); return; }
