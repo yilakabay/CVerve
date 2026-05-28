@@ -437,15 +437,44 @@
             updateFilesList(cvFilesArray,  'cvFilesList',  'removeCvFile');
             toggleUploadIcon('cvUploadIcon', 'cvPlusIcon', cvFilesArray.length);
             toggleUploadIcon('sbCvUploadIcon', 'sbCvPlusIcon', cvFilesArray.length);
+            // Update desktop CV upload button label
+            updateDtCvUploadLabel();
         }
         function updateJdFilesList()  {
             updateFilesList(jdFilesArray,  'jdFilesList',  'removeJdFile');
             toggleUploadIcon('jdUploadIcon', 'jdPlusIcon', jdFilesArray.length);
             toggleUploadIcon('sbJdUploadIcon', 'sbJdPlusIcon', jdFilesArray.length);
+            // Sync desktop JD files list
+            var src = document.getElementById('jdFilesList');
+            var dst = document.getElementById('jdFilesList-dt');
+            if (src && dst) dst.innerHTML = src.innerHTML;
+            // Update desktop JD upload button label
+            updateDtJdUploadLabel();
         }
         function updatePdfFilesList() {
             updateFilesList(pdfFilesArray, 'pdfFilesList', 'removePdfFile');
             toggleUploadIcon('pdfUploadIcon', 'pdfPlusIcon', pdfFilesArray.length);
+        }
+
+        // Update desktop CV upload button label: "Upload" → "+ Add" after first file
+        function updateDtCvUploadLabel() {
+            var btn = document.getElementById('cvUploadBtn-dt');
+            if (!btn) return;
+            if (cvFilesArray.length > 0) {
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg> + Add';
+            } else {
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/></svg> Upload';
+            }
+        }
+        // Update desktop JD upload button label: "Upload" → "+ Add" after first file
+        function updateDtJdUploadLabel() {
+            var btn = document.getElementById('jdUploadBtn-dt');
+            if (!btn) return;
+            if (jdFilesArray.length > 0) {
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg> + Add';
+            } else {
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0l-3 3m3-3l3 3"/></svg> Upload';
+            }
         }
 
         function removeCvFile(i) {
@@ -4451,11 +4480,11 @@ function syncDtJdMode(mode) {
         urlBtn.className  = inactiveClass;
         filePnl && filePnl.classList.remove('hidden');
         urlPnl  && urlPnl.classList.add('hidden');
-        setTimeout(function() {
-            var src = document.getElementById('jdFilesList');
-            var dst = document.getElementById('jdFilesList-dt');
-            if (src && dst) dst.innerHTML = src.innerHTML;
-        }, 50);
+        // Sync JD files list immediately
+        var src = document.getElementById('jdFilesList');
+        var dst = document.getElementById('jdFilesList-dt');
+        if (src && dst) dst.innerHTML = src.innerHTML;
+        updateDtJdUploadLabel();
     }
 }
 
