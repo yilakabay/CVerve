@@ -1083,6 +1083,7 @@
             localStorage.removeItem('cv_userId');
             localStorage.removeItem('cv_userBalance');
             localStorage.removeItem('cv_activeTab');
+            localStorage.removeItem('cv_lastActivity');
             document.getElementById('passwordInput').value = '';
             toggleLoginScreen(true);
         }
@@ -4201,18 +4202,67 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
+        // ── Auto-logout after inactivity ──────────────────────────────────────
+        const SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+        const ACTIVITY_KEY = 'cv_lastActivity';
+
+        function touchActivity() {
+            localStorage.setItem(ACTIVITY_KEY, Date.now());
+        }
+
+        function isSessionExpired() {
+            const last = parseInt(localStorage.getItem(ACTIVITY_KEY) || '0', 10);
+            if (!last) return false; // no timestamp yet → treat as active
+            return (Date.now() - last) > SESSION_TIMEOUT_MS;
+        }
+
+        function startActivityTracking() {
+            ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+                window.addEventListener(evt, touchActivity, { passive: true });
+            });
+            touchActivity(); // mark active now
+            // Check every 5 minutes whether the session has gone idle
+            setInterval(() => {
+                if (localStorage.getItem('cv_userId') && isSessionExpired()) {
+                    doLogout();
+                    showMessage('info', 'You were logged out due to inactivity.');
+                }
+            }, 5 * 60 * 1000);
+        }
+
         // ── Restore session from localStorage ────────────────────────────────
         const savedUserId = localStorage.getItem('cv_userId');
         if (savedUserId) {
-            userId = savedUserId;
-            userBalance = parseFloat(localStorage.getItem('cv_userBalance') || '0');
-            const _bd = document.getElementById('drawerBalance');
-            if (_bd) _bd.textContent = userBalance.toFixed(2);
-            toggleLoginScreen(false);
-            // Restore active tab
-            const savedTab = localStorage.getItem('cv_activeTab');
-            if (savedTab) switchTab(savedTab);
+            // If the session has already expired while the browser was closed, log out silently
+            if (isSessionExpired()) {
+                localStorage.removeItem('cv_userId');
+                localStorage.removeItem('cv_userBalance');
+                localStorage.removeItem('cv_activeTab');
+                localStorage.removeItem(ACTIVITY_KEY);
+                // Stay on login screen (default state)
+            } else {
+                userId = savedUserId;
+                userBalance = parseFloat(localStorage.getItem('cv_userBalance') || '0');
+                const _bd = document.getElementById('drawerBalance');
+                if (_bd) _bd.textContent = userBalance.toFixed(2);
+                toggleLoginScreen(false);
+                // Restore active tab
+                const savedTab = localStorage.getItem('cv_activeTab');
+                if (savedTab) switchTab(savedTab);
+                startActivityTracking();
+            }
         }
+
+        // Also start tracking for fresh logins (handleLogin calls toggleLoginScreen(false))
+        const _origToggle = toggleLoginScreen;
+        window._sessionTrackingStarted = false;
+        toggleLoginScreen = function(show) {
+            _origToggle(show);
+            if (!show && !window._sessionTrackingStarted) {
+                window._sessionTrackingStarted = true;
+                startActivityTracking();
+            }
+        };
 
         document.getElementById('sidebarGenerateBtn')?.addEventListener('click', () => {
             document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
