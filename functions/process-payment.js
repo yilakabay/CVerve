@@ -1,4 +1,6 @@
 // Accepts transaction ID and amount directly from the user, validates, and stores as "pending".
+// Also supports checkOnly=true to let the frontend check if the user has a pending payment
+// without submitting a new one (used to show the warning immediately when the popup opens).
 
 const { MongoClient } = require('mongodb');
 
@@ -23,8 +25,32 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { userId, paymentId, amount, paymentMethod } = body;
+  const { userId, paymentId, amount, paymentMethod, checkOnly } = body;
 
+  // ── checkOnly mode: just tell the frontend if the user has a pending payment ──
+  if (checkOnly) {
+    if (!userId) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'userId is required for checkOnly.' }) };
+    }
+    try {
+      await client.connect();
+      const db = client.db('cverve');
+      const pendingCol = db.collection('pending_payments');
+      const userHasPending = await pendingCol.findOne({ userId, status: 'pending' });
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ hasPending: !!userHasPending })
+      };
+    } catch (error) {
+      console.error('Check pending error:', error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'An unexpected error occurred. Please try again.' })
+      };
+    }
+  }
+
+  // ── Normal payment submission ─────────────────────────────────────────────
   if (!userId || !paymentId || amount === undefined || amount === null || amount === '') {
     return {
       statusCode: 400,
@@ -68,9 +94,9 @@ exports.handler = async (event, context) => {
 
     // Check for duplicate transaction ID
     const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId });
-    const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId });
+    const alreadyVerified = verifiedCol.findOne({ paymentId: trimmedPaymentId });
 
-    if (alreadyPending || alreadyVerified) {
+    if (alreadyPending || await alreadyVerified) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'This transaction ID has already been submitted or used. Please do not resubmit the same transaction.' })
