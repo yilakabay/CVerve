@@ -312,16 +312,41 @@
       </div>
     </div><!-- /desktopCenter -->
 
-    <!-- RIGHT: Pending Payments -->
+    <!-- RIGHT: Pending Payments + SMS Detections -->
     <div id="desktopRight">
-      <div class="flex items-center justify-between">
-        <p class="right-section-title">Pending Payments</p>
-        <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+
+      <!-- Tab buttons -->
+      <div class="flex gap-1 bg-gray-100 rounded-xl p-1 mb-2">
+        <button id="tab-pending-btn" onclick="switchRightTab('pending')"
+          class="flex-1 text-xs font-semibold py-1.5 rounded-lg bg-white text-indigo-600 shadow-sm transition-all">
+          Pending
+        </button>
+        <button id="tab-sms-btn" onclick="switchRightTab('sms')"
+          class="flex-1 text-xs font-semibold py-1.5 rounded-lg text-gray-500 transition-all hover:text-gray-700">
+          SMS Detections
+        </button>
       </div>
 
-      <!-- Pending list -->
-      <div id="pendingList-dt" class="space-y-2">
-        <p class="text-sm text-gray-400 italic">Loading…</p>
+      <!-- Pending Payments tab -->
+      <div id="tab-pending">
+        <div class="flex items-center justify-between mb-2">
+          <p class="right-section-title">Pending Payments</p>
+          <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+        </div>
+        <div id="pendingList-dt" class="space-y-2">
+          <p class="text-sm text-gray-400 italic">Loading…</p>
+        </div>
+      </div>
+
+      <!-- SMS Detections tab -->
+      <div id="tab-sms" class="hidden">
+        <div class="flex items-center justify-between mb-2">
+          <p class="right-section-title">SMS Detections</p>
+          <button onclick="loadSmsDetections()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+        </div>
+        <div id="smsList-dt" class="space-y-2">
+          <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
+        </div>
       </div>
 
     </div><!-- /desktopRight -->
@@ -366,6 +391,17 @@
       <div id="verifyResults" class="hidden mt-6 border-t border-gray-200 pt-4">
         <h3 class="font-semibold text-gray-700 mb-2">Results</h3>
         <div id="verifyResultsBody" class="space-y-2 text-sm"></div>
+      </div>
+
+      <!-- SMS Detections (mobile) -->
+      <div class="border-t border-gray-200 pt-6 mt-6">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold text-gray-700">SMS Detections</h2>
+          <button onclick="loadSmsDetections()" class="text-sm text-indigo-600 hover:underline">↻ Refresh</button>
+        </div>
+        <div id="smsList-mob" class="space-y-2 max-h-96 overflow-y-auto">
+          <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
+        </div>
       </div>
     </div>
   </div><!-- /mobileCard -->
@@ -535,7 +571,6 @@
       if (mobContainer) mobContainer.innerHTML = errHtml;
     }
   }
-
 
   // ── Parse & verify helpers ────────────────────────────────────────────────
 
@@ -783,6 +818,146 @@
       // Re-run lookup to refresh the card
       const userId = document.getElementById('lookupUserId').value.trim();
       if (userId) doLookupUser();
+    } catch {
+      showToast('Rejection failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Right panel tab switching ─────────────────────────────────────────────
+
+  function switchRightTab(tab) {
+    const isPending = tab === 'pending';
+    document.getElementById('tab-pending').classList.toggle('hidden', !isPending);
+    document.getElementById('tab-sms').classList.toggle('hidden',     isPending);
+    document.getElementById('tab-pending-btn').className = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all ${isPending  ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+    document.getElementById('tab-sms-btn').className     = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all ${!isPending ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+    if (!isPending) loadSmsDetections();
+  }
+
+  // ── SMS Detections ────────────────────────────────────────────────────────
+
+  function renderSmsItem(s) {
+    const statusConfig = {
+      verified:        { bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: '✓ Verified' },
+      waiting:         { bg: 'bg-blue-50 border-blue-200',       badge: 'bg-blue-100 text-blue-700',       label: '⏳ Waiting' },
+      amount_mismatch: { bg: 'bg-amber-50 border-amber-200',     badge: 'bg-amber-100 text-amber-700',     label: '⚠ Mismatch' },
+      unreadable:      { bg: 'bg-gray-50 border-gray-200',       badge: 'bg-gray-100 text-gray-500',       label: '✗ Unreadable' },
+      extracted:       { bg: 'bg-indigo-50 border-indigo-200',   badge: 'bg-indigo-100 text-indigo-700',   label: '🔍 Extracted' },
+    };
+    const cfg = statusConfig[s.status] || statusConfig.unreadable;
+    const date = new Date(s.createdAt || s.receivedAt).toLocaleString();
+
+    const mismatchButtons = s.status === 'amount_mismatch' ? `
+      <div class="mt-2 p-2 bg-white rounded-lg border border-amber-200">
+        <p class="text-xs text-amber-700 font-semibold mb-1">Amount mismatch — manual review needed</p>
+        <p class="text-xs text-amber-600 mb-2">SMS amount: <strong>${s.smsAmount || s.amount} ETB</strong> · User submitted: <strong>${s.userAmount} ETB</strong></p>
+        <div class="flex gap-2">
+          <button onclick="smsManualVerify('${s.paymentId}', ${s.userAmount}, '${s._id}')"
+            class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
+            ✓ Verify Anyway
+          </button>
+          <button onclick="smsManualReject('${s.paymentId}', '${s._id}')"
+            class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
+            ✕ Reject
+          </button>
+        </div>
+      </div>` : '';
+
+    return `
+      <div class="rounded-lg border p-3 ${cfg.bg}">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}">${cfg.label}</span>
+          <span class="text-xs text-gray-400">${date}</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-1">From: <strong>${s.sender || '–'}</strong></p>
+        ${s.paymentId ? `<p class="font-mono text-xs font-semibold text-gray-700 truncate">ID: ${s.paymentId}</p>` : ''}
+        ${s.amount    ? `<p class="text-xs text-gray-600">Amount: <strong>${s.amount} ETB</strong></p>` : ''}
+        ${s.matchedUserId ? `<p class="text-xs text-gray-500">User: ${s.matchedUserId}</p>` : ''}
+        <details class="mt-1">
+          <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">View SMS text</summary>
+          <p class="text-xs text-gray-500 mt-1 bg-white rounded p-2 border border-gray-200 break-words">${s.smsBody || '–'}</p>
+        </details>
+        ${mismatchButtons}
+      </div>
+    `;
+  }
+
+  async function loadSmsDetections() {
+    const dtContainer  = document.getElementById('smsList-dt');
+    const mobContainer = document.getElementById('smsList-mob');
+    const loadHtml = '<p class="text-sm text-gray-400 italic">Loading…</p>';
+    if (dtContainer)  dtContainer.innerHTML  = loadHtml;
+    if (mobContainer) mobContainer.innerHTML = loadHtml;
+
+    try {
+      const { ok, data } = await api('check-sms-detections', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        const errHtml = `<p class="text-sm text-red-500">${data.error || 'Failed to load'}</p>`;
+        if (dtContainer)  dtContainer.innerHTML  = errHtml;
+        if (mobContainer) mobContainer.innerHTML = errHtml;
+        return;
+      }
+      const records = data.records || [];
+      if (records.length === 0) {
+        const emptyHtml = '<p class="text-sm text-gray-400 italic">No SMS detections yet.</p>';
+        if (dtContainer)  dtContainer.innerHTML  = emptyHtml;
+        if (mobContainer) mobContainer.innerHTML = emptyHtml;
+        return;
+      }
+      const html = records.map(renderSmsItem).join('');
+      if (dtContainer)  dtContainer.innerHTML  = html;
+      if (mobContainer) mobContainer.innerHTML = html;
+    } catch {
+      const errHtml = '<p class="text-sm text-red-500">Failed to load SMS detections.</p>';
+      if (dtContainer)  dtContainer.innerHTML  = errHtml;
+      if (mobContainer) mobContainer.innerHTML = errHtml;
+    }
+  }
+
+  async function smsManualVerify(paymentId, amount, smsId) {
+    if (!confirm(`Verify payment ${paymentId} for ${amount} ETB despite amount mismatch?`)) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('admin-verify', {
+        token: adminToken, action: 'verify',
+        entries: [{ paymentId, amount }]
+      });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Verification failed', 'error'); return;
+      }
+      const result = (data.results || [])[0];
+      if (result && result.status === 'verified') {
+        showToast(`Payment ${paymentId} verified ✓`, 'success');
+        loadPending();
+        loadSmsDetections();
+      } else {
+        showToast(result?.reason || 'Verification failed', 'error');
+      }
+    } catch {
+      showToast('Verification failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function smsManualReject(paymentId, smsId) {
+    if (!confirm(`Reject payment ${paymentId}?`)) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('admin-verify', {
+        token: adminToken, action: 'reject', paymentId
+      });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Rejection failed', 'error'); return;
+      }
+      showToast(`Payment ${paymentId} rejected.`, 'success');
+      loadPending();
+      loadSmsDetections();
     } catch {
       showToast('Rejection failed. Please try again.', 'error');
     } finally {
