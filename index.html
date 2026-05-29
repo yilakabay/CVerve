@@ -554,7 +554,12 @@
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); renderBalanceDisplays(); toggleLoginScreen(false); }
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); renderBalanceDisplays(); toggleLoginScreen(false);
+                    // Show any pending notifications (verified/rejected payments)
+                    if (data.notifications && data.notifications.length > 0) {
+                        setTimeout(() => handleNotifications(data.notifications), 800);
+                    }
+                }
                 else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
             finally { hideLoadingOverlay(); }
@@ -2860,6 +2865,7 @@
                 if (response.ok && result.success) {
                     hasPendingPayment = true;
                     renderBalanceDisplays(); // show pending badge immediately
+                    startSmartPolling();     // start watching for resolution
                     showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
                 } else if (response.status >= 500 || response.status === 0) {
                     hideLoadingOverlay();
@@ -4249,14 +4255,117 @@
             ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
                 window.addEventListener(evt, touchActivity, { passive: true });
             });
-            touchActivity(); // mark active now
-            // Check every 5 minutes whether the session has gone idle
+            touchActivity();
             setInterval(() => {
                 if (localStorage.getItem('cv_userId') && isSessionExpired()) {
                     doLogout();
                     showMessage('info', 'You were logged out due to inactivity.');
                 }
             }, 5 * 60 * 1000);
+        }
+
+        // ── Payment notification popup ────────────────────────────────────────
+        function showPaymentNotification(notification) {
+            const isVerified = notification.type === 'payment_verified';
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999] px-4';
+            overlay.innerHTML = `
+              <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl text-center animate-bounce-once">
+                <div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${isVerified ? 'bg-emerald-100' : 'bg-red-100'}">
+                  <span class="text-3xl">${isVerified ? '✅' : '❌'}</span>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">
+                  ${isVerified ? 'Payment Verified!' : 'Payment Rejected'}
+                </h3>
+                <p class="text-sm text-gray-500 mb-1">
+                  ${isVerified
+                    ? `<span class="text-emerald-600 font-bold text-xl">${Number(notification.amount).toFixed(2)} ETB</span> has been added to your balance.`
+                    : `Your payment of <strong>${Number(notification.amount).toFixed(2)} ETB</strong> was rejected by the admin.`
+                  }
+                </p>
+                <p class="text-xs text-gray-400 mb-5">Ref: ${notification.paymentId || '–'}</p>
+                <button onclick="this.closest('.fixed').remove()"
+                  class="w-full py-2.5 rounded-full font-semibold text-white text-sm ${isVerified ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'} transition-colors">
+                  OK
+                </button>
+              </div>`;
+            document.body.appendChild(overlay);
+            // Auto close after 10 seconds
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 10000);
+        }
+
+        function handleNotifications(notifications) {
+            if (!notifications || notifications.length === 0) return;
+            // Show each notification with a small delay between them
+            notifications.forEach((n, i) => {
+                setTimeout(() => showPaymentNotification(n), i * 500);
+            });
+        }
+
+        // ── Smart polling — ONLY runs when user has a pending payment ─────────
+        // Stops automatically when payment is resolved (no server load for other users)
+        let _pollTimer = null;
+
+        async function checkPendingStatus() {
+            if (!userId || !hasPendingPayment) {
+                if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+                return;
+            }
+            try {
+                // Check both balance and pending status in one call
+                const res = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, checkOnly: true })
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const stillPending = !!(data && data.hasPending);
+
+                if (!stillPending && hasPendingPayment) {
+                    // Payment was resolved — fetch latest balance and notification
+                    hasPendingPayment = false;
+                    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+
+                    // Fetch updated balance
+                    const balRes = await fetch('/.netlify/functions/update-balance', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, getOnly: true })
+                    });
+                    if (balRes.ok) {
+                        const balData = await balRes.json();
+                        if (balData && typeof balData.balance === 'number') {
+                            const oldBalance = userBalance;
+                            userBalance = balData.balance;
+                            localStorage.setItem('cv_userBalance', userBalance);
+                            renderBalanceDisplays();
+                            // Show popup based on whether balance increased or stayed same
+                            if (balData.balance > oldBalance) {
+                                showPaymentNotification({
+                                    type:      'payment_verified',
+                                    amount:    balData.balance - oldBalance,
+                                    paymentId: ''
+                                });
+                            } else {
+                                showPaymentNotification({
+                                    type:      'payment_rejected',
+                                    amount:    0,
+                                    paymentId: ''
+                                });
+                            }
+                        }
+                    }
+                }
+            } catch (_) { /* silent — will retry */ }
+        }
+
+        function startSmartPolling() {
+            // Only start polling if user has a pending payment
+            if (!hasPendingPayment) return;
+            if (_pollTimer) return; // already running
+            // Poll every 60 seconds — much lighter than 30s, only for pending users
+            _pollTimer = setInterval(checkPendingStatus, 60 * 1000);
         }
 
         // ── Restore session from localStorage ────────────────────────────────
@@ -4275,10 +4384,11 @@
                 const _bd = document.getElementById('drawerBalance');
                 if (_bd) _bd.textContent = userBalance.toFixed(2);
                 toggleLoginScreen(false);
-                // Restore active tab
                 const savedTab = localStorage.getItem('cv_activeTab');
                 if (savedTab) switchTab(savedTab);
                 startActivityTracking();
+                // Start smart polling only if user had a pending payment
+                if (hasPendingPayment) startSmartPolling();
             }
         }
 
@@ -4290,6 +4400,8 @@
             if (!show && !window._sessionTrackingStarted) {
                 window._sessionTrackingStarted = true;
                 startActivityTracking();
+                if (hasPendingPayment) startSmartPolling();
+            }
             }
         };
 
