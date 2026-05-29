@@ -22,6 +22,19 @@ function verifyToken(token) {
   } catch { return false; }
 }
 
+// Writes a notification to the user's document
+// User will see it as a popup the next time they log in (or immediately if logged in)
+async function writeNotification(usersCol, userId, notification) {
+  try {
+    await usersCol.updateOne(
+      { phoneNumber: userId },
+      { $push: { notifications: { ...notification, createdAt: new Date() } } }
+    );
+  } catch (e) {
+    console.error('writeNotification error:', e.message);
+  }
+}
+
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -95,13 +108,13 @@ exports.handler = async (event, context) => {
         }
 
         await verifiedCol.insertOne({
-          paymentId: pending.paymentId,
-          userId:    pending.userId,
-          amount:    pending.amount,
-          receiverName: pending.receiverName,
+          paymentId:     pending.paymentId,
+          userId:        pending.userId,
+          amount:        pending.amount,
+          receiverName:  pending.receiverName,
           paymentMethod: pending.paymentMethod,
-          verifiedAt: new Date(),
-          submittedAt: pending.submittedAt
+          verifiedAt:    new Date(),
+          submittedAt:   pending.submittedAt
         });
 
         await pendingCol.deleteOne({ _id: pending._id });
@@ -112,11 +125,18 @@ exports.handler = async (event, context) => {
           { upsert: false }
         );
 
+        // ── Write verified notification to user ──────────────────────────
+        await writeNotification(usersCol, pending.userId, {
+          type:      'payment_verified',
+          amount:    pending.amount,
+          paymentId: pending.paymentId
+        });
+
         results.push({
           paymentId: entryId,
-          status: 'verified',
-          userId: pending.userId,
-          amount: pending.amount
+          status:    'verified',
+          userId:    pending.userId,
+          amount:    pending.amount
         });
       }
 
@@ -141,6 +161,13 @@ exports.handler = async (event, context) => {
       }
 
       await pendingCol.deleteOne({ _id: pending._id });
+
+      // ── Write rejected notification to user ──────────────────────────────
+      await writeNotification(usersCol, pending.userId, {
+        type:      'payment_rejected',
+        amount:    pending.amount,
+        paymentId: pending.paymentId
+      });
 
       return {
         statusCode: 200,
