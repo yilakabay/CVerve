@@ -4,7 +4,7 @@ const { MongoClient } = require('mongodb');
 const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ── Allowed senders ───────────────────────────────────────────────────────────
+// ── Allowed bank senders ──────────────────────────────────────────────────────
 const ALLOWED_SENDERS = [
     'cbe', '8397', 'cbeethi',
     'cbebirr', 'cbe birr', '7809',
@@ -24,7 +24,6 @@ async function extractWithGemini(smsText) {
         { model: 'gemini-2.5-flash' },
         { apiVersion: 'v1beta' }
     );
-
     const prompt = `You are a payment SMS parser for Ethiopian banks (CBE, CBEBirr, Telebirr).
 Extract the transaction/reference ID and the transferred amount from this SMS.
 
@@ -40,11 +39,20 @@ ${smsText}`;
 
     const result = await model.generateContent(prompt);
     const text = result.response.text().trim()
-        .replace(/```json/gi, '')
-        .replace(/```/g, '')
-        .trim();
-
+        .replace(/```json/gi, '').replace(/```/g, '').trim();
     return JSON.parse(text);
+}
+
+// ── Write notification to user document ──────────────────────────────────────
+async function writeNotification(usersCol, userId, notification) {
+    try {
+        await usersCol.updateOne(
+            { phoneNumber: userId },
+            { $push: { notifications: { ...notification, createdAt: new Date() } } }
+        );
+    } catch (e) {
+        console.error('writeNotification error:', e.message);
+    }
 }
 
 // ── Auto verify logic ─────────────────────────────────────────────────────────
@@ -57,7 +65,7 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
     const pending = await pendingCol.findOne({ paymentId, status: 'pending' });
 
     if (!pending) {
-        // No user submitted yet — keep waiting (up to 3 days via TTL index)
+        // No user submitted yet — keep waiting (TTL removes after 3 days)
         await smsCol.updateOne(
             { _id: smsDocId },
             { $set: { status: 'waiting', paymentId, amount: smsAmount } }
@@ -68,27 +76,26 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
     const amountMatches = Math.abs(pending.amount - smsAmount) <= 1;
 
     if (!amountMatches) {
-        // Amounts don't match — flag for manual admin review
+        // Flag for manual admin review
         await smsCol.updateOne(
             { _id: smsDocId },
             { $set: {
-                status: 'amount_mismatch',
-                matchedUserId: pending.userId,
-                userAmount: pending.amount,
+                status:         'amount_mismatch',
+                matchedUserId:  pending.userId,
+                userAmount:     pending.amount,
                 smsAmount,
-                resolvedAt: new Date()
+                resolvedAt:     new Date()
             }}
         );
         return {
-            status: 'amount_mismatch',
-            userId: pending.userId,
+            status:     'amount_mismatch',
+            userId:     pending.userId,
             userAmount: pending.amount,
             smsAmount
         };
     }
 
     // ── Match found — auto verify ─────────────────────────────────────────────
-    // 1. Save to verified payments
     await verifiedCol.insertOne({
         paymentId:     pending.paymentId,
         userId:        pending.userId,
@@ -100,17 +107,14 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
         smsBody
     });
 
-    // 2. Remove from pending
     await pendingCol.deleteOne({ _id: pending._id });
 
-    // 3. Credit user balance
     await usersCol.findOneAndUpdate(
         { phoneNumber: pending.userId },
         { $inc: { balance: pending.amount } },
         { upsert: false }
     );
 
-    // 4. Update SMS detection record
     await smsCol.updateOne(
         { _id: smsDocId },
         { $set: {
@@ -119,6 +123,13 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
             resolvedAt:    new Date()
         }}
     );
+
+    // ── Write verified notification to user ───────────────────────────────────
+    await writeNotification(usersCol, pending.userId, {
+        type:      'payment_verified',
+        amount:    pending.amount,
+        paymentId: pending.paymentId
+    });
 
     return {
         status: 'verified',
@@ -142,11 +153,8 @@ exports.handler = async (event, context) => {
     }
 
     let body;
-    try {
-        body = JSON.parse(event.body);
-    } catch {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
-    }
+    try { body = JSON.parse(event.body); }
+    catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
     const { smsBody, sender, receivedAt } = body;
 
@@ -154,7 +162,6 @@ exports.handler = async (event, context) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'smsBody is required' }) };
     }
 
-    // Only process bank SMS
     if (!isBankSender(sender)) {
         return {
             statusCode: 200,
@@ -175,7 +182,7 @@ exports.handler = async (event, context) => {
             );
         } catch (_) {}
 
-        // Extract payment details using Gemini
+        // Extract with Gemini
         let extracted = { paymentId: null, amount: null };
         try {
             extracted = await extractWithGemini(smsBody);
@@ -183,7 +190,7 @@ exports.handler = async (event, context) => {
             console.error('Gemini extraction failed:', err.message);
         }
 
-        // Store the SMS detection record
+        // Store SMS detection record
         const insertResult = await col.insertOne({
             smsBody,
             sender:     sender || 'unknown',
@@ -194,18 +201,16 @@ exports.handler = async (event, context) => {
             status:     extracted.paymentId ? 'extracted' : 'unreadable'
         });
 
-        // Could not extract — save and exit
         if (!extracted.paymentId || !extracted.amount) {
             return {
                 statusCode: 200,
                 body: JSON.stringify({
-                    status: 'unreadable',
+                    status:  'unreadable',
                     message: 'Could not extract payment details from SMS'
                 })
             };
         }
 
-        // Try to match and auto verify
         const result = await tryAutoVerify(
             db,
             extracted.paymentId,
@@ -214,16 +219,10 @@ exports.handler = async (event, context) => {
             insertResult.insertedId
         );
 
-        return {
-            statusCode: 200,
-            body: JSON.stringify(result)
-        };
+        return { statusCode: 200, body: JSON.stringify(result) };
 
     } catch (error) {
         console.error('receive-sms error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Internal server error' })
-        };
+        return { statusCode: 500, body: JSON.stringify({ error: 'Internal server error' }) };
     }
 };
