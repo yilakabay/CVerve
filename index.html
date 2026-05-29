@@ -559,6 +559,8 @@
                     if (data.notifications && data.notifications.length > 0) {
                         setTimeout(() => handleNotifications(data.notifications), 800);
                     }
+                    // Sync live balance and arm polling in case user has a pending payment
+                    setTimeout(() => syncBalance(), 300);
                 }
                 else { showMessage('error', data.error || 'Login failed'); }
             } catch { showMessage('error', 'Login failed. Please try again.'); }
@@ -1281,6 +1283,8 @@
                 renderBalanceDisplays();
                 toggleLoginScreen(false);
                 loadStoredProfileFromServer();
+                // Fetch live balance + re-arm pending polling immediately on every page load
+                setTimeout(() => syncBalance(), 300);
             }
         };
 
@@ -1893,6 +1897,7 @@
                 if (btn) btn.classList.add('animate-spin');
             });
             try {
+                // Fetch real-time balance from server
                 const res = await fetch('/.netlify/functions/update-balance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1906,6 +1911,20 @@
                         renderBalanceDisplays();
                     }
                 }
+                // Re-check pending payment status so polling arms correctly after refresh
+                try {
+                    const pendRes = await fetch('/.netlify/functions/process-payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, checkOnly: true })
+                    });
+                    if (pendRes.ok) {
+                        const pendData = await pendRes.json();
+                        hasPendingPayment = !!(pendData && pendData.hasPending);
+                        renderBalanceDisplays(); // refresh pending badge
+                        if (hasPendingPayment) startSmartPolling();
+                    }
+                } catch (_) { /* silent */ }
             } catch (_) { /* silent */ }
             // Stop spinning
             ['dr-syncBtn', 'drawer-syncBtn'].forEach(function(id) {
@@ -4412,7 +4431,7 @@
             if (!hasPendingPayment) return;
             if (_pollTimer) return; // already running
             // Poll every 60 seconds — much lighter than 30s, only for pending users
-            _pollTimer = setInterval(checkPendingStatus, 60 * 1000);
+            _pollTimer = setInterval(checkPendingStatus, 30 * 1000);
         }
 
         // ── Restore session from localStorage ────────────────────────────────
