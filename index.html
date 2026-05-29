@@ -4480,8 +4480,7 @@
             // Only start polling if user has a pending payment
             if (!hasPendingPayment) return;
             if (_pollTimer) return; // already running
-            // Poll every 60 seconds — much lighter than 30s, only for pending users
-            _pollTimer = setInterval(checkPendingStatus, 30 * 1000);
+            _pollTimer = setInterval(checkPendingStatus, 5 * 1000); // 5s — only runs for pending users
         }
 
         // ── Restore session from localStorage ────────────────────────────────
@@ -4512,8 +4511,11 @@
                     // Small delay to let DOM settle after toggleLoginScreen
                     setTimeout(() => openPaymentPopup(), 150);
                 }
-                // Start smart polling only if user had a pending payment
-                if (hasPendingPayment) startSmartPolling();
+                // Fetch live balance + pending status. syncBalance() sets hasPendingPayment
+                // and calls startSmartPolling() itself after confirming pending from the server.
+                setTimeout(() => syncBalance(), 300);
+                // Note: do NOT call startSmartPolling() here — hasPendingPayment is not yet
+                // fetched from the server at this point, so it would never fire on reload.
             }
         }
 
@@ -4525,7 +4527,8 @@
             if (!show && !window._sessionTrackingStarted) {
                 window._sessionTrackingStarted = true;
                 startActivityTracking();
-                if (hasPendingPayment) startSmartPolling();
+                // Note: do NOT call startSmartPolling() here — hasPendingPayment is fetched
+                // by syncBalance() (called after login) which calls startSmartPolling() itself.
             }
             }
         };
