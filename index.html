@@ -1113,8 +1113,10 @@
 
         function doLogout() {
             closeAccountDrawer();
+            stopSmartPolling();
             userId = null;
             userBalance = 0;
+            hasPendingPayment = false;
             storedProfile = null;
             localStorage.removeItem('cv_userId');
             localStorage.removeItem('cv_userBalance');
@@ -1950,7 +1952,11 @@
                     const pendData = await pendRes.json();
                     hasPendingPayment = !!(pendData && pendData.hasPending);
                     renderBalanceDisplays();
-                    if (hasPendingPayment) startSmartPolling();
+                    if (hasPendingPayment) {
+                        startSmartPolling(); // starts only if not already running
+                    } else {
+                        stopSmartPolling(); // payment resolved externally — stop if running
+                    }
                 }
             } catch (_) { /* silent */ }
             // Stop spinning
@@ -4396,91 +4402,67 @@
         }
 
         // ── Smart polling — ONLY runs when user has a pending payment ─────────
-        // Stops automatically when payment is resolved (no server load for other users)
+        // Polls every 5s. Stops as soon as payment is resolved. No self-destruct inside tick.
         let _pollTimer = null;
+        let _pollRunning = false; // prevents overlapping async ticks
 
         async function checkPendingStatus() {
-            if (!userId || !hasPendingPayment) {
-                if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-                return;
-            }
+            if (!userId) return;
+            if (_pollRunning) return; // previous tick still in-flight, skip
+            _pollRunning = true;
             try {
-                // Check both balance and pending status in one call
                 const res = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, checkOnly: true })
                 });
-                if (!res.ok) return;
+                if (!res.ok) { _pollRunning = false; return; }
                 const data = await res.json();
                 const stillPending = !!(data && data.hasPending);
 
-                if (!stillPending && hasPendingPayment) {
-                    // Payment was resolved — fetch latest balance via get-user (same as login)
+                if (!stillPending) {
+                    // Payment resolved — stop polling first, then update balance
+                    stopSmartPolling();
                     hasPendingPayment = false;
-                    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+                    renderBalanceDisplays(); // clear pending badge immediately
 
                     const oldBalance = userBalance;
                     const storedPw = sessionStorage.getItem('cv_userPassword') || '';
-                    let resolved = false;
-
-                    // Primary: get-user reads fresh from DB, same path as login
                     if (storedPw) {
-                        try {
-                            const guRes = await fetch('/.netlify/functions/get-user', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ phoneNumber: userId, password: storedPw })
-                            });
-                            if (guRes.ok) {
-                                const guData = await guRes.json();
-                                if (guData && typeof guData.balance === 'number') {
-                                    userBalance = guData.balance;
-                                    localStorage.setItem('cv_userBalance', userBalance);
-                                    renderBalanceDisplays();
-                                    resolved = true;
-                                    if (guData.notifications && guData.notifications.length > 0) {
-                                        handleNotifications(guData.notifications);
-                                    } else {
-                                        showPaymentNotification(guData.balance > oldBalance
-                                            ? { type: 'payment_verified', amount: guData.balance - oldBalance, paymentId: '' }
-                                            : { type: 'payment_rejected', amount: 0, paymentId: '' });
-                                    }
-                                }
-                            }
-                        } catch (_) { /* fall through */ }
-                    }
-
-                    // Fallback: update-balance getOnly
-                    if (!resolved) {
-                        try {
-                            const balRes = await fetch('/.netlify/functions/update-balance', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ userId, getOnly: true })
-                            });
-                            if (balRes.ok) {
-                                const balData = await balRes.json();
-                                if (balData && typeof balData.balance === 'number') {
-                                    userBalance = balData.balance;
-                                    localStorage.setItem('cv_userBalance', userBalance);
-                                    renderBalanceDisplays();
-                                    showPaymentNotification(balData.balance > oldBalance
-                                        ? { type: 'payment_verified', amount: balData.balance - oldBalance, paymentId: '' }
+                        const guRes = await fetch('/.netlify/functions/get-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+                        });
+                        if (guRes.ok) {
+                            const guData = await guRes.json();
+                            if (guData && typeof guData.balance === 'number') {
+                                userBalance = guData.balance;
+                                localStorage.setItem('cv_userBalance', userBalance);
+                                renderBalanceDisplays();
+                                if (guData.notifications && guData.notifications.length > 0) {
+                                    handleNotifications(guData.notifications);
+                                } else {
+                                    showPaymentNotification(userBalance > oldBalance
+                                        ? { type: 'payment_verified', amount: userBalance - oldBalance, paymentId: '' }
                                         : { type: 'payment_rejected', amount: 0, paymentId: '' });
                                 }
                             }
-                        } catch (_) { /* silent */ }
+                        }
                     }
                 }
-            } catch (_) { /* silent — will retry */ }
+            } catch (_) { /* network hiccup — keep polling on next tick */ }
+            _pollRunning = false;
         }
 
         function startSmartPolling() {
-            // Only start polling if user has a pending payment
-            if (!hasPendingPayment) return;
             if (_pollTimer) return; // already running
-            _pollTimer = setInterval(checkPendingStatus, 5 * 1000); // 5s — only runs for pending users
+            _pollTimer = setInterval(checkPendingStatus, 5 * 1000); // 5s, pending users only
+        }
+
+        function stopSmartPolling() {
+            if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+            _pollRunning = false;
         }
 
         // ── Restore session from localStorage ────────────────────────────────
