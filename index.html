@@ -554,7 +554,7 @@
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); renderBalanceDisplays(); toggleLoginScreen(false);
+                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); sessionStorage.setItem('cv_userPassword', password); renderBalanceDisplays(); toggleLoginScreen(false);
                     // Show any pending notifications (verified/rejected payments)
                     if (data.notifications && data.notifications.length > 0) {
                         setTimeout(() => handleNotifications(data.notifications), 800);
@@ -1897,34 +1897,61 @@
                 if (btn) btn.classList.add('animate-spin');
             });
             try {
-                // Fetch real-time balance from server
-                const res = await fetch('/.netlify/functions/update-balance', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, getOnly: true })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && typeof data.balance === 'number') {
-                        userBalance = data.balance;
-                        localStorage.setItem('cv_userBalance', userBalance);
-                        renderBalanceDisplays();
-                    }
+                // Step 1: fetch live balance using get-user — same endpoint as login,
+                // guaranteed to read fresh from the database including admin-verified payments.
+                const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+                let balanceFetched = false;
+                if (storedPw) {
+                    try {
+                        const guRes = await fetch('/.netlify/functions/get-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+                        });
+                        if (guRes.ok) {
+                            const guData = await guRes.json();
+                            if (guData && typeof guData.balance === 'number') {
+                                userBalance = guData.balance;
+                                localStorage.setItem('cv_userBalance', userBalance);
+                                renderBalanceDisplays();
+                                balanceFetched = true;
+                                // Surface any queued server notifications
+                                if (guData.notifications && guData.notifications.length > 0) {
+                                    handleNotifications(guData.notifications);
+                                }
+                            }
+                        }
+                    } catch (_) { /* fall through to backup */ }
                 }
-                // Re-check pending payment status so polling arms correctly after refresh
-                try {
-                    const pendRes = await fetch('/.netlify/functions/process-payment', {
+                // Fallback: update-balance getOnly if get-user unavailable
+                if (!balanceFetched) {
+                    const res = await fetch('/.netlify/functions/update-balance', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, checkOnly: true })
+                        body: JSON.stringify({ userId, getOnly: true })
                     });
-                    if (pendRes.ok) {
-                        const pendData = await pendRes.json();
-                        hasPendingPayment = !!(pendData && pendData.hasPending);
-                        renderBalanceDisplays(); // refresh pending badge
-                        if (hasPendingPayment) startSmartPolling();
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && typeof data.balance === 'number') {
+                            userBalance = data.balance;
+                            localStorage.setItem('cv_userBalance', userBalance);
+                            renderBalanceDisplays();
+                        }
                     }
-                } catch (_) { /* silent */ }
+                }
+
+                // Step 2: check pending status
+                const pendRes = await fetch('/.netlify/functions/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, checkOnly: true })
+                });
+                if (pendRes.ok) {
+                    const pendData = await pendRes.json();
+                    hasPendingPayment = !!(pendData && pendData.hasPending);
+                    renderBalanceDisplays();
+                    if (hasPendingPayment) startSmartPolling();
+                }
             } catch (_) { /* silent */ }
             // Stop spinning
             ['dr-syncBtn', 'drawer-syncBtn'].forEach(function(id) {
@@ -4389,38 +4416,61 @@
                 const stillPending = !!(data && data.hasPending);
 
                 if (!stillPending && hasPendingPayment) {
-                    // Payment was resolved — fetch latest balance and notification
+                    // Payment was resolved — fetch latest balance via get-user (same as login)
                     hasPendingPayment = false;
                     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
 
-                    // Fetch updated balance
-                    const balRes = await fetch('/.netlify/functions/update-balance', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, getOnly: true })
-                    });
-                    if (balRes.ok) {
-                        const balData = await balRes.json();
-                        if (balData && typeof balData.balance === 'number') {
-                            const oldBalance = userBalance;
-                            userBalance = balData.balance;
-                            localStorage.setItem('cv_userBalance', userBalance);
-                            renderBalanceDisplays();
-                            // Show popup based on whether balance increased or stayed same
-                            if (balData.balance > oldBalance) {
-                                showPaymentNotification({
-                                    type:      'payment_verified',
-                                    amount:    balData.balance - oldBalance,
-                                    paymentId: ''
-                                });
-                            } else {
-                                showPaymentNotification({
-                                    type:      'payment_rejected',
-                                    amount:    0,
-                                    paymentId: ''
-                                });
+                    const oldBalance = userBalance;
+                    const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+                    let resolved = false;
+
+                    // Primary: get-user reads fresh from DB, same path as login
+                    if (storedPw) {
+                        try {
+                            const guRes = await fetch('/.netlify/functions/get-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+                            });
+                            if (guRes.ok) {
+                                const guData = await guRes.json();
+                                if (guData && typeof guData.balance === 'number') {
+                                    userBalance = guData.balance;
+                                    localStorage.setItem('cv_userBalance', userBalance);
+                                    renderBalanceDisplays();
+                                    resolved = true;
+                                    if (guData.notifications && guData.notifications.length > 0) {
+                                        handleNotifications(guData.notifications);
+                                    } else {
+                                        showPaymentNotification(guData.balance > oldBalance
+                                            ? { type: 'payment_verified', amount: guData.balance - oldBalance, paymentId: '' }
+                                            : { type: 'payment_rejected', amount: 0, paymentId: '' });
+                                    }
+                                }
                             }
-                        }
+                        } catch (_) { /* fall through */ }
+                    }
+
+                    // Fallback: update-balance getOnly
+                    if (!resolved) {
+                        try {
+                            const balRes = await fetch('/.netlify/functions/update-balance', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ userId, getOnly: true })
+                            });
+                            if (balRes.ok) {
+                                const balData = await balRes.json();
+                                if (balData && typeof balData.balance === 'number') {
+                                    userBalance = balData.balance;
+                                    localStorage.setItem('cv_userBalance', userBalance);
+                                    renderBalanceDisplays();
+                                    showPaymentNotification(balData.balance > oldBalance
+                                        ? { type: 'payment_verified', amount: balData.balance - oldBalance, paymentId: '' }
+                                        : { type: 'payment_rejected', amount: 0, paymentId: '' });
+                                }
+                            }
+                        } catch (_) { /* silent */ }
                     }
                 }
             } catch (_) { /* silent — will retry */ }
