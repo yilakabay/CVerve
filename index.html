@@ -158,6 +158,37 @@
             margin-bottom: 6px;
         }
 
+        /* ── Sync hint finger animation ── */
+        @keyframes fingerBounce {
+            0%,100% { transform: translateY(0) rotate(-20deg); }
+            50%      { transform: translateY(-6px) rotate(-20deg); }
+        }
+        @keyframes fingerPulse {
+            0%,100% { opacity: 1; }
+            50%      { opacity: 0.5; }
+        }
+        .sync-hint-finger {
+            display: inline-block;
+            font-size: 1.4rem;
+            animation: fingerBounce 0.9s ease-in-out infinite;
+            transform-origin: bottom center;
+            cursor: pointer;
+        }
+        .sync-hint-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            border-radius: 12px;
+            padding: 7px 11px;
+            margin-top: 8px;
+            font-size: 0.72rem;
+            color: #92400e;
+            line-height: 1.35;
+        }
+        .sync-hint-box strong { color: #78350f; }
+
         /* Workspace idle state */
         .workspace-idle {
             flex: 1;
@@ -1113,10 +1144,8 @@
 
         function doLogout() {
             closeAccountDrawer();
-            stopSmartPolling();
             userId = null;
             userBalance = 0;
-            hasPendingPayment = false;
             storedProfile = null;
             localStorage.removeItem('cv_userId');
             localStorage.removeItem('cv_userBalance');
@@ -1874,6 +1903,13 @@
                 badge.classList.toggle('hidden', !hasPendingPayment);
             });
 
+            // Sync hint finger — show when pending, hide when resolved
+            ['drawer-sync-hint', 'dr-sync-hint'].forEach(function(id) {
+                var hint = document.getElementById(id);
+                if (!hint) return;
+                hint.classList.toggle('hidden', !hasPendingPayment);
+            });
+
             // Eye icon buttons — show eye-open when hidden, eye-closed when visible
             var eyeOpen   = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
             var eyeClosed = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
@@ -1952,11 +1988,7 @@
                     const pendData = await pendRes.json();
                     hasPendingPayment = !!(pendData && pendData.hasPending);
                     renderBalanceDisplays();
-                    if (hasPendingPayment) {
-                        startSmartPolling(); // starts only if not already running
-                    } else {
-                        stopSmartPolling(); // payment resolved externally — stop if running
-                    }
+                    if (hasPendingPayment) startSmartPolling();
                 }
             } catch (_) { /* silent */ }
             // Stop spinning
@@ -3851,6 +3883,11 @@
                         <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
                         <span class="text-xs font-medium text-amber-700">Payment pending review</span>
                     </div>
+                    <!-- Sync hint shown while payment is pending -->
+                    <div id="dr-sync-hint" class="sync-hint-box hidden">
+                        <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
+                        <span>Tap the <strong>sync icon</strong> above to check your balance. If not updated, try again in 10–30 min.</span>
+                    </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
                 </div>
             </div>
@@ -4162,6 +4199,11 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
                 <span class="text-xs font-medium text-amber-700">Payment pending review</span>
             </div>
+            <!-- Sync hint shown while payment is pending -->
+            <div id="drawer-sync-hint" class="sync-hint-box hidden">
+                <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
+                <span>Tap the <strong>sync icon</strong> above to check your balance. If not updated, try again in 10–30 min.</span>
+            </div>
             <p class="text-xs text-gray-400">Receipts are reviewed within 6 hours.</p>
         </div>
 
@@ -4402,67 +4444,92 @@
         }
 
         // ── Smart polling — ONLY runs when user has a pending payment ─────────
-        // Polls every 5s. Stops as soon as payment is resolved. No self-destruct inside tick.
+        // Stops automatically when payment is resolved (no server load for other users)
         let _pollTimer = null;
-        let _pollRunning = false; // prevents overlapping async ticks
 
         async function checkPendingStatus() {
-            if (!userId) return;
-            if (_pollRunning) return; // previous tick still in-flight, skip
-            _pollRunning = true;
+            if (!userId || !hasPendingPayment) {
+                if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+                return;
+            }
             try {
+                // Check both balance and pending status in one call
                 const res = await fetch('/.netlify/functions/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, checkOnly: true })
                 });
-                if (!res.ok) { _pollRunning = false; return; }
+                if (!res.ok) return;
                 const data = await res.json();
                 const stillPending = !!(data && data.hasPending);
 
-                if (!stillPending) {
-                    // Payment resolved — stop polling first, then update balance
-                    stopSmartPolling();
+                if (!stillPending && hasPendingPayment) {
+                    // Payment was resolved — fetch latest balance via get-user (same as login)
                     hasPendingPayment = false;
-                    renderBalanceDisplays(); // clear pending badge immediately
+                    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
 
                     const oldBalance = userBalance;
                     const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+                    let resolved = false;
+
+                    // Primary: get-user reads fresh from DB, same path as login
                     if (storedPw) {
-                        const guRes = await fetch('/.netlify/functions/get-user', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ phoneNumber: userId, password: storedPw })
-                        });
-                        if (guRes.ok) {
-                            const guData = await guRes.json();
-                            if (guData && typeof guData.balance === 'number') {
-                                userBalance = guData.balance;
-                                localStorage.setItem('cv_userBalance', userBalance);
-                                renderBalanceDisplays();
-                                if (guData.notifications && guData.notifications.length > 0) {
-                                    handleNotifications(guData.notifications);
-                                } else {
-                                    showPaymentNotification(userBalance > oldBalance
-                                        ? { type: 'payment_verified', amount: userBalance - oldBalance, paymentId: '' }
+                        try {
+                            const guRes = await fetch('/.netlify/functions/get-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+                            });
+                            if (guRes.ok) {
+                                const guData = await guRes.json();
+                                if (guData && typeof guData.balance === 'number') {
+                                    userBalance = guData.balance;
+                                    localStorage.setItem('cv_userBalance', userBalance);
+                                    renderBalanceDisplays();
+                                    resolved = true;
+                                    if (guData.notifications && guData.notifications.length > 0) {
+                                        handleNotifications(guData.notifications);
+                                    } else {
+                                        showPaymentNotification(guData.balance > oldBalance
+                                            ? { type: 'payment_verified', amount: guData.balance - oldBalance, paymentId: '' }
+                                            : { type: 'payment_rejected', amount: 0, paymentId: '' });
+                                    }
+                                }
+                            }
+                        } catch (_) { /* fall through */ }
+                    }
+
+                    // Fallback: update-balance getOnly
+                    if (!resolved) {
+                        try {
+                            const balRes = await fetch('/.netlify/functions/update-balance', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ userId, getOnly: true })
+                            });
+                            if (balRes.ok) {
+                                const balData = await balRes.json();
+                                if (balData && typeof balData.balance === 'number') {
+                                    userBalance = balData.balance;
+                                    localStorage.setItem('cv_userBalance', userBalance);
+                                    renderBalanceDisplays();
+                                    showPaymentNotification(balData.balance > oldBalance
+                                        ? { type: 'payment_verified', amount: balData.balance - oldBalance, paymentId: '' }
                                         : { type: 'payment_rejected', amount: 0, paymentId: '' });
                                 }
                             }
-                        }
+                        } catch (_) { /* silent */ }
                     }
                 }
-            } catch (_) { /* network hiccup — keep polling on next tick */ }
-            _pollRunning = false;
+            } catch (_) { /* silent — will retry */ }
         }
 
         function startSmartPolling() {
+            // Only start polling if user has a pending payment
+            if (!hasPendingPayment) return;
             if (_pollTimer) return; // already running
-            _pollTimer = setInterval(checkPendingStatus, 5 * 1000); // 5s, pending users only
-        }
-
-        function stopSmartPolling() {
-            if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-            _pollRunning = false;
+            // Poll every 60 seconds — much lighter than 30s, only for pending users
+            _pollTimer = setInterval(checkPendingStatus, 30 * 1000);
         }
 
         // ── Restore session from localStorage ────────────────────────────────
@@ -4493,11 +4560,8 @@
                     // Small delay to let DOM settle after toggleLoginScreen
                     setTimeout(() => openPaymentPopup(), 150);
                 }
-                // Fetch live balance + pending status. syncBalance() sets hasPendingPayment
-                // and calls startSmartPolling() itself after confirming pending from the server.
-                setTimeout(() => syncBalance(), 300);
-                // Note: do NOT call startSmartPolling() here — hasPendingPayment is not yet
-                // fetched from the server at this point, so it would never fire on reload.
+                // Start smart polling only if user had a pending payment
+                if (hasPendingPayment) startSmartPolling();
             }
         }
 
@@ -4509,8 +4573,7 @@
             if (!show && !window._sessionTrackingStarted) {
                 window._sessionTrackingStarted = true;
                 startActivityTracking();
-                // Note: do NOT call startSmartPolling() here — hasPendingPayment is fetched
-                // by syncBalance() (called after login) which calls startSmartPolling() itself.
+                if (hasPendingPayment) startSmartPolling();
             }
             }
         };
