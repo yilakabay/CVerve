@@ -56,11 +56,9 @@ exports.handler = async (event, context) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
       }
 
-      // Check for pending payment
       const pendingCol = db.collection('pending_payments');
       const pendingPayment = await pendingCol.findOne({ userId, status: 'pending' });
 
-      // Look up Telegram info
       const tgCol = db.collection('telegram_chats');
       const tgRecord = await tgCol.findOne({ phoneNumber: userId });
 
@@ -103,28 +101,43 @@ exports.handler = async (event, context) => {
 
     const user = await collection.findOne({ phoneNumber });
 
-    if (user) {
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-
-      if (isPasswordValid) {
-        const tgCol = db.collection('telegram_chats');
-        const tgRecord = await tgCol.findOne({ phoneNumber });
-
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            phoneNumber: user.phoneNumber,
-            balance: user.balance,
-            tgUsername: tgRecord?.username || null,
-            hasTelegram: !!tgRecord
-          })
-        };
-      } else {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid password' }) };
-      }
-    } else {
+    if (!user) {
       return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
     }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Invalid password' }) };
+    }
+
+    const tgCol = db.collection('telegram_chats');
+    const tgRecord = await tgCol.findOne({ phoneNumber });
+
+    // ── Fetch and clear any pending notifications for this user ────────────
+    // Notifications are written by admin-verify.js and receive-sms.js
+    // when a payment is verified or rejected
+    const notifications = user.notifications || [];
+
+    if (notifications.length > 0) {
+      // Clear notifications after reading so they only show once
+      await collection.updateOne(
+        { phoneNumber },
+        { $set: { notifications: [] } }
+      );
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        phoneNumber: user.phoneNumber,
+        balance: user.balance || 0,
+        tgUsername: tgRecord?.username || null,
+        hasTelegram: !!tgRecord,
+        notifications  // send to frontend to display on login
+      })
+    };
+
   } catch (error) {
     console.error('Database error:', error);
     return { statusCode: 500, body: JSON.stringify({ error: 'Internal server error' }) };
