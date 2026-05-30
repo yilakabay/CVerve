@@ -158,68 +158,6 @@
             margin-bottom: 6px;
         }
 
-        /* ── Sync button click-pulse animation ── */
-        @keyframes syncClickPulse {
-            0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
-            40%  { transform: scale(0.82); box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
-            70%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(99,102,241,0);  }
-            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0);   }
-        }
-        @keyframes syncClickPulseAmber {
-            0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
-            40%  { transform: scale(0.82); box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
-            70%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(245,158,11,0); }
-            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,0);  }
-        }
-        .sync-clicked {
-            animation: syncClickPulse 0.45s ease-out forwards !important;
-            color: #6366f1 !important;
-            border-radius: 50%;
-        }
-        .sync-hint-inline-icon {
-            display: inline-flex;
-            align-items: center;
-            vertical-align: middle;
-            position: relative;
-            top: -1px;
-            color: #d97706;
-        }
-        .sync-hint-inline-icon svg {
-            width: 12px; height: 12px;
-            stroke: currentColor;
-        }
-
-        /* ── Sync hint finger animation ── */
-        @keyframes fingerBounce {
-            0%,100% { transform: translateY(0) rotate(-20deg); }
-            50%      { transform: translateY(-6px) rotate(-20deg); }
-        }
-        @keyframes fingerPulse {
-            0%,100% { opacity: 1; }
-            50%      { opacity: 0.5; }
-        }
-        .sync-hint-finger {
-            display: inline-block;
-            font-size: 1.4rem;
-            animation: fingerBounce 0.9s ease-in-out infinite;
-            transform-origin: bottom center;
-            cursor: pointer;
-        }
-        .sync-hint-box {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: #fffbeb;
-            border: 1px solid #fcd34d;
-            border-radius: 12px;
-            padding: 7px 11px;
-            margin-top: 8px;
-            font-size: 0.72rem;
-            color: #92400e;
-            line-height: 1.35;
-        }
-        .sync-hint-box strong { color: #78350f; }
-
         /* Workspace idle state */
         .workspace-idle {
             flex: 1;
@@ -1934,13 +1872,6 @@
                 badge.classList.toggle('hidden', !hasPendingPayment);
             });
 
-            // Sync hint finger — show when pending, hide when resolved
-            ['drawer-sync-hint', 'dr-sync-hint'].forEach(function(id) {
-                var hint = document.getElementById(id);
-                if (!hint) return;
-                hint.classList.toggle('hidden', !hasPendingPayment);
-            });
-
             // Eye icon buttons — show eye-open when hidden, eye-closed when visible
             var eyeOpen   = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
             var eyeClosed = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
@@ -1960,17 +1891,10 @@
 
         async function syncBalance() {
             if (!userId) return;
-            // Click-pulse + spin the sync icons
+            // Spin the sync icons
             ['dr-syncBtn', 'drawer-syncBtn'].forEach(function(id) {
                 var btn = document.getElementById(id);
-                if (!btn) return;
-                // Click pulse — remove and re-add to retrigger
-                btn.classList.remove('sync-clicked');
-                void btn.offsetWidth; // reflow to restart animation
-                btn.classList.add('sync-clicked');
-                setTimeout(function() { btn.classList.remove('sync-clicked'); }, 450);
-                // Spin the SVG inside
-                btn.classList.add('animate-spin');
+                if (btn) btn.classList.add('animate-spin');
             });
             try {
                 // Step 1: fetch live balance using get-user — same endpoint as login,
@@ -3012,35 +2936,34 @@
             if (/[^0-9.]/.test(amount) || (amount.match(/\./g) || []).length > 1) { setPaymentFieldError(amtInput, 'Amount must contain numbers only'); return; }
             const numericAmount = parseFloat(amount);
             if (isNaN(numericAmount) || numericAmount < 100) { setPaymentFieldError(amtInput, 'Minimum amount is 100 ETB'); return; }
-            closePaymentPopup(); showLoadingOverlay('Submitting payment\u2026');
+            try { closePaymentPopup(); } catch(_) {}
+            showLoadingOverlay('Submitting payment…');
+            let response, result, fetchOk = false;
             try {
-                let response, result;
-                try {
-                    response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
-                    result = await response.json();
-                } catch (networkErr) {
-                    hideLoadingOverlay();
-                    showNetworkErrorPopup();
-                    return;
-                }
+                response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
+                result = await response.json();
+                fetchOk = true;
+            } catch (networkErr) {
+                hideLoadingOverlay();
+                showNetworkErrorPopup();
+                return;
+            }
+            hideLoadingOverlay();
+            try {
                 if (response.ok && result.success) {
                     hasPendingPayment = true;
-                    renderBalanceDisplays(); // show pending badge immediately
-                    startSmartPolling();     // start watching for resolution
+                    renderBalanceDisplays();
+                    startSmartPolling();
                     showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
                 } else if (response.status >= 500 || response.status === 0) {
-                    hideLoadingOverlay();
                     showSystemErrorPopup();
-                    return;
                 } else {
                     showMessage('error', result.error || result.message || 'Payment submission failed.');
                 }
-            } catch (e) {
-                hideLoadingOverlay();
-                showSystemErrorPopup();
-                return;
+            } catch (uiErr) {
+                // UI error after successful fetch — don't mislead user with system error popup
+                console.error('submitPayment UI error:', uiErr);
             }
-            finally { hideLoadingOverlay(); }
         }
 
         function setPaymentFieldError(fieldId, message) {
@@ -3921,11 +3844,6 @@
                         <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
                         <span class="text-xs font-medium text-amber-700">Payment pending review</span>
                     </div>
-                    <!-- Sync hint shown while payment is pending -->
-                    <div id="dr-sync-hint" class="sync-hint-box hidden">
-                        <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                        <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> icon above to check your balance. If not updated, try again in 10–30 min.</span>
-                    </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
                 </div>
             </div>
@@ -4236,11 +4154,6 @@
             <div id="balance-pending-badge" class="hidden mb-1.5 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 w-fit">
                 <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
                 <span class="text-xs font-medium text-amber-700">Payment pending review</span>
-            </div>
-            <!-- Sync hint shown while payment is pending -->
-            <div id="drawer-sync-hint" class="sync-hint-box hidden">
-                <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> icon above to check your balance. If not updated, try again in 10–30 min.</span>
             </div>
             <p class="text-xs text-gray-400">Receipts are reviewed within 6 hours.</p>
         </div>
