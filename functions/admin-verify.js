@@ -79,7 +79,7 @@ exports.handler = async (event, context) => {
       const results = [];
 
       for (const entry of entries) {
-        const entryId  = String(entry.paymentId || '').trim();
+        const entryId  = String(entry.paymentId || '').trim().toLowerCase();
         const entryAmt = parseFloat(String(entry.amount || '').replace(/[^\d.]/g, ''));
 
         if (!entryId) {
@@ -91,7 +91,7 @@ exports.handler = async (event, context) => {
           continue;
         }
 
-        const pending = await pendingCol.findOne({ paymentId: entryId, status: 'pending' });
+        const pending = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + entryId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }, status: 'pending' });
 
         if (!pending) {
           results.push({ paymentId: entryId, status: 'not_found', reason: 'No pending payment found with this ID' });
@@ -154,7 +154,8 @@ exports.handler = async (event, context) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'paymentId is required' }) };
       }
 
-      const pending = await pendingCol.findOne({ paymentId: String(paymentId).trim(), status: 'pending' });
+      const pid = String(paymentId).trim().toLowerCase();
+      const pending = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + pid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }, status: 'pending' });
 
       if (!pending) {
         return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
