@@ -67,7 +67,7 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const trimmedPaymentId = String(paymentId).trim();
+  const trimmedPaymentId = String(paymentId).trim().toLowerCase();
   if (!trimmedPaymentId) {
     return {
       statusCode: 400,
@@ -95,8 +95,8 @@ exports.handler = async (event, context) => {
     }
 
     // Check for duplicate transaction ID
-    const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId });
-    const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId });
+    const alreadyPending  = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } });
+    const alreadyVerified = await verifiedCol.findOne({ paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } });
 
     if (alreadyPending || alreadyVerified) {
       return {
@@ -108,7 +108,7 @@ exports.handler = async (event, context) => {
     // ── Check if SMS already received for this transaction ID ─────────────────
     // This handles the case where the bank SMS arrived before the user submitted
     const existingSms = await smsCol.findOne({
-      paymentId: trimmedPaymentId,
+      paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
       status: { $in: ['extracted', 'waiting'] }
     });
 
