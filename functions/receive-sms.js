@@ -62,7 +62,7 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
     const usersCol    = db.collection('users');
     const smsCol      = db.collection('sms_detections');
 
-    const pending = await pendingCol.findOne({ paymentId, status: 'pending' });
+    const pending = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + paymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }, status: 'pending' });
 
     if (!pending) {
         // No user submitted yet — keep waiting (TTL removes after 3 days)
@@ -191,12 +191,13 @@ exports.handler = async (event, context) => {
         }
 
         // Store SMS detection record
+        const normalizedSmsPaymentId = extracted.paymentId ? extracted.paymentId.trim().toLowerCase() : null;
         const insertResult = await col.insertOne({
             smsBody,
             sender:     sender || 'unknown',
             receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
             createdAt:  new Date(),
-            paymentId:  extracted.paymentId || null,
+            paymentId:  normalizedSmsPaymentId,
             amount:     extracted.amount    || null,
             status:     extracted.paymentId ? 'extracted' : 'unreadable'
         });
@@ -213,7 +214,7 @@ exports.handler = async (event, context) => {
 
         const result = await tryAutoVerify(
             db,
-            extracted.paymentId,
+            normalizedSmsPaymentId,
             extracted.amount,
             smsBody,
             insertResult.insertedId
