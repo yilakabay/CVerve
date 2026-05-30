@@ -91,7 +91,7 @@ exports.handler = async (event, context) => {
           continue;
         }
 
-        const pending = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + entryId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }, status: 'pending' });
+        const pending = await pendingCol.findOne({ paymentId: entryId, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
 
         if (!pending) {
           results.push({ paymentId: entryId, status: 'not_found', reason: 'No pending payment found with this ID' });
@@ -155,7 +155,7 @@ exports.handler = async (event, context) => {
       }
 
       const pid = String(paymentId).trim().toLowerCase();
-      const pending = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + pid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }, status: 'pending' });
+      const pending = await pendingCol.findOne({ paymentId: pid, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
 
       if (!pending) {
         return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
