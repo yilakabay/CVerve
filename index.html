@@ -955,17 +955,24 @@
         // ── Account Drawer ────────────────────────────────────────────────────────
 
         function openAccountDrawer() {
-            // Populate phone
-            document.getElementById('drawerPhone').textContent = userId || '';
-            // Populate balance
-            renderBalanceDisplays();
-            // Populate stored profile
-            populateDrawerProfile();
-            // Slide open
-            document.getElementById('accountDrawerBackdrop').classList.remove('hidden');
-            requestAnimationFrame(() => {
+            try {
+                // Populate phone
+                document.getElementById('drawerPhone').textContent = userId || '';
+                // Populate balance
+                try { renderBalanceDisplays(); } catch(e) { console.error('renderBalanceDisplays error:', e); }
+                // Populate stored profile
+                try { populateDrawerProfile(); } catch(e) { console.error('populateDrawerProfile error:', e); }
+                // Slide open
+                document.getElementById('accountDrawerBackdrop').classList.remove('hidden');
+                requestAnimationFrame(() => {
+                    document.getElementById('accountDrawer').style.transform = 'translateX(0)';
+                });
+            } catch(e) {
+                console.error('openAccountDrawer error:', e);
+                // Force open drawer even if something failed
+                document.getElementById('accountDrawerBackdrop').classList.remove('hidden');
                 document.getElementById('accountDrawer').style.transform = 'translateX(0)';
-            });
+            }
         }
 
         function closeAccountDrawer() {
