@@ -582,15 +582,23 @@
         function hideLoadingOverlay()         { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
         async function handleLogin() {
-            const phoneNumber = document.getElementById('phoneNumberInput').value.trim();
+            const phoneNumber = document.getElementById('phoneNumberInput').value.trim().replace(/\s+/g, '');
             const password    = document.getElementById('passwordInput').value;
             if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
             if (!password)    { showMessage('error', 'Please enter your password'); return; }
+            if (!isValidPhoneNumber(phoneNumber)) { showMessage('error', 'Phone number must start with 09 or 07 and be 10 digits total'); return; }
             showLoadingOverlay('Logging in...');
             try {
                 const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
                 const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); sessionStorage.setItem('cv_userPassword', password); renderBalanceDisplays(); toggleLoginScreen(false);
+                if (response.ok) {
+                    userId = phoneNumber;
+                    userBalance = data.balance;
+                    localStorage.setItem('cv_userId', userId);
+                    localStorage.setItem('cv_userBalance', userBalance);
+                    sessionStorage.setItem('cv_userPassword', password);
+                    renderBalanceDisplays();
+                    toggleLoginScreen(false);
                     // Show any pending notifications (verified/rejected payments)
                     if (data.notifications && data.notifications.length > 0) {
                         setTimeout(() => handleNotifications(data.notifications), 800);
