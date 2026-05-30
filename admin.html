@@ -321,9 +321,14 @@
           class="flex-1 text-xs font-semibold py-1.5 rounded-lg bg-white text-indigo-600 shadow-sm transition-all">
           Pending
         </button>
+        <button id="tab-reports-btn" onclick="switchRightTab('reports')"
+          class="flex-1 text-xs font-semibold py-1.5 rounded-lg text-gray-500 transition-all hover:text-gray-700 relative">
+          Reports
+          <span id="reports-badge" class="hidden absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[0.55rem] font-bold rounded-full flex items-center justify-center"></span>
+        </button>
         <button id="tab-sms-btn" onclick="switchRightTab('sms')"
           class="flex-1 text-xs font-semibold py-1.5 rounded-lg text-gray-500 transition-all hover:text-gray-700">
-          SMS Detections
+          SMS
         </button>
       </div>
 
@@ -334,6 +339,17 @@
           <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
         </div>
         <div id="pendingList-dt" class="space-y-2">
+          <p class="text-sm text-gray-400 italic">Loading…</p>
+        </div>
+      </div>
+
+      <!-- Reports tab -->
+      <div id="tab-reports" class="hidden">
+        <div class="flex items-center justify-between mb-2">
+          <p class="right-section-title">Payment Reports <span class="text-red-400">(oldest first)</span></p>
+          <button onclick="loadReports()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+        </div>
+        <div id="reportsList-dt" class="space-y-2">
           <p class="text-sm text-gray-400 italic">Loading…</p>
         </div>
       </div>
@@ -982,6 +998,179 @@
   // ── Init ─────────────────────────────────────────────────────────────────
 
   window.addEventListener('DOMContentLoaded', init);
+
+  // ── Reports ──────────────────────────────────────────────────────────────
+  let _pendingRejectReportId = null;
+
+  const TIER_BADGES = {
+    '30min': ['bg-amber-100 text-amber-700',   '30 min'],
+    '1hr':   ['bg-orange-100 text-orange-700', '1 hr'],
+    '72hr':  ['bg-red-100 text-red-600',       '72 hr'],
+    '1week': ['bg-red-200 text-red-800',       '1 week'],
+  };
+
+  function renderReportItem(r) {
+    const tier  = r.tierLabel || '30min';
+    const [badgeCls, badgeTxt] = TIER_BADGES[tier] || TIER_BADGES['30min'];
+    const date  = new Date(r.reportedAt).toLocaleString();
+    const subAt = new Date(r.submittedAt).toLocaleString();
+    return `
+      <div class="bg-white rounded-xl border border-red-100 p-3 shadow-sm">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full ${badgeCls}">${badgeTxt} report</span>
+          <span class="text-xs text-gray-400">${date}</span>
+        </div>
+        <p class="font-mono text-xs text-indigo-700 font-semibold truncate">${r.paymentId}</p>
+        <p class="text-xs text-gray-600 mt-0.5">User: <strong>${r.userId}</strong> · <strong>${r.amount} ETB</strong></p>
+        <p class="text-xs text-gray-400">Submitted: ${subAt}</p>
+        <div class="flex gap-2 mt-2">
+          <button onclick="doVerifyReport('${r._id}', '${r.paymentId}', ${r.amount})"
+            class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-lg hover:bg-emerald-600 transition-colors">
+            ✓ Verify
+          </button>
+          <button onclick="openRejectModal('${r._id}')"
+            class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-lg hover:bg-red-200 transition-colors">
+            ✕ Reject
+          </button>
+        </div>
+      </div>`;
+  }
+
+  async function loadReports() {
+    const container = document.getElementById('reportsList-dt');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error || 'Failed'}</p>`;
+        return;
+      }
+      const reports = data.reports || [];
+      // Update badge count
+      const badge = document.getElementById('reports-badge');
+      if (badge) {
+        badge.textContent = reports.length;
+        badge.classList.toggle('hidden', reports.length === 0);
+      }
+      if (reports.length === 0) {
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No open reports.</p>';
+        return;
+      }
+      if (container) container.innerHTML = reports.map(renderReportItem).join('');
+    } catch {
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load reports.</p>';
+    }
+  }
+
+  async function doVerifyReport(reportId, paymentId, amount) {
+    if (!confirm(`Verify payment ${paymentId} (${amount} ETB) via report?`)) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId, decision: 'verify' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed', 'error'); return;
+      }
+      showToast(`Payment ${paymentId} verified via report ✓`, 'success');
+      loadReports(); loadPending();
+    } catch { showToast('Error. Try again.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  function openRejectModal(reportId) {
+    _pendingRejectReportId = reportId;
+    document.getElementById('rejectReasonSelect').value = '';
+    document.getElementById('rejectReasonText').value   = '';
+    document.getElementById('rejectReportModal').classList.remove('hidden');
+  }
+
+  function closeRejectModal() {
+    _pendingRejectReportId = null;
+    document.getElementById('rejectReportModal').classList.add('hidden');
+  }
+
+  function handleRejectReasonSelect() {
+    const sel = document.getElementById('rejectReasonSelect').value;
+    const txt = document.getElementById('rejectReasonText');
+    if (sel && sel !== '__other__') {
+      txt.value = sel;
+    } else if (sel === '__other__') {
+      txt.value = '';
+      txt.focus();
+    }
+  }
+
+  async function confirmRejectReport() {
+    if (!_pendingRejectReportId) return;
+    const sel    = document.getElementById('rejectReasonSelect').value;
+    const custom = document.getElementById('rejectReasonText').value.trim();
+    const reason = (sel === '__other__' || !sel) ? custom : (custom || sel);
+    if (!reason) { showToast('Please select or write a reason.', 'error'); return; }
+    setLoading(true);
+    closeRejectModal();
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId: _pendingRejectReportId, decision: 'reject', reason });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed', 'error'); return;
+      }
+      showToast('Payment rejected and user notified.', 'success');
+      loadReports(); loadPending();
+    } catch { showToast('Error. Try again.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  // ── Extend switchRightTab to handle reports ───────────────────────────────
+  const _origSwitchRightTab = switchRightTab;
+  switchRightTab = function(tab) {
+    document.getElementById('tab-reports').classList.toggle('hidden', tab !== 'reports');
+    document.getElementById('tab-reports-btn').className = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all relative ${tab === 'reports' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+    if (tab === 'reports') {
+      // Hide other tabs
+      document.getElementById('tab-pending').classList.add('hidden');
+      document.getElementById('tab-sms').classList.add('hidden');
+      document.getElementById('tab-pending-btn').className = 'flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all text-gray-500 hover:text-gray-700';
+      document.getElementById('tab-sms-btn').className     = 'flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all text-gray-500 hover:text-gray-700';
+      loadReports();
+    } else {
+      _origSwitchRightTab(tab);
+    }
+  };
+
+  // Auto-load report count on dashboard load
+  const _origShowAdminApp = showAdminApp;
+  showAdminApp = function() {
+    _origShowAdminApp();
+    loadReports();
+  };
+
 </script>
+<!-- Reject Report Modal -->
+<div id="rejectReportModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+    <h3 class="font-bold text-gray-800 mb-3">Reject Payment Report</h3>
+    <p class="text-xs text-gray-500 mb-3">Select a reason or write your own. This will be included in the user's notification.</p>
+    <select id="rejectReasonSelect" onchange="handleRejectReasonSelect()"
+      class="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-red-300">
+      <option value="">— Select a reason —</option>
+      <option value="Transaction ID not found in our system">Transaction ID not found in our system</option>
+<option value="Amount does not match the submitted transaction">Amount does not match the submitted transaction</option>
+<option value="Duplicate transaction — already processed">Duplicate transaction — already processed</option>
+<option value="Transaction was made to the wrong account">Transaction was made to the wrong account</option>
+<option value="Transaction appears to be expired or cancelled">Transaction appears to be expired or cancelled</option>
+<option value="Payment was reversed by the sender's bank">Payment was reversed by the sender's bank</option>
+<option value="Insufficient transaction evidence">Insufficient transaction evidence</option>
+      <option value="__other__">Other (write below)</option>
+    </select>
+    <textarea id="rejectReasonText" rows="3" placeholder="Additional details or custom reason..."
+      class="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-red-300 mb-4"></textarea>
+    <div class="flex gap-2">
+      <button onclick="closeRejectModal()" class="flex-1 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+      <button onclick="confirmRejectReport()" class="flex-1 py-2 rounded-full bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors">Reject Payment</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
