@@ -115,11 +115,16 @@ exports.handler = async (event, context) => {
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
     // ── Return notifications (persisted — marked read by frontend separately) ──
-    const notifications = (user.notifications || []).map(n => ({
-      ...n,
-      read: n.read === true,
+    const rawNotifs = user.notifications || [];
+    const notifications = rawNotifs.map(n => ({
+      type:      n.type      || '',
+      sender:    n.sender    || '',
+      amount:    n.amount    || 0,
+      paymentId: n.paymentId || '',
+      reason:    n.reason    || '',
+      createdAt: n.createdAt || null,
+      read:      n.read === true
     }));
-    // Note: notifications are NOT cleared — persisted and marked read by frontend
     const unreadCount = notifications.filter(n => !n.read).length;
 
     return {
