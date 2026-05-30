@@ -114,18 +114,13 @@ exports.handler = async (event, context) => {
     const tgCol = db.collection('telegram_chats');
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
-    // ── Fetch and clear any pending notifications for this user ────────────
-    // Notifications are written by admin-verify.js and receive-sms.js
-    // when a payment is verified or rejected
-    const notifications = user.notifications || [];
-
-    if (notifications.length > 0) {
-      // Clear notifications after reading so they only show once
-      await collection.updateOne(
-        { phoneNumber },
-        { $set: { notifications: [] } }
-      );
-    }
+    // ── Return notifications (persisted — marked read by frontend separately) ──
+    const notifications = (user.notifications || []).map(n => ({
+      ...n,
+      read: n.read === true,
+    }));
+    // Note: notifications are NOT cleared — persisted and marked read by frontend
+    const unreadCount = notifications.filter(n => !n.read).length;
 
     return {
       statusCode: 200,
@@ -134,7 +129,8 @@ exports.handler = async (event, context) => {
         balance: user.balance || 0,
         tgUsername: tgRecord?.username || null,
         hasTelegram: !!tgRecord,
-        notifications  // send to frontend to display on login
+        notifications,
+        unreadCount
       })
     };
 
