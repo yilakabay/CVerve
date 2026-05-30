@@ -184,7 +184,7 @@
             100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0);   }
         }
         .sync-clicked { animation: syncClickPulse 0.45s ease-out forwards !important; color:#6366f1 !important; border-radius:50%; }
-        .notif-panel { position:absolute;right:0;top:calc(100% + 8px);width:320px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.13);z-index:200; }
+        .notif-panel { position:fixed;top:60px;right:8px;width:310px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);z-index:9999; }
         .notif-item { padding:12px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer; }
         .notif-item:last-child { border-bottom:none; }
         .notif-item:hover { background:#f8fafc; }
@@ -4571,6 +4571,16 @@
         function closeNotifPanel() {
             document.getElementById('notifPanel').classList.add('hidden');
         }
+
+        // Close notif panel when tapping outside it
+        document.addEventListener('click', function(e) {
+            const panel  = document.getElementById('notifPanel');
+            const bell   = document.getElementById('notifBellBtn');
+            if (!panel || panel.classList.contains('hidden')) return;
+            if (!panel.contains(e.target) && !bell.contains(e.target)) {
+                panel.classList.add('hidden');
+            }
+        });
 
         function loadNotifications() {
             const storedPw = sessionStorage.getItem('cv_userPassword') || '';
