@@ -158,6 +158,37 @@
             margin-bottom: 6px;
         }
 
+        /* ── Sync button click-pulse animation ── */
+        @keyframes syncClickPulse {
+            0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
+            40%  { transform: scale(0.82); box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
+            70%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(99,102,241,0);  }
+            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0);   }
+        }
+        @keyframes syncClickPulseAmber {
+            0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
+            40%  { transform: scale(0.82); box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
+            70%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(245,158,11,0); }
+            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,0);  }
+        }
+        .sync-clicked {
+            animation: syncClickPulse 0.45s ease-out forwards !important;
+            color: #6366f1 !important;
+            border-radius: 50%;
+        }
+        .sync-hint-inline-icon {
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
+            position: relative;
+            top: -1px;
+            color: #d97706;
+        }
+        .sync-hint-inline-icon svg {
+            width: 12px; height: 12px;
+            stroke: currentColor;
+        }
+
         /* ── Sync hint finger animation ── */
         @keyframes fingerBounce {
             0%,100% { transform: translateY(0) rotate(-20deg); }
@@ -1929,10 +1960,17 @@
 
         async function syncBalance() {
             if (!userId) return;
-            // Spin the sync icons
+            // Click-pulse + spin the sync icons
             ['dr-syncBtn', 'drawer-syncBtn'].forEach(function(id) {
                 var btn = document.getElementById(id);
-                if (btn) btn.classList.add('animate-spin');
+                if (!btn) return;
+                // Click pulse — remove and re-add to retrigger
+                btn.classList.remove('sync-clicked');
+                void btn.offsetWidth; // reflow to restart animation
+                btn.classList.add('sync-clicked');
+                setTimeout(function() { btn.classList.remove('sync-clicked'); }, 450);
+                // Spin the SVG inside
+                btn.classList.add('animate-spin');
             });
             try {
                 // Step 1: fetch live balance using get-user — same endpoint as login,
@@ -3886,7 +3924,7 @@
                     <!-- Sync hint shown while payment is pending -->
                     <div id="dr-sync-hint" class="sync-hint-box hidden">
                         <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                        <span>Tap the <strong>sync icon</strong> above to check your balance. If not updated, try again in 10–30 min.</span>
+                        <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> icon above to check your balance. If not updated, try again in 10–30 min.</span>
                     </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
                 </div>
@@ -4202,7 +4240,7 @@
             <!-- Sync hint shown while payment is pending -->
             <div id="drawer-sync-hint" class="sync-hint-box hidden">
                 <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                <span>Tap the <strong>sync icon</strong> above to check your balance. If not updated, try again in 10–30 min.</span>
+                <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> icon above to check your balance. If not updated, try again in 10–30 min.</span>
             </div>
             <p class="text-xs text-gray-400">Receipts are reviewed within 6 hours.</p>
         </div>
