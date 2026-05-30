@@ -587,20 +587,37 @@
             if (!phoneNumber) { showMessage('error', 'Please enter your phone number'); return; }
             if (!password)    { showMessage('error', 'Please enter your password'); return; }
             showLoadingOverlay('Logging in...');
+            let _loginRes, _loginData;
             try {
-                const response = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
-                const data = await response.json();
-                if (response.ok) { userId = phoneNumber; userBalance = data.balance; localStorage.setItem('cv_userId', userId); localStorage.setItem('cv_userBalance', userBalance); sessionStorage.setItem('cv_userPassword', password); renderBalanceDisplays(); toggleLoginScreen(false);
-                    // Show any pending notifications (verified/rejected payments)
-                    if (data.notifications && data.notifications.length > 0) {
-                        setTimeout(() => handleNotifications(data.notifications), 800);
+                _loginRes  = await fetch('/.netlify/functions/get-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, password }) });
+                _loginData = await _loginRes.json();
+            } catch (netErr) {
+                hideLoadingOverlay();
+                showMessage('error', 'Network error. Please check your connection.');
+                return;
+            }
+            hideLoadingOverlay();
+            try {
+                if (_loginRes.ok) {
+                    userId = phoneNumber;
+                    userBalance = _loginData.balance || 0;
+                    localStorage.setItem('cv_userId', userId);
+                    localStorage.setItem('cv_userBalance', userBalance);
+                    sessionStorage.setItem('cv_userPassword', password);
+                    renderBalanceDisplays();
+                    toggleLoginScreen(false);
+                    if (_loginData.notifications && _loginData.notifications.length > 0) {
+                        setTimeout(() => handleNotifications(_loginData.notifications), 800);
                     }
-                    // Sync live balance and arm polling in case user has a pending payment
                     setTimeout(() => syncBalance(), 300);
+                } else {
+                    showMessage('error', _loginData.error || 'Login failed. Please try again.');
                 }
-                else { showMessage('error', data.error || 'Login failed'); }
-            } catch { showMessage('error', 'Login failed. Please try again.'); }
-            finally { hideLoadingOverlay(); }
+            } catch(uiErr) {
+                console.error('Login UI error:', uiErr);
+                // Login succeeded on server — session is saved, just reload
+                window.location.reload();
+            }
         }
 
         // ── OTP Registration Flow (Telegram) ──────────────────────────────────
