@@ -1309,19 +1309,8 @@
         function closeImageBasedPdfPopup() { document.getElementById('imageBasedPdfPopup').classList.add('hidden'); }
 
         window.onload = () => {
-            const savedUserId      = localStorage.getItem('cv_userId');
-            const savedBalance     = localStorage.getItem('cv_userBalance');
-            if (!savedUserId) {
-                toggleLoginScreen(true);
-            } else {
-                userId      = savedUserId;
-                userBalance = parseFloat(savedBalance) || 0;
-                renderBalanceDisplays();
-                toggleLoginScreen(false);
-                loadStoredProfileFromServer();
-                // Fetch live balance + notifications on every page load
-                setTimeout(() => { syncBalance(); loadNotifications(); }, 300);
-            }
+            // Session restore is now handled by DOMContentLoaded below
+            // to support activity tracking, smart polling, and session expiry.
         };
 
         window.switchTab = (tabName) => {
@@ -2944,6 +2933,10 @@
             });
             document.getElementById('payMethodChoice').classList.remove('hidden');
         }
+
+        // These will be assigned once DOMContentLoaded wires them up
+        window.handleNotifications = function(n) {};
+        window.loadNotifications   = function() {};
 
         function showPaymentDisclaimer(method) {
             const msgs = {
@@ -4569,6 +4562,7 @@
                 }
             }).catch(() => {});
         }
+        window.loadNotifications = loadNotifications;
 
         function showPaymentNotification(notification) {
             // Add to in-memory list and refresh bell
@@ -4581,6 +4575,7 @@
             _userNotifications = notifications;
             renderNotifPanel();
         }
+        window.handleNotifications = handleNotifications;
 
         // ── Report button visibility (show after 30 min of pending) ────────────
         let _reportBtnTimer = null;
@@ -4726,6 +4721,11 @@
             // Poll every 60 seconds — much lighter than 30s, only for pending users
             _pollTimer = setInterval(checkPendingStatus, 30 * 1000);
         }
+        window.startSmartPolling = startSmartPolling;
+        window.toggleNotifPanel  = toggleNotifPanel;
+        window.closeNotifPanel   = closeNotifPanel;
+        window.openNotifDetail   = openNotifDetail;
+        window.submitPaymentReport = submitPaymentReport;
 
         // ── Restore session from localStorage ────────────────────────────────
         const savedUserId = localStorage.getItem('cv_userId');
@@ -4769,7 +4769,6 @@
                 window._sessionTrackingStarted = true;
                 startActivityTracking();
                 if (hasPendingPayment) startSmartPolling();
-            }
             }
         };
 
