@@ -39,7 +39,14 @@ exports.handler = async (event, context) => {
       const userHasPending = await pendingCol.findOne({ userId, status: 'pending' });
       return {
         statusCode: 200,
-        body: JSON.stringify({ hasPending: !!userHasPending })
+        body: JSON.stringify({
+          hasPending: !!userHasPending,
+          payment: userHasPending ? {
+            paymentId:   userHasPending.paymentId,
+            amount:      userHasPending.amount,
+            submittedAt: userHasPending.submittedAt
+          } : null
+        })
       };
     } catch (error) {
       console.error('Check pending error:', error);
@@ -95,8 +102,8 @@ exports.handler = async (event, context) => {
     }
 
     // Check for duplicate transaction ID
-    const alreadyPending  = await pendingCol.findOne({ paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } });
-    const alreadyVerified = await verifiedCol.findOne({ paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } });
+    const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId }, { collation: { locale: 'en', strength: 2 } });
+    const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId }, { collation: { locale: 'en', strength: 2 } });
 
     if (alreadyPending || alreadyVerified) {
       return {
@@ -108,7 +115,7 @@ exports.handler = async (event, context) => {
     // ── Check if SMS already received for this transaction ID ─────────────────
     // This handles the case where the bank SMS arrived before the user submitted
     const existingSms = await smsCol.findOne({
-      paymentId: { $regex: new RegExp('^' + trimmedPaymentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+      paymentId: trimmedPaymentId,
       status: { $in: ['extracted', 'waiting'] }
     });
 
