@@ -2858,6 +2858,7 @@
         let hasPendingPayment    = false; // tracks whether the current user has a pending payment
         let _pendingPaymentId   = null;  // paymentId of the current pending payment
         let _pendingSubmittedAt = null;  // when the pending payment was submitted
+        let _reportBtnTimer     = null;  // timer to auto-reveal report button after 30 min
 
         async function openPaymentPopup() {
             closeAccountDrawer();
@@ -4592,8 +4593,6 @@
         }
 
         // ── Report button visibility (show after 30 min of pending) ────────────
-        let _reportBtnTimer = null;
-
         function updateReportButtonVisibility() {
             if (!hasPendingPayment || !_pendingSubmittedAt) {
                 ['dr-report-btn','drawer-report-btn'].forEach(id => {
