@@ -164,50 +164,35 @@
             50%      { transform: translateY(-6px) rotate(-20deg); }
         }
         .sync-hint-finger {
-            display: inline-block;
-            font-size: 1.4rem;
+            display: inline-block; font-size: 1.4rem;
             animation: fingerBounce 0.9s ease-in-out infinite;
-            transform-origin: bottom center;
-            cursor: pointer;
+            transform-origin: bottom center; cursor: pointer;
         }
         .sync-hint-box {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            background: #fffbeb;
-            border: 1px solid #fcd34d;
-            border-radius: 12px;
-            padding: 7px 11px;
-            margin-top: 8px;
-            font-size: 0.72rem;
-            color: #92400e;
-            line-height: 1.45;
+            display: flex; align-items: flex-start; gap: 8px;
+            background: #fffbeb; border: 1px solid #fcd34d;
+            border-radius: 12px; padding: 7px 11px; margin-top: 8px;
+            font-size: 0.72rem; color: #92400e; line-height: 1.45;
         }
         .sync-hint-box strong { color: #78350f; }
-        .sync-hint-inline-icon {
-            display: inline-flex;
-            align-items: center;
-            vertical-align: middle;
-            position: relative;
-            top: -1px;
-            color: #d97706;
-        }
-        .sync-hint-inline-icon svg {
-            width: 12px; height: 12px;
-            stroke: currentColor;
-        }
-        /* ── Sync button click-pulse animation ── */
+        .sync-hint-inline-icon { display:inline-flex;align-items:center;vertical-align:middle;position:relative;top:-1px;color:#d97706; }
+        .sync-hint-inline-icon svg { width:12px;height:12px;stroke:currentColor; }
         @keyframes syncClickPulse {
             0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
             40%  { transform: scale(0.82); box-shadow: 0 0 0 0 rgba(99,102,241,0.55); }
             70%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(99,102,241,0);  }
             100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0);   }
         }
-        .sync-clicked {
-            animation: syncClickPulse 0.45s ease-out forwards !important;
-            color: #6366f1 !important;
-            border-radius: 50%;
-        }
+        .sync-clicked { animation: syncClickPulse 0.45s ease-out forwards !important; color:#6366f1 !important; border-radius:50%; }
+        .notif-panel { position:absolute;right:0;top:calc(100% + 8px);width:320px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.13);z-index:200; }
+        .notif-item { padding:12px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer; }
+        .notif-item:last-child { border-bottom:none; }
+        .notif-item:hover { background:#f8fafc; }
+        .notif-sender { font-size:0.7rem;color:#6366f1;font-weight:600;display:flex;align-items:center;gap:4px; }
+        .notif-title { font-size:0.78rem;color:#1e293b;margin-top:2px; }
+        .notif-title.unread { font-weight:700; }
+        .notif-title.read { font-weight:400;color:#64748b; }
+        .notif-dot { width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;flex-shrink:0; }
 
         /* Workspace idle state */
         .workspace-idle {
@@ -1334,8 +1319,8 @@
                 renderBalanceDisplays();
                 toggleLoginScreen(false);
                 loadStoredProfileFromServer();
-                // Fetch live balance + re-arm pending polling immediately on every page load
-                setTimeout(() => syncBalance(), 300);
+                // Fetch live balance + notifications on every page load
+                setTimeout(() => { syncBalance(); loadNotifications(); }, 300);
             }
         };
 
@@ -1916,7 +1901,7 @@
                 }
             });
 
-            // Pending payment badge + sync hint — show/hide together
+            // Pending payment badge + sync hint + report button
             ['balance-pending-badge', 'dr-balance-pending-badge'].forEach(function(id) {
                 var badge = document.getElementById(id);
                 if (!badge) return;
@@ -1927,6 +1912,8 @@
                 if (!hint) return;
                 hint.classList.toggle('hidden', !hasPendingPayment);
             });
+            // Show report button only if pending payment is older than 30 min
+            updateReportButtonVisibility();
 
             // Eye icon buttons — show eye-open when hidden, eye-closed when visible
             var eyeOpen   = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
@@ -1952,7 +1939,7 @@
                 var btn = document.getElementById(id);
                 if (!btn) return;
                 btn.classList.remove('sync-clicked');
-                void btn.offsetWidth; // reflow to restart animation
+                void btn.offsetWidth;
                 btn.classList.add('sync-clicked');
                 setTimeout(function() { btn.classList.remove('sync-clicked'); }, 450);
                 btn.classList.add('animate-spin');
@@ -2010,6 +1997,12 @@
                 if (pendRes.ok) {
                     const pendData = await pendRes.json();
                     hasPendingPayment = !!(pendData && pendData.hasPending);
+                    if (hasPendingPayment && pendData.payment) {
+                        _pendingPaymentId   = pendData.payment.paymentId   || null;
+                        _pendingSubmittedAt = pendData.payment.submittedAt || null;
+                    } else if (!hasPendingPayment) {
+                        _pendingPaymentId = null; _pendingSubmittedAt = null;
+                    }
                     renderBalanceDisplays();
                     if (hasPendingPayment) startSmartPolling();
                 }
@@ -2845,7 +2838,9 @@
 
         // ── Payment ───────────────────────────────────────────────────────────
         let paymentPopupVisible = false;
-        let hasPendingPayment = false; // tracks whether the current user has a pending payment
+        let hasPendingPayment    = false; // tracks whether the current user has a pending payment
+        let _pendingPaymentId   = null;  // paymentId of the current pending payment
+        let _pendingSubmittedAt = null;  // when the pending payment was submitted
 
         async function openPaymentPopup() {
             closeAccountDrawer();
@@ -2997,34 +2992,35 @@
             if (/[^0-9.]/.test(amount) || (amount.match(/\./g) || []).length > 1) { setPaymentFieldError(amtInput, 'Amount must contain numbers only'); return; }
             const numericAmount = parseFloat(amount);
             if (isNaN(numericAmount) || numericAmount < 100) { setPaymentFieldError(amtInput, 'Minimum amount is 100 ETB'); return; }
-            try { closePaymentPopup(); } catch(_) {}
-            showLoadingOverlay('Submitting payment…');
-            let response, result, fetchOk = false;
+            closePaymentPopup(); showLoadingOverlay('Submitting payment\u2026');
             try {
-                response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
-                result = await response.json();
-                fetchOk = true;
-            } catch (networkErr) {
-                hideLoadingOverlay();
-                showNetworkErrorPopup();
-                return;
-            }
-            hideLoadingOverlay();
-            try {
+                let response, result;
+                try {
+                    response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
+                    result = await response.json();
+                } catch (networkErr) {
+                    hideLoadingOverlay();
+                    showNetworkErrorPopup();
+                    return;
+                }
                 if (response.ok && result.success) {
                     hasPendingPayment = true;
-                    renderBalanceDisplays();
-                    startSmartPolling();
+                    renderBalanceDisplays(); // show pending badge immediately
+                    startSmartPolling();     // start watching for resolution
                     showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
                 } else if (response.status >= 500 || response.status === 0) {
+                    hideLoadingOverlay();
                     showSystemErrorPopup();
+                    return;
                 } else {
                     showMessage('error', result.error || result.message || 'Payment submission failed.');
                 }
-            } catch (uiErr) {
-                // UI error after successful fetch — don't mislead user with system error popup
-                console.error('submitPayment UI error:', uiErr);
+            } catch (e) {
+                hideLoadingOverlay();
+                showSystemErrorPopup();
+                return;
             }
+            finally { hideLoadingOverlay(); }
         }
 
         function setPaymentFieldError(fieldId, message) {
@@ -3900,14 +3896,17 @@
                     <div class="mb-1">
                         <p class="text-xl font-bold text-gray-800 leading-none"><span id="dr-balance">••••</span> <span class="text-xs font-medium text-gray-400">ETB</span></p>
                     </div>
-                    <!-- Pending payment badge -->
-                    <div id="dr-balance-pending-badge" class="hidden mt-1.5 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 w-fit">
-                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
-                        <span class="text-xs font-medium text-amber-700">Payment pending review</span>
+                    <!-- Pending payment badge + report button -->
+                    <div id="dr-balance-pending-badge" class="hidden mt-1.5 flex items-center gap-2 flex-wrap">
+                        <div class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                            <span class="text-xs font-medium text-amber-700">Payment pending review</span>
+                        </div>
+                        <button id="dr-report-btn" onclick="submitPaymentReport()" class="hidden text-xs font-semibold px-3 py-1 rounded-lg border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 transition-colors">⚑ Report</button>
                     </div>
                     <div id="dr-sync-hint" class="sync-hint-box hidden">
                         <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                        <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> sync icon above to check your balance. If not updated, try again in 10–30 min. <strong>If your balance is still not updated after 30 minutes, please report it to support.</strong></span>
+                        <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> sync icon above to check your balance. If not updated, try again in 10–30 min. <strong>If your balance is still not updated after 30 minutes, please report it using the Report button.</strong></span>
                     </div>
                     <p class="text-xs text-gray-400 mt-1">Receipts reviewed within 6 hours</p>
                 </div>
@@ -4180,7 +4179,28 @@
 
     <!-- Header -->
     <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-        <h2 class="font-bold text-gray-800 text-base">Account</h2>
+        <div class="flex items-center gap-2">
+            <h2 class="font-bold text-gray-800 text-base">Account</h2>
+            <!-- Notification bell -->
+            <div class="relative" id="notifBellWrapper">
+                <button onclick="toggleNotifPanel()" id="notifBellBtn" class="relative w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors" title="Notifications">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                    </svg>
+                    <span id="notifRedDot" class="hidden absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
+                </button>
+                <!-- Notification panel dropdown -->
+                <div id="notifPanel" class="notif-panel hidden">
+                    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <span class="font-bold text-sm text-gray-800">Notifications</span>
+                        <button onclick="closeNotifPanel()" class="text-xs text-gray-400 hover:text-gray-600">✕</button>
+                    </div>
+                    <div id="notifList" class="divide-y divide-gray-50">
+                        <p class="text-xs text-gray-400 italic p-4">No notifications yet.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
         <button onclick="closeAccountDrawer()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
@@ -4215,14 +4235,17 @@
             <div class="mb-2">
                 <p class="text-xl font-bold text-gray-800 leading-none"><span id="drawerBalance">••••</span> <span class="text-xs font-medium text-gray-400">ETB</span></p>
             </div>
-            <!-- Pending payment badge -->
-            <div id="balance-pending-badge" class="hidden mb-1.5 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 w-fit">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
-                <span class="text-xs font-medium text-amber-700">Payment pending review</span>
+            <!-- Pending payment badge + report button -->
+            <div id="balance-pending-badge" class="hidden mb-1.5 flex items-center gap-2 flex-wrap">
+                <div class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                    <span class="text-xs font-medium text-amber-700">Payment pending review</span>
+                </div>
+                <button id="drawer-report-btn" onclick="submitPaymentReport()" class="hidden text-xs font-semibold px-3 py-1 rounded-lg border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 transition-colors">⚑ Report</button>
             </div>
             <div id="drawer-sync-hint" class="sync-hint-box hidden">
                 <span class="sync-hint-finger" onclick="syncBalance()">☝️</span>
-                <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> sync icon above to check your balance. If not updated, try again in 10–30 min. <strong>If your balance is still not updated after 30 minutes, please report it to support.</strong></span>
+                <span>Tap the <strong>[&nbsp;<span class="sync-hint-inline-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></span>&nbsp;]</strong> sync icon above to check your balance. If not updated, try again in 10–30 min. <strong>If your balance is still not updated after 30 minutes, please report it using the Report button.</strong></span>
             </div>
             <p class="text-xs text-gray-400">Receipts are reviewed within 6 hours.</p>
         </div>
@@ -4426,41 +4449,185 @@
         }
 
         // ── Payment notification popup ────────────────────────────────────────
-        function showPaymentNotification(notification) {
-            const isVerified = notification.type === 'payment_verified';
+        // ── Notification helpers ────────────────────────────────────────────────
+        let _userNotifications = [];
+
+        function notifSenderLabel(n) {
+            if (n.type === 'report_verified' || n.type === 'report_rejected') return 'Payment Review Team';
+            return 'System';
+        }
+        function notifSenderBadge(n) {
+            if (n.type === 'report_verified' || n.type === 'report_rejected') return '&#9679; Review';
+            return '&#10003; System';
+        }
+        function notifTitle(n) {
+            if (n.type === 'payment_verified') return 'Your payment has been verified — please sync your balance.';
+            if (n.type === 'payment_rejected') return 'Your payment was not verified at this time.';
+            if (n.type === 'report_verified')  return 'Your disputed payment has been reviewed and verified.';
+            if (n.type === 'report_rejected')  return 'Your payment dispute has been reviewed.';
+            return 'You have a new notification.';
+        }
+        function notifBody(n) {
+            const SYNC_ICON = '<svg style="display:inline;vertical-align:middle;width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+            if (n.type === 'payment_verified') {
+                return `Your payment of <strong>${Number(n.amount).toFixed(2)} ETB</strong> has been verified and added to your account. Please tap the sync ${SYNC_ICON} icon to refresh your balance. Thank you for using CVerve!`;
+            }
+            if (n.type === 'payment_rejected') {
+                return `Your payment of <strong>${Number(n.amount).toFixed(2)} ETB</strong> could not be verified at this time. Please check your transaction details and contact support if needed. Thank you — CVerve`;
+            }
+            if (n.type === 'report_verified') {
+                return `Your payment dispute for <strong>${Number(n.amount).toFixed(2)} ETB</strong> has been carefully reviewed and verified by our team. The amount has been credited to your account. Please sync ${SYNC_ICON} your balance. Thank you — CVerve Payment Review Team`;
+            }
+            if (n.type === 'report_rejected') {
+                const reason = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : '';
+                return `After reviewing your payment dispute for <strong>${Number(n.amount).toFixed(2)} ETB</strong>, our team was unable to verify this transaction.${reason}<br><br>If you believe this is an error, please contact support. Thank you — CVerve Payment Review Team`;
+            }
+            return '';
+        }
+
+        function renderNotifPanel() {
+            const list = document.getElementById('notifList');
+            if (!list) return;
+            const unread = _userNotifications.filter(n => !n.read).length;
+            document.getElementById('notifRedDot').classList.toggle('hidden', unread === 0);
+            if (_userNotifications.length === 0) {
+                list.innerHTML = '<p class="text-xs text-gray-400 italic p-4">No notifications yet.</p>';
+                return;
+            }
+            list.innerHTML = _userNotifications.map((n, i) => {
+                const unreadClass = n.read ? 'read' : 'unread';
+                const dot = n.read ? '' : '<span class="notif-dot mr-1"></span>';
+                return `<div class="notif-item" onclick="openNotifDetail(${i})">
+                    <div class="notif-sender">${dot}${notifSenderLabel(n)} <span class="text-gray-300 font-normal text-[0.6rem]">${notifSenderBadge(n)}</span></div>
+                    <div class="notif-title ${unreadClass}">${notifTitle(n)}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function openNotifDetail(index) {
+            const n = _userNotifications[index];
+            if (!n) return;
+            // Mark as read locally
+            n.read = true;
+            renderNotifPanel();
+            // Mark read on server
+            const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+            if (storedPw) {
+                fetch('/.netlify/functions/notifications', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_read', phoneNumber: userId, password: storedPw })
+                }).catch(() => {});
+            }
+            // Show full message in a modal
             const overlay = document.createElement('div');
             overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999] px-4';
+            const isGood = n.type === 'payment_verified' || n.type === 'report_verified';
             overlay.innerHTML = `
-              <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl text-center animate-bounce-once">
-                <div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${isVerified ? 'bg-emerald-100' : 'bg-red-100'}">
-                  <span class="text-3xl">${isVerified ? '✅' : '❌'}</span>
+              <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-xs font-bold px-2 py-0.5 rounded-full ${isGood ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}">${notifSenderLabel(n)}</span>
                 </div>
-                <h3 class="text-lg font-bold text-gray-800 mb-2">
-                  ${isVerified ? 'Payment Verified!' : 'Payment Rejected'}
-                </h3>
-                <p class="text-sm text-gray-500 mb-1">
-                  ${isVerified
-                    ? `<span class="text-emerald-600 font-bold text-xl">${Number(notification.amount).toFixed(2)} ETB</span> has been added to your balance.`
-                    : `Your payment of <strong>${Number(notification.amount).toFixed(2)} ETB</strong> was rejected by the admin.`
-                  }
-                </p>
-                <p class="text-xs text-gray-400 mb-5">Ref: ${notification.paymentId || '–'}</p>
+                <h3 class="font-bold text-gray-800 text-sm mb-3">${notifTitle(n)}</h3>
+                <p class="text-sm text-gray-600 leading-relaxed">${notifBody(n)}</p>
                 <button onclick="this.closest('.fixed').remove()"
-                  class="w-full py-2.5 rounded-full font-semibold text-white text-sm ${isVerified ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'} transition-colors">
+                  class="mt-5 w-full py-2.5 rounded-full font-semibold text-white text-sm ${isGood ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'} transition-colors">
                   OK
                 </button>
               </div>`;
             document.body.appendChild(overlay);
-            // Auto close after 10 seconds
-            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 10000);
+        }
+
+        function toggleNotifPanel() {
+            const panel = document.getElementById('notifPanel');
+            const isHidden = panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', !isHidden);
+            if (isHidden) renderNotifPanel();
+        }
+        function closeNotifPanel() {
+            document.getElementById('notifPanel').classList.add('hidden');
+        }
+
+        function loadNotifications() {
+            const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+            if (!userId || !storedPw) return;
+            fetch('/.netlify/functions/get-user', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+            }).then(r => r.json()).then(data => {
+                if (data && data.notifications) {
+                    _userNotifications = data.notifications;
+                    const unread = (_userNotifications || []).filter(n => !n.read).length;
+                    document.getElementById('notifRedDot').classList.toggle('hidden', unread === 0);
+                }
+            }).catch(() => {});
+        }
+
+        function showPaymentNotification(notification) {
+            // Add to in-memory list and refresh bell
+            _userNotifications.unshift({ ...notification, read: false });
+            renderNotifPanel();
         }
 
         function handleNotifications(notifications) {
             if (!notifications || notifications.length === 0) return;
-            // Show each notification with a small delay between them
-            notifications.forEach((n, i) => {
-                setTimeout(() => showPaymentNotification(n), i * 500);
-            });
+            _userNotifications = notifications;
+            renderNotifPanel();
+        }
+
+        // ── Report button visibility (show after 30 min of pending) ────────────
+        let _reportBtnTimer = null;
+
+        function updateReportButtonVisibility() {
+            if (!hasPendingPayment || !_pendingSubmittedAt) {
+                ['dr-report-btn','drawer-report-btn'].forEach(id => {
+                    var b = document.getElementById(id);
+                    if (b) b.classList.add('hidden');
+                });
+                if (_reportBtnTimer) { clearTimeout(_reportBtnTimer); _reportBtnTimer = null; }
+                return;
+            }
+            const ageMs  = Date.now() - new Date(_pendingSubmittedAt).getTime();
+            const waitMs = 30 * 60 * 1000;
+            if (ageMs >= waitMs) {
+                ['dr-report-btn','drawer-report-btn'].forEach(id => {
+                    var b = document.getElementById(id);
+                    if (b) b.classList.remove('hidden');
+                });
+            } else {
+                ['dr-report-btn','drawer-report-btn'].forEach(id => {
+                    var b = document.getElementById(id);
+                    if (b) b.classList.add('hidden');
+                });
+                // Schedule auto-reveal
+                if (!_reportBtnTimer) {
+                    _reportBtnTimer = setTimeout(function() {
+                        _reportBtnTimer = null;
+                        updateReportButtonVisibility();
+                    }, waitMs - ageMs + 1000);
+                }
+            }
+        }
+
+        async function submitPaymentReport() {
+            if (!userId || !_pendingPaymentId) {
+                alert('No pending payment found to report.');
+                return;
+            }
+            const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+            try {
+                const res = await fetch('/.netlify/functions/payment-report', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'submit', userId, paymentId: _pendingPaymentId })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showMessage('success', 'Your report has been submitted. The Payment Review Team will respond shortly.');
+                } else {
+                    showMessage('error', data.error || 'Could not submit report.');
+                }
+            } catch {
+                showMessage('error', 'Network error. Please try again.');
+            }
         }
 
         // ── Smart polling — ONLY runs when user has a pending payment ─────────
