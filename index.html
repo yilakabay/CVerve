@@ -4744,9 +4744,12 @@
         // ── Notification chat page ───────────────────────────────────────────────
         window.openNotifChat = function(encodedSender) {
             const senderName = decodeURIComponent(encodedSender);
-            // Mark all messages from this sender as read
+            // Capture unread state before marking read, so we can scroll to first unread
             _userNotifications.forEach(n => {
-                if (notifSenderLabel(n) === senderName) n.read = true;
+                if (notifSenderLabel(n) === senderName) {
+                    n._wasRead = n.read; // snapshot
+                    n.read = true;
+                }
             });
             renderNotifThreadList();
 
@@ -4779,19 +4782,35 @@
                 else subtitleEl.textContent = 'System Notifications';
             }
             if (bodyEl) {
+                // Find index of first unread message BEFORE marking read
+                // (msgs are already marked read in memory above, so we use
+                //  the original read state captured before the forEach)
+                const firstUnreadIndex = msgs.findIndex(n => !n._wasRead);
+
                 let lastDay = null;
-                bodyEl.innerHTML = msgs.map(n => {
-                    const dayHeader = formatChatDayHeader(n.createdAt);
+                bodyEl.innerHTML = msgs.map((n, i) => {
+                    const dayHeader  = formatChatDayHeader(n.createdAt);
                     const bubbleTime = formatBubbleTime(n.createdAt);
                     const daySep = dayHeader !== lastDay
                         ? `<div class="notif-bubble-date">${dayHeader}</div>`
                         : '';
                     lastDay = dayHeader;
-                    return `${daySep}<div class="notif-bubble">${notifBubbleText(n)}<div class="notif-bubble-time">${bubbleTime}</div></div>`;
+                    // Mark the first unread bubble with an id to scroll to
+                    const unreadAttr = (i === firstUnreadIndex) ? ' id="firstUnreadBubble"' : '';
+                    return `${daySep}<div class="notif-bubble"${unreadAttr}>${notifBubbleText(n)}<div class="notif-bubble-time">${bubbleTime}</div></div>`;
                 }).join('');
-                // Scroll to bottom
+
                 const scrollEl = bodyEl.parentElement;
-                setTimeout(() => { scrollEl.scrollTop = scrollEl.scrollHeight; }, 60);
+                setTimeout(() => {
+                    const firstUnread = document.getElementById('firstUnreadBubble');
+                    if (firstUnread) {
+                        // Scroll so the first unread message is at the top of the view
+                        firstUnread.scrollIntoView({ block: 'start', behavior: 'instant' });
+                    } else {
+                        // All read — scroll to bottom like normal
+                        scrollEl.scrollTop = scrollEl.scrollHeight;
+                    }
+                }, 60);
             }
             document.getElementById('notifChatPage').classList.add('open');
         };
