@@ -4575,7 +4575,8 @@
                 return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${reason}<br><br>If you believe this is an error, please contact support. Thank you — CVerve Payment Review Team`;
             }
             if (n.type === 'announcement') {
-                return `<strong>${n.title || 'Announcement'}</strong><br><br>${n.body || ''}`;
+                const bodyHtml = (n.body || '').replace(/\n/g, '<br>');
+                return `<strong>${n.title || 'Announcement'}</strong><br><br>${bodyHtml}`;
             }
             return '';
         }
