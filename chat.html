@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVerve – Chats</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+        body { margin: 0; background: #fff; height: 100vh; overflow: hidden; }
+        .page { position: fixed; inset: 0; display: flex; flex-direction: column; background: #fff; }
+        .chat-page { position: absolute; inset: 0; background: #f8fafc; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.28s cubic-bezier(.4,0,.2,1); z-index: 10; }
+        .chat-page.open { transform: translateX(0); }
+        .page-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; background: #fff; flex-shrink: 0; }
+        .page-header h2 { font-size: 1rem; font-weight: 700; color: #1e293b; flex: 1; margin: 0; }
+        .back-btn { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #f1f5f9; border: none; cursor: pointer; flex-shrink: 0; }
+        .back-btn:hover { background: #e2e8f0; }
+        .thread-item { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f8fafc; cursor: pointer; transition: background 0.15s; }
+        .thread-item:hover { background: #f8fafc; }
+        .thread-avatar { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 700; }
+        .thread-meta { flex: 1; min-width: 0; }
+        .thread-sender { display: flex; align-items: center; gap: 5px; font-size: 0.82rem; font-weight: 700; color: #1e293b; }
+        .thread-preview { font-size: 0.73rem; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .thread-preview.unread { color: #1e293b; font-weight: 600; }
+        .thread-time { font-size: 0.65rem; color: #94a3b8; margin-top: 2px; }
+        .unread-dot { width: 9px; height: 9px; border-radius: 50%; background: #6366f1; flex-shrink: 0; margin-top: 5px; }
+        .chat-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #f1f5f9; flex-shrink: 0; }
+        .chat-avatar { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; }
+        .bubble-wrap { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 20px; }
+        .bubble-date { text-align: center; font-size: 0.62rem; color: #94a3b8; margin: 10px 0 6px; }
+        .bubble { max-width: min(85%, 520px); padding: 11px 14px; border-radius: 18px; font-size: 0.82rem; line-height: 1.6; color: #1e293b; background: #fff; align-self: flex-start; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; word-break: break-word; }
+        .bubble-time { font-size: 0.58rem; color: #94a3b8; margin-top: 5px; text-align: right; letter-spacing: 0.02em; }
+        .verified-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); flex-shrink: 0; }
+        .verified-badge svg { width: 9px; height: 9px; stroke: #fff; stroke-width: 3; }
+        .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px 20px; color: #94a3b8; font-size: 0.85rem; text-align: center; }
+        .spinner { width: 28px; height: 28px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="page">
+    <div class="page-header">
+        <button class="back-btn" onclick="goBack()">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h2>Chats</h2>
+    </div>
+    <div id="threadList" class="flex-1 overflow-y-auto">
+        <div class="empty"><div class="spinner"></div><p>Loading…</p></div>
+    </div>
+
+    <!-- Individual chat — slides over the list -->
+    <div id="chatPage" class="chat-page">
+        <div class="chat-header">
+            <button class="back-btn" onclick="closeChat()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <div id="chatAvatar" class="chat-avatar"></div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                    <span id="chatName" class="font-bold text-gray-900 text-sm truncate"></span>
+                    <span class="verified-badge" title="Verified"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>
+                </div>
+                <p id="chatSubtitle" class="text-xs text-gray-400 mt-0.5"></p>
+            </div>
+        </div>
+        <div class="flex-1 overflow-y-auto" id="chatScroll">
+            <div id="chatBubbles" class="bubble-wrap"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const userId   = localStorage.getItem('cv_userId');
+const password = sessionStorage.getItem('cv_userPassword');
+if (!userId || !password) { window.location.replace('index.html'); }
+
+function goBack() { window.history.back() || window.location.replace('index.html'); }
+
+let _notifs = [];
+
+const VBADGE = `<span class="verified-badge" title="Verified"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>`;
+
+const SYNC = `<svg style="display:inline;vertical-align:middle;width:13px;height:13px" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>`;
+
+function sLabel(n) {
+    if (n.type==='announcement') return 'CVerve Official';
+    if (n.type==='report_verified'||n.type==='report_rejected') return 'Payment Review Team';
+    return 'System';
+}
+function sColor(n) {
+    if (n.type==='announcement') return 'bg-violet-600 text-white';
+    if (n.type==='report_verified'||n.type==='report_rejected') return 'bg-violet-100 text-violet-700';
+    return 'bg-indigo-100 text-indigo-700';
+}
+function sInitial(n) {
+    if (n.type==='announcement') return '📢';
+    if (n.type==='report_verified'||n.type==='report_rejected') return 'PR';
+    return 'SY';
+}
+function sSub(n) {
+    if (n.type==='announcement') return 'CVerve Official Channel';
+    if (n.type==='report_verified'||n.type==='report_rejected') return 'Payment Review Team';
+    return 'System Notifications';
+}
+function bText(n) {
+    const amt = `<strong>${Number(n.amount||0).toFixed(2)} ETB</strong>`;
+    if (n.type==='payment_verified') return `Your payment of ${amt} has been verified and added to your account. Please tap the sync ${SYNC} icon to refresh your balance. Thank you for using CVerve!`;
+    if (n.type==='payment_rejected') return `Your payment of ${amt} could not be verified at this time. Please check your transaction details and contact support if needed. Thank you — CVerve`;
+    if (n.type==='report_verified')  return `Your payment dispute for ${amt} has been carefully reviewed and verified by our team. The amount has been credited. Please sync ${SYNC} your balance. Thank you — CVerve Payment Review Team`;
+    if (n.type==='report_rejected') { const r=n.reason?`<br><br><strong>Reason:</strong> ${n.reason}`:''; return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${r}<br><br>Contact support if you believe this is an error. Thank you — CVerve Payment Review Team`; }
+    if (n.type==='announcement') return `<strong>${n.title||'Announcement'}</strong><br><br>${(n.body||'').replace(/\n/g,'<br>')}`;
+    return '';
+}
+function pText(n) {
+    const a=`${Number(n.amount||0).toFixed(2)} ETB`;
+    if (n.type==='payment_verified')  return `Your payment of ${a} has been verified.`;
+    if (n.type==='payment_rejected')  return `Your payment of ${a} could not be verified.`;
+    if (n.type==='report_verified')   return `Your dispute for ${a} was verified by our team.`;
+    if (n.type==='report_rejected')   return `Your dispute for ${a} was reviewed.`;
+    if (n.type==='announcement')      return n.title||'New announcement from CVerve.';
+    return 'New notification.';
+}
+
+function listTime(d) {
+    if (!d) return '';
+    d = new Date(d); const now = new Date(), diff = now-d;
+    const sec=Math.floor(diff/1000), min=Math.floor(diff/60000), hr=Math.floor(diff/3600000),
+          day=Math.floor(diff/86400000), wk=Math.floor(day/7), mo=Math.floor(day/30.44),
+          yr=Math.floor(day/365.25), dec=Math.floor(yr/10), cent=Math.floor(yr/100);
+    if (sec<60)   return 'Now';
+    if (min===1)  return 'a minute ago';
+    if (min<60)   return min+' min ago';
+    if (hr===1)   return 'an hour ago';
+    if (hr<24)    return hr+' hour'+(hr>1?'s':'')+' ago';
+    if (day===1)  return 'a day ago';
+    if (day<7)    return day+' days ago';
+    if (wk===1)   return 'a week ago';
+    if (wk<5)     return wk+' week'+(wk>1?'s':'')+' ago';
+    if (mo===1)   return 'a month ago';
+    if (mo<12)    return mo+' month'+(mo>1?'s':'')+' ago';
+    if (yr===1)   return 'a year ago';
+    if (yr<10)    return yr+' year'+(yr>1?'s':'')+' ago';
+    if (dec===1)  return 'a decade ago';
+    if (dec<10)   return dec+' decade'+(dec>1?'s':'')+' ago';
+    if (cent===1) return 'a century ago';
+    if (cent<10)  return cent+' centur'+(cent>1?'ies':'y')+' ago';
+    return 'ancient';
+}
+function dayHeader(d) {
+    if (!d) return '';
+    d = new Date(d); const now = new Date();
+    const o = {month:'long',day:'numeric'};
+    if (d.getFullYear()!==now.getFullYear()) o.year='numeric';
+    return d.toLocaleDateString('en-US',o);
+}
+function bubbleTime(d) {
+    if (!d) return '';
+    d = new Date(d); const p=n=>String(n).padStart(2,'0');
+    return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+
+function groupBySender(arr) {
+    const g={};
+    arr.forEach(n=>{ const k=sLabel(n); if(!g[k]) g[k]=[]; g[k].push(n); });
+    return g;
+}
+
+function renderThreads() {
+    const c = document.getElementById('threadList');
+    if (_notifs.length===0) {
+        c.innerHTML=`<div class="empty"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><p>No chats yet.<br>Notifications from CVerve will appear here.</p></div>`;
+        return;
+    }
+    const groups = groupBySender(_notifs);
+    c.innerHTML = Object.entries(groups).map(([name,msgs])=>{
+        const hasUnread = msgs.some(n=>!n.read);
+        const latest    = msgs[msgs.length-1];
+        const time      = listTime(latest.createdAt);
+        const preview   = pText(latest);
+        const dot       = hasUnread ? '<span class="unread-dot"></span>' : '<span class="w-2.5 h-2.5"></span>';
+        return `<div class="thread-item" onclick="openChat('${encodeURIComponent(name)}')">
+            <div class="thread-avatar ${sColor(latest)}">${sInitial(latest)}</div>
+            <div class="thread-meta">
+                <div class="thread-sender">${name} ${VBADGE}</div>
+                <div class="thread-preview ${hasUnread?'unread':''}">${preview}</div>
+                <div class="thread-time">${time}</div>
+            </div>
+            <div class="flex flex-col items-end gap-1">
+                ${dot}
+                <button onclick="event.stopPropagation();delThread('${encodeURIComponent(name)}')" class="text-gray-300 hover:text-red-400 p-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openChat(enc) {
+    const name = decodeURIComponent(enc);
+    const msgs = _notifs.filter(n=>sLabel(n)===name);
+    msgs.forEach(n=>{ n._wasRead=n.read; n.read=true; });
+    renderThreads();
+    fetch('/.netlify/functions/notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'mark_read',phoneNumber:userId,password})}).catch(()=>{});
+    const sample = msgs[0]||{};
+    document.getElementById('chatName').textContent    = name;
+    document.getElementById('chatSubtitle').textContent = sSub(sample);
+    const av = document.getElementById('chatAvatar');
+    av.className = 'chat-avatar '+sColor(sample);
+    av.textContent = sInitial(sample);
+    const body = document.getElementById('chatBubbles');
+    let lastDay = null;
+    const firstUnreadIdx = msgs.findIndex(n=>!n._wasRead);
+    body.innerHTML = msgs.map((n,i)=>{
+        const dh = dayHeader(n.createdAt), bt = bubbleTime(n.createdAt);
+        const sep = dh!==lastDay ? `<div class="bubble-date">${dh}</div>` : '';
+        lastDay = dh;
+        const uid = i===firstUnreadIdx ? ' id="fu"' : '';
+        return `${sep}<div class="bubble"${uid}>${bText(n)}<div class="bubble-time">${bt}</div></div>`;
+    }).join('');
+    document.getElementById('chatPage').classList.add('open');
+    setTimeout(()=>{
+        const fu=document.getElementById('fu');
+        const sc=document.getElementById('chatScroll');
+        if(fu) fu.scrollIntoView({block:'start',behavior:'instant'});
+        else sc.scrollTop=sc.scrollHeight;
+    },60);
+}
+
+function closeChat() { document.getElementById('chatPage').classList.remove('open'); }
+function delThread(enc) { const n=decodeURIComponent(enc); _notifs=_notifs.filter(x=>sLabel(x)!==n); renderThreads(); }
+
+async function load() {
+    try {
+        const r = await fetch('/.netlify/functions/get-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:userId,password})});
+        const d = await r.json();
+        if (d&&d.notifications) _notifs=d.notifications;
+        renderThreads();
+        // If URL has ?open=SenderName open that chat directly
+        const params = new URLSearchParams(location.search);
+        if (params.get('open')) openChat(params.get('open'));
+    } catch {
+        document.getElementById('threadList').innerHTML='<div class="empty"><p>Could not load. Please go back and try again.</p></div>';
+    }
+}
+load();
+</script>
+</body>
+</html>
