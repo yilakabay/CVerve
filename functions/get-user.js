@@ -119,6 +119,8 @@ exports.handler = async (event, context) => {
     const notifications = rawNotifs.map(n => ({
       type:      n.type      || '',
       sender:    n.sender    || '',
+      title:     n.title     || '',
+      body:      n.body      || '',
       amount:    n.amount    || 0,
       paymentId: n.paymentId || '',
       reason:    n.reason    || '',
