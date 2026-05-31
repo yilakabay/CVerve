@@ -4510,7 +4510,7 @@
             return '';
         }
 
-        function renderNotifPanel() {
+        window.renderNotifPanel = function() {
             const list = document.getElementById('notifList');
             if (!list) return;
             const unread = _userNotifications.filter(n => !n.read).length;
@@ -4529,7 +4529,7 @@
             }).join('');
         }
 
-        function openNotifDetail(index) {
+        window.openNotifDetail = function(index) {
             const n = _userNotifications[index];
             if (!n) return;
             // Mark as read locally
@@ -4562,14 +4562,14 @@
             document.body.appendChild(overlay);
         }
 
-        function toggleNotifPanel(e) {
+        window.toggleNotifPanel = function(e) {
             if (e) e.stopPropagation();
             const panel = document.getElementById('notifPanel');
             const isHidden = panel.classList.contains('hidden');
             panel.classList.toggle('hidden', !isHidden);
             if (isHidden) renderNotifPanel();
         }
-        function closeNotifPanel() {
+        window.closeNotifPanel = function() {
             document.getElementById('notifPanel').classList.add('hidden');
         }
 
@@ -4583,7 +4583,7 @@
             }
         });
 
-        function loadNotifications() {
+        window.loadNotifications = function() {
             const storedPw = sessionStorage.getItem('cv_userPassword') || '';
             if (!userId || !storedPw) return;
             fetch('/.netlify/functions/get-user', {
@@ -4598,20 +4598,20 @@
             }).catch(() => {});
         }
 
-        function showPaymentNotification(notification) {
+        window.showPaymentNotification = function(notification) {
             // Add to in-memory list and refresh bell
             _userNotifications.unshift({ ...notification, read: false });
             renderNotifPanel();
         }
 
-        function handleNotifications(notifications) {
+        window.handleNotifications = function(notifications) {
             if (!notifications || notifications.length === 0) return;
             _userNotifications = notifications;
             renderNotifPanel();
         }
 
         // ── Report button visibility (show after 30 min of pending) ────────────
-        function updateReportButtonVisibility() {
+        window.updateReportButtonVisibility = function() {
             if (!hasPendingPayment || !_pendingSubmittedAt) {
                 ['dr-report-btn','drawer-report-btn'].forEach(id => {
                     var b = document.getElementById(id);
@@ -4642,7 +4642,7 @@
             }
         }
 
-        async function submitPaymentReport() {
+        window.submitPaymentReport = async function() {
             if (!userId || !_pendingPaymentId) {
                 alert('No pending payment found to report.');
                 return;
