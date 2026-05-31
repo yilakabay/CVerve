@@ -3070,35 +3070,32 @@
             if (/[^0-9.]/.test(amount) || (amount.match(/\./g) || []).length > 1) { setPaymentFieldError(amtInput, 'Amount must contain numbers only'); return; }
             const numericAmount = parseFloat(amount);
             if (isNaN(numericAmount) || numericAmount < 100) { setPaymentFieldError(amtInput, 'Minimum amount is 100 ETB'); return; }
-            closePaymentPopup(); showLoadingOverlay('Submitting payment\u2026');
+            try { closePaymentPopup(); } catch(_) {}
+            showLoadingOverlay('Submitting payment…');
+            let _pmtRes, _pmtData;
             try {
-                let response, result;
-                try {
-                    response = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
-                    result = await response.json();
-                } catch (networkErr) {
-                    hideLoadingOverlay();
-                    showNetworkErrorPopup();
-                    return;
-                }
-                if (response.ok && result.success) {
-                    hasPendingPayment = true;
-                    renderBalanceDisplays(); // show pending badge immediately
-                    startSmartPolling();     // start watching for resolution
-                    showMessage('success', result.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
-                } else if (response.status >= 500 || response.status === 0) {
-                    hideLoadingOverlay();
-                    showSystemErrorPopup();
-                    return;
-                } else {
-                    showMessage('error', result.error || result.message || 'Payment submission failed.');
-                }
-            } catch (e) {
+                _pmtRes  = await fetch('/.netlify/functions/process-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, paymentId, amount, paymentMethod: method }) });
+                _pmtData = await _pmtRes.json();
+            } catch (networkErr) {
                 hideLoadingOverlay();
-                showSystemErrorPopup();
+                showNetworkErrorPopup();
                 return;
             }
-            finally { hideLoadingOverlay(); }
+            hideLoadingOverlay();
+            try {
+                if (_pmtRes.ok && _pmtData.success) {
+                    hasPendingPayment = true;
+                    try { renderBalanceDisplays(); } catch(_) {}
+                    try { startSmartPolling(); } catch(_) {}
+                    showMessage('success', _pmtData.message || 'Payment recorded. Awaiting admin verification (within 6 hours).');
+                } else if (_pmtRes.status >= 500) {
+                    showSystemErrorPopup();
+                } else {
+                    showMessage('error', _pmtData.error || _pmtData.message || 'Payment submission failed.');
+                }
+            } catch (uiErr) {
+                console.error('submitPayment UI error (payment was submitted ok):', uiErr);
+            }
         }
 
         function setPaymentFieldError(fieldId, message) {
