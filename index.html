@@ -184,14 +184,67 @@
             100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(99,102,241,0);   }
         }
         .sync-clicked { animation: syncClickPulse 0.45s ease-out forwards !important; color:#6366f1 !important; border-radius:50%; }
-        .notif-panel { position:fixed;top:60px;right:8px;width:310px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);z-index:9999; }
-        .notif-item { padding:12px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer; }
-        .notif-item:last-child { border-bottom:none; }
-        .notif-item:hover { background:#f8fafc; }
-        .notif-sender { font-size:0.7rem;color:#6366f1;font-weight:600;display:flex;align-items:center;gap:4px; }
-        .notif-title { font-size:0.78rem;color:#1e293b;margin-top:2px; }
-        .notif-title.unread { font-weight:700; }
-        .notif-title.read { font-weight:400;color:#64748b; }
+        /* ── Notification full-page overlays ── */
+        .notif-fullpage {
+            position: fixed; inset: 0; background: #fff;
+            z-index: 9990; display: flex; flex-direction: column;
+            transform: translateX(100%); transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+        }
+        .notif-fullpage.open { transform: translateX(0); }
+        .notif-page-header {
+            display: flex; align-items: center; gap: 10px;
+            padding: 14px 16px; border-bottom: 1px solid #f1f5f9;
+            position: sticky; top: 0; background: #fff; z-index: 1;
+        }
+        .notif-page-header h2 { font-size: 1rem; font-weight: 700; color: #1e293b; flex: 1; }
+        .notif-back-btn {
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: #f1f5f9; border: none; cursor: pointer; flex-shrink: 0;
+        }
+        .notif-thread-item {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 14px 16px; border-bottom: 1px solid #f8fafc; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .notif-thread-item:hover { background: #f8fafc; }
+        .notif-thread-avatar {
+            width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; font-weight: 700;
+        }
+        .notif-thread-meta { flex: 1; min-width: 0; }
+        .notif-thread-sender {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 0.78rem; font-weight: 700; color: #1e293b;
+        }
+        .notif-thread-preview {
+            font-size: 0.72rem; color: #64748b; margin-top: 2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .notif-thread-preview.unread { color: #1e293b; font-weight: 600; }
+        .notif-thread-time { font-size: 0.65rem; color: #94a3b8; margin-top: 2px; }
+        .notif-unread-dot {
+            width: 9px; height: 9px; border-radius: 50%; background: #6366f1;
+            flex-shrink: 0; margin-top: 5px;
+        }
+        /* Chat bubble page */
+        .notif-bubble-wrap { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+        .notif-bubble-date { text-align: center; font-size: 0.62rem; color: #94a3b8; margin: 8px 0 4px; }
+        .notif-bubble {
+            max-width: 85%; padding: 10px 13px; border-radius: 18px;
+            font-size: 0.78rem; line-height: 1.5; color: #1e293b;
+            background: #f1f5f9; align-self: flex-start; position: relative;
+        }
+        .notif-bubble-time { font-size: 0.6rem; color: #94a3b8; margin-top: 4px; text-align: right; }
+        /* Verified badge like TikTok/Instagram */
+        .verified-badge {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 15px; height: 15px; border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            flex-shrink: 0;
+        }
+        .verified-badge svg { width: 9px; height: 9px; stroke: #fff; stroke-width: 3; }
         .notif-dot { width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;flex-shrink:0; }
 
         /* Workspace idle state */
@@ -4208,22 +4261,36 @@
             <h2 class="font-bold text-gray-800 text-base">Account</h2>
             <!-- Notification bell -->
             <div class="relative" id="notifBellWrapper">
-                <button onclick="toggleNotifPanel(event)" id="notifBellBtn" class="relative w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors" title="Notifications">
+                <button onclick="openNotifList()" id="notifBellBtn" class="relative w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors" title="Notifications">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
                     </svg>
                     <span id="notifRedDot" class="hidden absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
                 </button>
-                <!-- Notification panel dropdown -->
-                <div id="notifPanel" class="notif-panel hidden" onclick="event.stopPropagation()">
-                    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                        <span class="font-bold text-sm text-gray-800">Notifications</span>
-                        <button onclick="closeNotifPanel()" class="text-xs text-gray-400 hover:text-gray-600">✕</button>
-                    </div>
-                    <div id="notifList" class="divide-y divide-gray-50">
-                        <p class="text-xs text-gray-400 italic p-4">No notifications yet.</p>
-                    </div>
+            </div>
+
+            <!-- Notification list full-page -->
+            <div id="notifListPage" class="notif-fullpage">
+                <div class="notif-page-header">
+                    <button class="notif-back-btn" onclick="closeNotifList()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    </button>
+                    <h2>Notifications</h2>
                 </div>
+                <div id="notifThreadList" class="flex-1 overflow-y-auto">
+                    <p class="text-xs text-gray-400 italic p-5">No notifications yet.</p>
+                </div>
+            </div>
+
+            <!-- Notification chat full-page -->
+            <div id="notifChatPage" class="notif-fullpage">
+                <div class="notif-page-header">
+                    <button class="notif-back-btn" onclick="closeNotifChat()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    </button>
+                    <h2 id="notifChatTitle">Messages</h2>
+                </div>
+                <div id="notifChatBody" class="flex-1 overflow-y-auto notif-bubble-wrap"></div>
             </div>
         </div>
         <button onclick="closeAccountDrawer()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">
@@ -4474,114 +4541,190 @@
         }
 
         // ── Payment notification popup ────────────────────────────────────────
-        // ── Notification helpers ────────────────────────────────────────────────
+        // ── Notification system ─────────────────────────────────────────────────
         let _userNotifications = [];
 
+        const VERIFIED_BADGE_SVG = `<span class="verified-badge" title="Verified"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>`;
+
         function notifSenderLabel(n) {
-            if (n.type === 'report_verified' || n.type === 'report_rejected') return 'Payment Review Team';
-            return 'System';
+            return (n.type === 'report_verified' || n.type === 'report_rejected')
+                ? 'Payment Review Team' : 'System';
         }
-        function notifSenderBadge(n) {
-            if (n.type === 'report_verified' || n.type === 'report_rejected') return '&#9679; Review';
-            return '&#10003; System';
+
+        function notifSenderColor(n) {
+            return (n.type === 'report_verified' || n.type === 'report_rejected')
+                ? 'bg-violet-100 text-violet-700' : 'bg-indigo-100 text-indigo-700';
         }
-        function notifTitle(n) {
-            if (n.type === 'payment_verified') return 'Your payment has been verified — please sync your balance.';
-            if (n.type === 'payment_rejected') return 'Your payment was not verified at this time.';
-            if (n.type === 'report_verified')  return 'Your disputed payment has been reviewed and verified.';
-            if (n.type === 'report_rejected')  return 'Your payment dispute has been reviewed.';
-            return 'You have a new notification.';
+
+        function notifSenderInitial(n) {
+            return (n.type === 'report_verified' || n.type === 'report_rejected') ? 'PR' : 'SY';
         }
-        function notifBody(n) {
-            const SYNC_ICON = '<svg style="display:inline;vertical-align:middle;width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
-            if (n.type === 'payment_verified') {
-                return `Your payment of <strong>${Number(n.amount).toFixed(2)} ETB</strong> has been verified and added to your account. Please tap the sync ${SYNC_ICON} icon to refresh your balance. Thank you for using CVerve!`;
-            }
-            if (n.type === 'payment_rejected') {
-                return `Your payment of <strong>${Number(n.amount).toFixed(2)} ETB</strong> could not be verified at this time. Please check your transaction details and contact support if needed. Thank you — CVerve`;
-            }
-            if (n.type === 'report_verified') {
-                return `Your payment dispute for <strong>${Number(n.amount).toFixed(2)} ETB</strong> has been carefully reviewed and verified by our team. The amount has been credited to your account. Please sync ${SYNC_ICON} your balance. Thank you — CVerve Payment Review Team`;
-            }
+
+        function notifBubbleText(n) {
+            const SYNC = `<svg style="display:inline;vertical-align:middle;width:13px;height:13px" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>`;
+            const amt = `<strong>${Number(n.amount || 0).toFixed(2)} ETB</strong>`;
+            if (n.type === 'payment_verified')
+                return `Your payment of ${amt} has been verified and added to your account. Please tap the sync ${SYNC} icon to refresh your balance. Thank you for using CVerve!`;
+            if (n.type === 'payment_rejected')
+                return `Your payment of ${amt} could not be verified at this time. Please check your transaction details and contact support if needed. Thank you — CVerve`;
+            if (n.type === 'report_verified')
+                return `Your payment dispute for ${amt} has been carefully reviewed and verified by our team. The amount has been credited to your account. Please sync ${SYNC} your balance. Thank you — CVerve Payment Review Team`;
             if (n.type === 'report_rejected') {
                 const reason = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : '';
-                return `After reviewing your payment dispute for <strong>${Number(n.amount).toFixed(2)} ETB</strong>, our team was unable to verify this transaction.${reason}<br><br>If you believe this is an error, please contact support. Thank you — CVerve Payment Review Team`;
+                return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${reason}<br><br>If you believe this is an error, please contact support. Thank you — CVerve Payment Review Team`;
             }
             return '';
         }
 
-        window.renderNotifPanel = function() {
-            const list = document.getElementById('notifList');
-            if (!list) return;
+        function notifPreviewText(n) {
+            const amt = `${Number(n.amount || 0).toFixed(2)} ETB`;
+            if (n.type === 'payment_verified')  return `Your payment of ${amt} has been verified.`;
+            if (n.type === 'payment_rejected')  return `Your payment of ${amt} could not be verified.`;
+            if (n.type === 'report_verified')   return `Your dispute for ${amt} was verified by our team.`;
+            if (n.type === 'report_rejected')   return `Your dispute for ${amt} was reviewed.`;
+            return 'You have a new notification.';
+        }
+
+        function formatNotifTime(dateVal) {
+            if (!dateVal) return '';
+            const d = new Date(dateVal);
+            const now = new Date();
+            const diff = now - d;
+            if (diff < 60000) return 'just now';
+            if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+            return d.toLocaleDateString();
+        }
+
+        // Group notifications by sender type (System / Payment Review Team)
+        function groupNotifsBySender(notifs) {
+            const groups = {};
+            notifs.forEach(n => {
+                const key = notifSenderLabel(n);
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(n);
+            });
+            return groups;
+        }
+
+        // ── Notification list page ───────────────────────────────────────────────
+        window.openNotifList = function() {
+            renderNotifThreadList();
+            document.getElementById('notifListPage').classList.add('open');
+        };
+
+        window.closeNotifList = function() {
+            document.getElementById('notifListPage').classList.remove('open');
+        };
+
+        function renderNotifThreadList() {
+            const container = document.getElementById('notifThreadList');
+            if (!container) return;
+
+            // Update red dot
             const unread = _userNotifications.filter(n => !n.read).length;
-            document.getElementById('notifRedDot').classList.toggle('hidden', unread === 0);
+            const dot = document.getElementById('notifRedDot');
+            if (dot) dot.classList.toggle('hidden', unread === 0);
+
             if (_userNotifications.length === 0) {
-                list.innerHTML = '<p class="text-xs text-gray-400 italic p-4">No notifications yet.</p>';
+                container.innerHTML = '<p class="text-xs text-gray-400 italic p-5">No notifications yet.</p>';
                 return;
             }
-            list.innerHTML = _userNotifications.map((n, i) => {
-                const unreadClass = n.read ? 'read' : 'unread';
-                const dot = n.read ? '' : '<span class="notif-dot mr-1"></span>';
-                return `<div class="notif-item" onclick="openNotifDetail(${i})">
-                    <div class="notif-sender">${dot}${notifSenderLabel(n)} <span class="text-gray-300 font-normal text-[0.6rem]">${notifSenderBadge(n)}</span></div>
-                    <div class="notif-title ${unreadClass}">${notifTitle(n)}</div>
+
+            const groups = groupNotifsBySender(_userNotifications);
+            container.innerHTML = Object.entries(groups).map(([senderName, msgs]) => {
+                const hasUnread  = msgs.some(n => !n.read);
+                const latest     = msgs[msgs.length - 1];
+                const preview    = notifPreviewText(latest);
+                const time       = formatNotifTime(latest.createdAt);
+                const colorClass = notifSenderColor(latest);
+                const initial    = notifSenderInitial(latest);
+                const unreadDot  = hasUnread ? '<span class="notif-unread-dot"></span>' : '<span class="w-2.5"></span>';
+                const previewCls = hasUnread ? 'unread' : '';
+                // Build indices string for this group
+                const indices = msgs.map(m => _userNotifications.indexOf(m)).join(',');
+                return `<div class="notif-thread-item" onclick="openNotifChat('${encodeURIComponent(senderName)}')">
+                    <div class="notif-thread-avatar ${colorClass}">${initial}</div>
+                    <div class="notif-thread-meta">
+                        <div class="notif-thread-sender">
+                            ${senderName} ${VERIFIED_BADGE_SVG}
+                        </div>
+                        <div class="notif-thread-preview ${previewCls}">${preview}</div>
+                        <div class="notif-thread-time">${time}</div>
+                    </div>
+                    <div class="flex flex-col items-end gap-1">
+                        ${unreadDot}
+                        <button onclick="event.stopPropagation();deleteNotifThread('${encodeURIComponent(senderName)}')"
+                            class="text-gray-300 hover:text-red-400 transition-colors p-1" title="Delete">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>`;
             }).join('');
         }
 
-        window.openNotifDetail = function(index) {
-            const n = _userNotifications[index];
-            if (!n) return;
-            // Mark as read locally
-            n.read = true;
-            renderNotifPanel();
-            // Mark read on server
+        window.deleteNotifThread = function(encodedSender) {
+            const senderName = decodeURIComponent(encodedSender);
+            _userNotifications = _userNotifications.filter(n => notifSenderLabel(n) !== senderName);
+            renderNotifThreadList();
+            // Persist deletion on server
             const storedPw = sessionStorage.getItem('cv_userPassword') || '';
-            if (storedPw) {
+            if (storedPw && userId) {
                 fetch('/.netlify/functions/notifications', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'mark_read', phoneNumber: userId, password: storedPw })
                 }).catch(() => {});
             }
-            // Show full message in a modal
-            const overlay = document.createElement('div');
-            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999] px-4';
-            const isGood = n.type === 'payment_verified' || n.type === 'report_verified';
-            overlay.innerHTML = `
-              <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-                <div class="flex items-center gap-2 mb-3">
-                    <span class="text-xs font-bold px-2 py-0.5 rounded-full ${isGood ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}">${notifSenderLabel(n)}</span>
-                </div>
-                <h3 class="font-bold text-gray-800 text-sm mb-3">${notifTitle(n)}</h3>
-                <p class="text-sm text-gray-600 leading-relaxed">${notifBody(n)}</p>
-                <button onclick="this.closest('.fixed').remove()"
-                  class="mt-5 w-full py-2.5 rounded-full font-semibold text-white text-sm ${isGood ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'} transition-colors">
-                  OK
-                </button>
-              </div>`;
-            document.body.appendChild(overlay);
-        }
+        };
 
-        window.toggleNotifPanel = function(e) {
-            if (e) e.stopPropagation();
-            const panel = document.getElementById('notifPanel');
-            const isHidden = panel.classList.contains('hidden');
-            panel.classList.toggle('hidden', !isHidden);
-            if (isHidden) renderNotifPanel();
-        }
-        window.closeNotifPanel = function() {
-            document.getElementById('notifPanel').classList.add('hidden');
-        }
+        // ── Notification chat page ───────────────────────────────────────────────
+        window.openNotifChat = function(encodedSender) {
+            const senderName = decodeURIComponent(encodedSender);
+            // Mark all messages from this sender as read
+            _userNotifications.forEach(n => {
+                if (notifSenderLabel(n) === senderName) n.read = true;
+            });
+            renderNotifThreadList(); // refresh unread dot
 
-        // Close notif panel when tapping outside it
-        document.addEventListener('click', function(e) {
-            const panel  = document.getElementById('notifPanel');
-            const bell   = document.getElementById('notifBellBtn');
-            if (!panel || panel.classList.contains('hidden')) return;
-            if (!panel.contains(e.target) && !bell.contains(e.target)) {
-                panel.classList.add('hidden');
+            // Mark read on server
+            const storedPw = sessionStorage.getItem('cv_userPassword') || '';
+            if (storedPw && userId) {
+                fetch('/.netlify/functions/notifications', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_read', phoneNumber: userId, password: storedPw })
+                }).catch(() => {});
             }
-        });
+
+            // Render chat bubbles
+            const msgs = _userNotifications.filter(n => notifSenderLabel(n) === senderName);
+            const title = document.getElementById('notifChatTitle');
+            const body  = document.getElementById('notifChatBody');
+            if (title) title.textContent = senderName;
+            if (body) {
+                body.innerHTML = msgs.map(n => {
+                    const time = formatNotifTime(n.createdAt);
+                    return `<div class="notif-bubble-date">${time}</div>
+                        <div class="notif-bubble">${notifBubbleText(n)}</div>`;
+                }).join('');
+                setTimeout(() => body.scrollTop = body.scrollHeight, 50);
+            }
+            document.getElementById('notifChatPage').classList.add('open');
+        };
+
+        window.closeNotifChat = function() {
+            document.getElementById('notifChatPage').classList.remove('open');
+        };
+
+        // ── Legacy shims ─────────────────────────────────────────────────────────
+        window.toggleNotifPanel   = function() { window.openNotifList(); };
+        window.closeNotifPanel    = function() { window.closeNotifList(); };
+        window.renderNotifPanel   = function() { renderNotifThreadList(); };
+        window.openNotifDetail    = function(i) {
+            const n = _userNotifications[i];
+            if (n) openNotifChat(encodeURIComponent(notifSenderLabel(n)));
+        };
 
         window.loadNotifications = function() {
             const storedPw = sessionStorage.getItem('cv_userPassword') || '';
@@ -4592,23 +4735,27 @@
             }).then(r => r.json()).then(data => {
                 if (data && data.notifications) {
                     _userNotifications = data.notifications;
-                    const unread = (_userNotifications || []).filter(n => !n.read).length;
-                    document.getElementById('notifRedDot').classList.toggle('hidden', unread === 0);
+                    const unread = _userNotifications.filter(n => !n.read).length;
+                    const dot = document.getElementById('notifRedDot');
+                    if (dot) dot.classList.toggle('hidden', unread === 0);
                 }
             }).catch(() => {});
-        }
+        };
 
         window.showPaymentNotification = function(notification) {
-            // Add to in-memory list and refresh bell
-            _userNotifications.unshift({ ...notification, read: false });
-            renderNotifPanel();
-        }
+            _userNotifications.unshift({ ...notification, read: false, createdAt: new Date() });
+            const unread = _userNotifications.filter(n => !n.read).length;
+            const dot = document.getElementById('notifRedDot');
+            if (dot) dot.classList.toggle('hidden', unread === 0);
+        };
 
         window.handleNotifications = function(notifications) {
             if (!notifications || notifications.length === 0) return;
             _userNotifications = notifications;
-            renderNotifPanel();
-        }
+            const unread = _userNotifications.filter(n => !n.read).length;
+            const dot = document.getElementById('notifRedDot');
+            if (dot) dot.classList.toggle('hidden', unread === 0);
+        };
 
         // ── Report button visibility (show after 30 min of pending) ────────────
         window.updateReportButtonVisibility = function() {
