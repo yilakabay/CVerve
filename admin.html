@@ -1103,14 +1103,15 @@
 
   async function confirmRejectReport() {
     if (!_pendingRejectReportId) return;
-    const sel    = document.getElementById('rejectReasonSelect').value;
-    const custom = document.getElementById('rejectReasonText').value.trim();
-    const reason = (sel === '__other__' || !sel) ? custom : (custom || sel);
+    const sel      = document.getElementById('rejectReasonSelect').value;
+    const custom   = document.getElementById('rejectReasonText').value.trim();
+    const reason   = (sel === '__other__' || !sel) ? custom : (custom || sel);
     if (!reason) { showToast('Please select or write a reason.', 'error'); return; }
+    const reportId = _pendingRejectReportId; // capture before closeRejectModal nulls it
     setLoading(true);
     closeRejectModal();
     try {
-      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId: _pendingRejectReportId, decision: 'reject', reason });
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId, decision: 'reject', reason });
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
         showToast(data.error || 'Failed', 'error'); return;
