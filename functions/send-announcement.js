@@ -1,9 +1,10 @@
 // functions/send-announcement.js
-// Admin sends an official announcement to ALL users.
-// POST { token, title, body }
-// Writes a notification of type 'announcement' to every user document.
+// Actions:
+//   send   — push announcement to all users, store in announcements collection
+//   list   — return all sent announcements (admin)
+//   recall — remove a specific announcement from all user notifications by announceId
 
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
 
 const uri = process.env.MONGODB_URI;
@@ -32,47 +33,98 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { token, title, body: msgBody } = body;
+  const { token, action } = body;
 
   if (!verifyAdminToken(token)) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
-  if (!title || !title.trim()) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Title is required.' }) };
-  }
-  if (!msgBody || !msgBody.trim()) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Message body is required.' }) };
-  }
-
   try {
     await mongo.connect();
-    const db       = mongo.db('cverve');
-    const usersCol = db.collection('users');
+    const db            = mongo.db('cverve');
+    const usersCol      = db.collection('users');
+    const announceCol   = db.collection('announcements');
 
-    const notification = {
-      type:      'announcement',
-      sender:    'CVerve Official',
-      title:     title.trim(),
-      body:      msgBody.trim(),
-      createdAt: new Date(),
-      read:      false,
-    };
+    // ── send ───────────────────────────────────────────────────────────────
+    if (!action || action === 'send') {
+      const { title, body: msgBody } = body;
+      if (!title || !title.trim())   return { statusCode: 400, body: JSON.stringify({ error: 'Title is required.' }) };
+      if (!msgBody || !msgBody.trim()) return { statusCode: 400, body: JSON.stringify({ error: 'Message body is required.' }) };
 
-    // Push to every user
-    const result = await usersCol.updateMany(
-      {},
-      { $push: { notifications: notification } }
-    );
+      // Store announcement record
+      const insertResult = await announceCol.insertOne({
+        title:     title.trim(),
+        body:      msgBody.trim(),
+        sentAt:    new Date(),
+        recalled:  false,
+      });
+      const announceId = insertResult.insertedId.toString();
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        sentTo: result.modifiedCount,
-        message: `Announcement sent to ${result.modifiedCount} user(s).`
-      })
-    };
+      const notification = {
+        type:        'announcement',
+        sender:      'CVerve Official',
+        title:       title.trim(),
+        body:        msgBody.trim(),
+        announceId,
+        createdAt:   new Date(),
+        read:        false,
+      };
+
+      const result = await usersCol.updateMany(
+        {},
+        { $push: { notifications: notification } }
+      );
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          announceId,
+          sentTo: result.modifiedCount,
+          message: `Announcement sent to ${result.modifiedCount} user(s).`
+        })
+      };
+    }
+
+    // ── list ───────────────────────────────────────────────────────────────
+    if (action === 'list') {
+      const announcements = await announceCol
+        .find({})
+        .sort({ sentAt: -1 })
+        .limit(50)
+        .toArray();
+      return { statusCode: 200, body: JSON.stringify({ success: true, announcements }) };
+    }
+
+    // ── recall ─────────────────────────────────────────────────────────────
+    if (action === 'recall') {
+      const { announceId } = body;
+      if (!announceId) return { statusCode: 400, body: JSON.stringify({ error: 'announceId is required.' }) };
+
+      // Remove from all user notification arrays
+      const result = await usersCol.updateMany(
+        { 'notifications.announceId': announceId },
+        { $pull: { notifications: { announceId } } }
+      );
+
+      // Mark as recalled in announcements collection
+      await announceCol.updateOne(
+        { _id: new ObjectId(announceId) },
+        { $set: { recalled: true, recalledAt: new Date() } }
+      );
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          removedFrom: result.modifiedCount,
+          message: `Announcement recalled from ${result.modifiedCount} user(s).`
+        })
+      };
+    }
+
+    return { statusCode: 400, body: JSON.stringify({ error: 'Unknown action.' }) };
+
   } catch (err) {
     console.error('send-announcement error:', err);
     return { statusCode: 500, body: JSON.stringify({ error: 'Internal server error.' }) };
