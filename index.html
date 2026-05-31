@@ -4544,17 +4544,21 @@
         const VERIFIED_BADGE_SVG = `<span class="verified-badge" title="Verified"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>`;
 
         function notifSenderLabel(n) {
-            return (n.type === 'report_verified' || n.type === 'report_rejected')
-                ? 'Payment Review Team' : 'System';
+            if (n.type === 'announcement') return 'CVerve Official';
+            if (n.type === 'report_verified' || n.type === 'report_rejected') return 'Payment Review Team';
+            return 'System';
         }
 
         function notifSenderColor(n) {
-            return (n.type === 'report_verified' || n.type === 'report_rejected')
-                ? 'bg-violet-100 text-violet-700' : 'bg-indigo-100 text-indigo-700';
+            if (n.type === 'announcement') return 'bg-violet-600 text-white';
+            if (n.type === 'report_verified' || n.type === 'report_rejected') return 'bg-violet-100 text-violet-700';
+            return 'bg-indigo-100 text-indigo-700';
         }
 
         function notifSenderInitial(n) {
-            return (n.type === 'report_verified' || n.type === 'report_rejected') ? 'PR' : 'SY';
+            if (n.type === 'announcement') return '📢';
+            if (n.type === 'report_verified' || n.type === 'report_rejected') return 'PR';
+            return 'SY';
         }
 
         function notifBubbleText(n) {
@@ -4570,6 +4574,9 @@
                 const reason = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : '';
                 return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${reason}<br><br>If you believe this is an error, please contact support. Thank you — CVerve Payment Review Team`;
             }
+            if (n.type === 'announcement') {
+                return `<strong>${n.title || 'Announcement'}</strong><br><br>${n.body || ''}`;
+            }
             return '';
         }
 
@@ -4579,6 +4586,7 @@
             if (n.type === 'payment_rejected')  return `Your payment of ${amt} could not be verified.`;
             if (n.type === 'report_verified')   return `Your dispute for ${amt} was verified by our team.`;
             if (n.type === 'report_rejected')   return `Your dispute for ${amt} was reviewed.`;
+            if (n.type === 'announcement')         return n.title || 'New announcement from CVerve.';
             return 'You have a new notification.';
         }
 
