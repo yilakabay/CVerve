@@ -10,7 +10,7 @@
         * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
         body { margin: 0; background: #fff; height: 100vh; overflow: hidden; }
         .page { position: fixed; inset: 0; display: flex; flex-direction: column; background: #fff; }
-        .chat-page { position: absolute; inset: 0; background: #f8fafc; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.28s cubic-bezier(.4,0,.2,1); z-index: 10; }
+        .chat-page { position: absolute; inset: 0; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.28s cubic-bezier(.4,0,.2,1); z-index: 10; }
         .chat-page.open { transform: translateX(0); }
         .page-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; background: #fff; flex-shrink: 0; }
         .page-header h2 { font-size: 1rem; font-weight: 700; color: #1e293b; flex: 1; margin: 0; }
@@ -25,17 +25,82 @@
         .thread-preview.unread { color: #1e293b; font-weight: 600; }
         .thread-time { font-size: 0.65rem; color: #94a3b8; margin-top: 2px; }
         .unread-dot { width: 9px; height: 9px; border-radius: 50%; background: #6366f1; flex-shrink: 0; margin-top: 5px; }
-        .chat-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #f1f5f9; flex-shrink: 0; }
+        .chat-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: rgba(255,255,255,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(241,245,249,0.8); flex-shrink: 0; }
         .chat-avatar { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; }
-        .bubble-wrap { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 20px; }
+        .bubble-wrap { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 20px; position: relative; z-index: 1; }
         .bubble-date { text-align: center; font-size: 0.62rem; color: #94a3b8; margin: 10px 0 6px; }
-        .bubble { max-width: min(85%, 520px); padding: 11px 14px; border-radius: 18px; font-size: 0.82rem; line-height: 1.6; color: #1e293b; background: #fff; align-self: flex-start; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; word-break: break-word; }
+        .bubble { max-width: min(85%, 520px); padding: 11px 14px; border-radius: 18px; font-size: 0.82rem; line-height: 1.6; color: #1e293b; background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); align-self: flex-start; box-shadow: 0 2px 8px rgba(99,102,241,0.08), 0 1px 3px rgba(0,0,0,0.07); border: 1px solid rgba(226,232,240,0.8); word-break: break-word; }
         .bubble-time { font-size: 0.58rem; color: #94a3b8; margin-top: 5px; text-align: right; letter-spacing: 0.02em; }
         .verified-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); flex-shrink: 0; }
         .verified-badge svg { width: 9px; height: 9px; stroke: #fff; stroke-width: 3; }
         .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px 20px; color: #94a3b8; font-size: 0.85rem; text-align: center; }
         .spinner { width: 28px; height: 28px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Chat 3D background ────────────────────────────────────── */
+        .chat-bg {
+            position: absolute; inset: 0;
+            background: linear-gradient(145deg, #eef2ff 0%, #f0f4ff 30%, #ede9fe 60%, #f5f3ff 100%);
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .chat-scroll-area {
+            position: relative;
+            flex: 1;
+            overflow-y: auto;
+        }
+        /* Floating document cards */
+        .doc-float {
+            position: absolute;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.55);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(99,102,241,0.15);
+            box-shadow: 0 8px 32px rgba(99,102,241,0.10), 0 2px 8px rgba(0,0,0,0.06);
+            display: flex; flex-direction: column;
+            padding: 10px;
+            gap: 5px;
+            animation: floatDoc linear infinite;
+            pointer-events: none;
+            transform-origin: center;
+        }
+        .doc-float .doc-header {
+            width: 100%; height: 8px; border-radius: 4px;
+            background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+            opacity: 0.7;
+        }
+        .doc-float .doc-line {
+            height: 5px; border-radius: 3px;
+            background: rgba(100,116,139,0.18);
+        }
+        .doc-float .doc-line.short { width: 60%; }
+        .doc-float .doc-line.med   { width: 80%; }
+        .doc-float .doc-line.full  { width: 100%; }
+        .doc-float .doc-badge {
+            margin-top: 3px;
+            width: 36px; height: 12px; border-radius: 6px;
+            background: linear-gradient(90deg,#6366f1,#8b5cf6);
+            opacity: 0.5;
+        }
+        /* Case file icons */
+        .case-float {
+            position: absolute;
+            animation: floatCase linear infinite;
+            pointer-events: none;
+            opacity: 0.22;
+            filter: drop-shadow(0 4px 12px rgba(99,102,241,0.18));
+        }
+        @keyframes floatDoc {
+            0%   { transform: translateY(0px)   rotate(var(--r0)) scale(var(--s)); opacity: var(--op); }
+            30%  { transform: translateY(-14px) rotate(var(--r1)) scale(var(--s)); opacity: var(--op); }
+            60%  { transform: translateY(-6px)  rotate(var(--r2)) scale(var(--s)); opacity: var(--op); }
+            100% { transform: translateY(0px)   rotate(var(--r0)) scale(var(--s)); opacity: var(--op); }
+        }
+        @keyframes floatCase {
+            0%   { transform: translateY(0px)   rotate(var(--r0)); }
+            50%  { transform: translateY(-18px) rotate(var(--r1)); }
+            100% { transform: translateY(0px)   rotate(var(--r0)); }
+        }
     </style>
 </head>
 <body>
@@ -53,6 +118,8 @@
 
     <!-- Individual chat — slides over the list -->
     <div id="chatPage" class="chat-page">
+        <!-- 3D animated background -->
+        <div class="chat-bg" id="chatBg"></div>
         <div class="chat-header">
             <button class="back-btn" onclick="closeChat()">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
@@ -66,7 +133,7 @@
                 <p id="chatSubtitle" class="text-xs text-gray-400 mt-0.5"></p>
             </div>
         </div>
-        <div class="flex-1 overflow-y-auto" id="chatScroll">
+        <div class="chat-scroll-area" id="chatScroll">
             <div id="chatBubbles" class="bubble-wrap"></div>
         </div>
     </div>
@@ -245,7 +312,80 @@ async function load() {
         document.getElementById('threadList').innerHTML='<div class="empty"><p>Could not load. Please go back and try again.</p></div>';
     }
 }
-load();
+// ── 3D Chat Background ─────────────────────────────────────────────────────
+(function buildChatBg() {
+    const bg = document.getElementById('chatBg');
+    if (!bg) return;
+
+    // Mini document card
+    function makeDoc(opts) {
+        const el = document.createElement('div');
+        el.className = 'doc-float';
+        el.style.cssText = [
+            `left:${opts.x}%`, `top:${opts.y}%`,
+            `width:${opts.w}px`, `height:${opts.h}px`,
+            `--r0:${opts.r0}deg`, `--r1:${opts.r1}deg`, `--r2:${opts.r2}deg`,
+            `--s:${opts.s}`, `--op:${opts.op}`,
+            `animation-duration:${opts.dur}s`,
+            `animation-delay:-${opts.delay}s`
+        ].join(';');
+        el.innerHTML = `
+            <div class="doc-header"></div>
+            <div class="doc-line full"></div>
+            <div class="doc-line med"></div>
+            <div class="doc-line full"></div>
+            <div class="doc-line short"></div>
+            <div class="doc-line full"></div>
+            <div class="doc-line med"></div>
+            ${opts.badge ? '<div class="doc-badge"></div>' : ''}
+        `;
+        bg.appendChild(el);
+    }
+
+    // SVG briefcase / file-case icons
+    function makeCase(opts, svgPath) {
+        const el = document.createElement('div');
+        el.className = 'case-float';
+        el.style.cssText = [
+            `left:${opts.x}%`, `top:${opts.y}%`,
+            `--r0:${opts.r0}deg`, `--r1:${opts.r1}deg`,
+            `animation-duration:${opts.dur}s`,
+            `animation-delay:-${opts.delay}s`
+        ].join(';');
+        el.innerHTML = `<svg width="${opts.size}" height="${opts.size}" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${svgPath}</svg>`;
+        bg.appendChild(el);
+    }
+
+    const briefcase = `<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="12"/><path d="M2 12h20"/>`;
+    const fileText  = `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>`;
+    const fileCv    = `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><circle cx="10" cy="13" r="2"/><path d="M8 17c0-1.1.9-2 2-2h4a2 2 0 0 1 2 2"/>`;
+    const folder    = `<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>`;
+
+    // Place floating document cards
+    const docs = [
+        { x:4,  y:8,  w:70, h:88, r0:-6,  r1:-3,  r2:-8,  s:1,    op:0.32, dur:9,  delay:0,   badge:true  },
+        { x:72, y:5,  w:60, h:75, r0:8,   r1:5,   r2:10,  s:0.95, op:0.28, dur:11, delay:3,   badge:false },
+        { x:14, y:62, w:55, h:70, r0:-4,  r1:-1,  r2:-6,  s:0.9,  op:0.25, dur:13, delay:6,   badge:true  },
+        { x:60, y:58, w:65, h:82, r0:5,   r1:2,   r2:7,   s:1,    op:0.30, dur:10, delay:2,   badge:false },
+        { x:40, y:20, w:48, h:62, r0:-9,  r1:-6,  r2:-11, s:0.85, op:0.20, dur:14, delay:8,   badge:true  },
+        { x:82, y:40, w:52, h:66, r0:6,   r1:3,   r2:9,   s:0.88, op:0.22, dur:12, delay:5,   badge:false },
+        { x:28, y:38, w:44, h:56, r0:-3,  r1:-1,  r2:-5,  s:0.82, op:0.18, dur:15, delay:10,  badge:true  },
+    ];
+    docs.forEach(d => makeDoc(d));
+
+    // Place floating icon elements
+    const icons = [
+        { x:88, y:12,  r0:-8,  r1:4,  dur:7,  delay:1,  size:48, svg: briefcase },
+        { x:2,  y:44,  r0:6,   r1:-3, dur:9,  delay:4,  size:40, svg: folder    },
+        { x:50, y:75,  r0:-5,  r1:2,  dur:11, delay:7,  size:44, svg: fileText  },
+        { x:78, y:72,  r0:10,  r1:-4, dur:8,  delay:2,  size:38, svg: fileCv    },
+        { x:22, y:84,  r0:-7,  r1:3,  dur:10, delay:9,  size:42, svg: briefcase },
+        { x:55, y:6,   r0:4,   r1:-6, dur:12, delay:5,  size:36, svg: folder    },
+        { x:92, y:55,  r0:-4,  r1:8,  dur:9,  delay:3,  size:40, svg: fileText  },
+    ];
+    icons.forEach(i => makeCase(i, i.svg));
+})();
+
 </script>
 </body>
 </html>
