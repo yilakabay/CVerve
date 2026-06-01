@@ -2007,7 +2007,10 @@
         }
 
         // ── Balance visibility (hidden by default) ────────────────────────────
-        let balanceVisible = localStorage.getItem('cv_balanceVisible') === 'true'; // default false
+        // Default visible if balance < 100 (and user hasn't manually set a preference)
+        let balanceVisible = localStorage.getItem('cv_balanceVisible') !== null
+            ? localStorage.getItem('cv_balanceVisible') === 'true'
+            : (userBalance < 100); // auto-show when low balance
 
         function formatBalance(amount) {
             if (amount >= 1000000000)   return (amount / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
@@ -2078,6 +2081,14 @@
             balanceVisible = !balanceVisible;
             localStorage.setItem('cv_balanceVisible', balanceVisible);
             renderBalanceDisplays();
+        }
+
+        function autoRevealLowBalance() {
+            // If balance < 100 and user has never manually set a preference, auto-show
+            if ((userBalance || 0) < 100 && localStorage.getItem('cv_balanceVisible') === null) {
+                balanceVisible = true;
+                renderBalanceDisplays();
+            }
         }
 
         async function syncBalance() {
@@ -3832,8 +3843,8 @@
     <!-- ══ DESKTOP NAV BAR ══════════════════════════════════════════════════ -->
     <nav id="desktopNav" style="flex-direction:column;padding:0;">
         <!-- Bar 1: Logo + icons -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 6px 0;border-bottom:1px solid #f1f5f9;min-height:42px;">
-            <div class="flex items-center gap-2" style="width:300px;flex-shrink:0;padding-left:20px;box-sizing:border-box;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 6px 16px;border-bottom:1px solid #f1f5f9;min-height:42px;">
+            <div class="flex items-center gap-2" style="width:300px;flex-shrink:0;padding-left:0;box-sizing:border-box;">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="133 415 371 243" style="height:1.2em;width:auto;display:inline-block;vertical-align:middle;"><g transform="translate(0,1066) scale(0.1,-0.1)" fill="#4f46e5" stroke="none"><path d="M4695 6340 c-228 -31 -474 -214 -657 -490 -126 -191 -226 -406 -391 -848 l-84 -223 -28 83 c-90 269 -170 362 -315 363 -54 0 -73 -5 -113 -28 -50 -30 -57 -39 -208 -280 -113 -181 -184 -246 -319 -294 -85 -29 -230 -32 -317 -5 -202 63 -343 276 -343 517 1 256 143 453 374 520 80 23 219 17 298 -14 32 -12 93 -48 135 -79 66 -47 85 -56 122 -57 42 0 47 3 121 83 43 45 81 94 84 108 16 61 -63 139 -219 218 -149 74 -291 102 -469 93 -178 -9 -301 -49 -446 -145 -222 -146 -360 -395 -377 -681 -10 -172 33 -356 120 -511 52 -92 196 -241 282 -292 151 -88 279 -121 465 -121 185 -1 314 33 464 121 123 72 329 304 311 350 -5 13 -10 8 -24 -23 -11 -25 -20 -35 -25 -27 -4 7 -2 12 4 12 6 0 8 5 5 10 -3 6 -3 10 2 10 4 0 14 15 21 33 27 64 33 74 27 42 -6 -28 -5 -29 8 -11 15 20 14 22 26 -29 1 -3 11 -26 22 -51 11 -26 18 -49 16 -51 -3 -2 -12 15 -22 39 -9 24 -21 49 -27 55 -15 18 -29 5 -18 -15 6 -9 37 -84 70 -165 74 -185 99 -228 155 -267 96 -66 221 -59 307 18 53 47 94 135 233 497 289 754 408 1026 522 1198 66 99 165 195 267 257 75 46 84 55 75 71 -11 21 -32 22 -134 9 z"/></g></svg>
                 <span class="font-bold text-indigo-600" style="font-size:1.05rem;letter-spacing:-0.03em;">CVcase</span>
             </div>
