@@ -4,7 +4,7 @@
 // Also supports checkOnly=true to check pending status without submitting.
 //
 // SESSION 3 CHANGES:
-//   - Removed the 100 ETB minimum. Minimum is now the plan price (270 or 599).
+//   - Removed the 100 ETB minimum. Minimum is now the plan price (199 or 399).
 //     Validation is: amount must be >= 1 ETB and match the plan price (±1 ETB tolerance).
 //   - Added planRequested field stored in pending_payments document.
 //   - Admin will read planRequested when verifying to activate the correct plan.
@@ -17,7 +17,7 @@ const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Plan prices ───────────────────────────────────────────────────────────────
-const PLAN_PRICES = { basic: 270, pro: 599 };
+const PLAN_PRICES = { basic: 199, pro: 399 };
 
 // ── Activate a plan on the user document ─────────────────────────────────────
 // Called only during auto-verify (SMS match). Admin-verify path calls subscribe-plan.
@@ -34,7 +34,7 @@ async function activatePlan(db, userId, plan) {
         planExpiry:      expiry,
         planActivatedAt: new Date(),
         // Reset usage counters on every new subscription
-        usageCounts: { letters: 0, pdfMerges: 0, cvBuilds: 0 }
+        usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
       }
     },
     { upsert: false }
