@@ -570,23 +570,23 @@
                 <div class="plan-card-mini">
                     <div class="plan-card-mini-left">
                         <span class="plan-card-mini-name">Free</span>
-                        <span class="plan-card-mini-features">5 letters · 30 PDF merges · 1 Find Job</span>
+                        <span class="plan-card-mini-features">3+5 letters · unlimited PDF merges</span>
                     </div>
                     <span class="plan-card-mini-price" style="color:#22c55e;">0 ETB</span>
                 </div>
                 <div class="plan-card-mini" style="border-color:rgba(99,102,241,0.4);background:rgba(99,102,241,0.1);">
                     <div class="plan-card-mini-left">
                         <span class="plan-card-mini-name">Basic</span>
-                        <span class="plan-card-mini-features">30 letters · 3 CVs · unlimited merges · 10 Find Job</span>
+                        <span class="plan-card-mini-features">35 letters · Smart job finding</span>
                     </div>
-                    <span class="plan-card-mini-price" style="color:#a5b4fc;">245 ETB</span>
+                    <span class="plan-card-mini-price" style="color:#a5b4fc;">199 ETB</span>
                 </div>
                 <div class="plan-card-mini">
                     <div class="plan-card-mini-left">
                         <span class="plan-card-mini-name">Pro</span>
-                        <span class="plan-card-mini-features">90 letters · 10 CVs · unlimited merges · 60 Find Job</span>
+                        <span class="plan-card-mini-features">110 letters · 100 Fit/Not fit tests</span>
                     </div>
-                    <span class="plan-card-mini-price" style="color:#fdba74;">499 ETB</span>
+                    <span class="plan-card-mini-price" style="color:#fdba74;">399 ETB</span>
                 </div>
             </div>
         </div>
@@ -958,11 +958,12 @@ async function handleVerifyOtp() {
         hideLoad();
 
         if (res.ok) {
+            var newUserId = _pendingReg.phoneNumber;
             _pendingReg = null;
             showStep('successStep');
-            // After 2 s redirect to login with a ?registered=1 flag
+            // After 2 s send the new user into the profile onboarding flow
             setTimeout(function() {
-                window.location.href = '/login.html?registered=1';
+                window.location.href = '/onboarding.html?userId=' + encodeURIComponent(newUserId) + '&new=1';
             }, 2000);
         } else {
             toast('error', data.error || 'Verification failed. Please try again.');
