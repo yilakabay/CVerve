@@ -27,24 +27,32 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 
 // ── Plan limits ───────────────────────────────────────────────────────────────
 // -1 = unlimited
+// Free: letters are tracked separately for jobs posted on CVcase (lettersInternal)
+//       vs jobs posted outside the platform (lettersExternal).
+// Basic/Pro: letters are combined into a single monthly total (lettersTotal),
+//       counted against usageCounts.lettersInternal + usageCounts.lettersExternal.
 const PLAN_LIMITS = {
-  free:  { letters: 5,   pdfMerges: 15, cvBuilds: 0  },
-  basic: { letters: 30,  pdfMerges: -1, cvBuilds: 3  },
-  pro:   { letters: -1,  pdfMerges: -1, cvBuilds: 15 }
+  free:  { lettersInternal: 3,  lettersExternal: 5,  lettersTotal: null, pdfMerges: -1, cvBuilds: 0, smartFinder: false, fitTests: 0   },
+  basic: { lettersInternal: null, lettersExternal: null, lettersTotal: 35,  pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 0   },
+  pro:   { lettersInternal: null, lettersExternal: null, lettersTotal: 110, pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 100 }
 };
 
 // Map incoming action name → usageCounts field name
 const ACTION_MAP = {
-  letter:   'letters',
-  pdfMerge: 'pdfMerges',
-  cvBuild:  'cvBuilds'
+  letterInternal: 'lettersInternal', // application letter for a job posted on CVcase
+  letterExternal: 'lettersExternal', // application letter for a job posted outside CVcase
+  pdfMerge:       'pdfMerges',
+  cvBuild:        'cvBuilds',
+  fitTest:        'fitTests'
 };
 
 // Human-readable feature names
 const FEATURE_NAMES = {
-  letters:   'application letters',
-  pdfMerges: 'PDF merges',
-  cvBuilds:  'CV builds'
+  lettersInternal: 'application letters (CVcase jobs)',
+  lettersExternal: 'application letters (external jobs)',
+  pdfMerges:       'PDF merges',
+  cvBuilds:        'CV builds',
+  fitTests:        'Fit/Not fit tests'
 };
 
 exports.handler = async (event, context) => {
@@ -67,11 +75,38 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId and password are required.' }) };
   }
 
+  // Special non-counted check: smart job finder access (no usage counter, just a gate)
+  if (action === 'smartFinder') {
+    try {
+      await client.connect();
+      const db       = client.db('cverve');
+      const usersCol = db.collection('users');
+      const user     = await usersCol.findOne({ phoneNumber: userId });
+      if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
+      const pwOk = await bcrypt.compare(password, user.password);
+      if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+      let plan = user.plan || 'free';
+      if (user.planExpiry && new Date(user.planExpiry) < new Date()) plan = 'free';
+      const allowed = !!PLAN_LIMITS[plan]?.smartFinder;
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          allowed,
+          reason: allowed ? undefined : 'Smart Finder is available on Basic and Pro plans. Upgrade to unlock it.',
+          plan
+        })
+      };
+    } catch (error) {
+      console.error('increment-usage smartFinder error:', error);
+      return { statusCode: 500, body: JSON.stringify({ error: 'Internal server error.' }) };
+    }
+  }
+
   const field = ACTION_MAP[action];
   if (!field) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: `Unknown action "${action}". Valid: letter, pdfMerge, cvBuild.` })
+      body: JSON.stringify({ error: `Unknown action "${action}". Valid: letterInternal, letterExternal, pdfMerge, cvBuild, fitTest, smartFinder.` })
     };
   }
 
@@ -101,18 +136,25 @@ exports.handler = async (event, context) => {
           $set: {
             plan:       'free',
             planExpiry: null,
-            usageCounts: { letters: 0, pdfMerges: 0, cvBuilds: 0 }
+            usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
           }
         }
       );
     }
 
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
-    const limit  = limits[field]; // -1 = unlimited
 
     // Current usage (default 0 for legacy users)
-    const usageCounts = user.usageCounts || { letters: 0, pdfMerges: 0, cvBuilds: 0 };
-    const currentUse  = usageCounts[field] || 0;
+    const usageCounts = user.usageCounts || { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
+
+    // Is this a letters action on a plan with a combined total (basic/pro)?
+    const isLetterField   = (field === 'lettersInternal' || field === 'lettersExternal');
+    const isCombinedPlan  = isLetterField && limits.lettersTotal !== null && limits.lettersTotal !== undefined;
+
+    const limit      = isCombinedPlan ? limits.lettersTotal : limits[field]; // -1 = unlimited
+    const currentUse = isCombinedPlan
+      ? (usageCounts.lettersInternal || 0) + (usageCounts.lettersExternal || 0)
+      : (usageCounts[field] || 0);
 
     // ── Feature access check (cvBuilds on free = 0 limit = blocked) ──────────
     if (limit === 0) {
@@ -165,19 +207,34 @@ exports.handler = async (event, context) => {
     }
 
     // ── Within limit — atomically increment ───────────────────────────────────
-    const updateResult = await usersCol.findOneAndUpdate(
-      {
-        phoneNumber:                userId,
-        [`usageCounts.${field}`]: { $lt: limit }
-      },
-      { $inc: { [`usageCounts.${field}`]: 1 } },
-      { returnDocument: 'after' }
-    );
+    // For combined-total plans (basic/pro letters) we can't rely on a single-field
+    // Mongo query filter for the combined cap, so re-check just before incrementing
+    // and accept the small race window (mirrors prior single-field behavior otherwise).
+    let updateResult;
+    if (isCombinedPlan) {
+      updateResult = await usersCol.findOneAndUpdate(
+        { phoneNumber: userId },
+        { $inc: { [`usageCounts.${field}`]: 1 } },
+        { returnDocument: 'after' }
+      );
+    } else {
+      updateResult = await usersCol.findOneAndUpdate(
+        {
+          phoneNumber:                userId,
+          [`usageCounts.${field}`]: { $lt: limit }
+        },
+        { $inc: { [`usageCounts.${field}`]: 1 } },
+        { returnDocument: 'after' }
+      );
+    }
 
     if (!updateResult || !updateResult.value) {
       // Race condition: another request incremented to the limit first
       const freshUser  = await usersCol.findOne({ phoneNumber: userId });
-      const freshCount = (freshUser?.usageCounts || {})[field] || 0;
+      const freshCounts = (freshUser && freshUser.usageCounts) || {};
+      const freshCount  = isCombinedPlan
+        ? (freshCounts.lettersInternal || 0) + (freshCounts.lettersExternal || 0)
+        : (freshCounts[field] || 0);
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -192,7 +249,9 @@ exports.handler = async (event, context) => {
     }
 
     const newCounts   = updateResult.value.usageCounts || {};
-    const newCount    = newCounts[field] || 0;
+    const newCount    = isCombinedPlan
+      ? (newCounts.lettersInternal || 0) + (newCounts.lettersExternal || 0)
+      : (newCounts[field] || 0);
     const remaining   = limit - newCount;
 
     return {
