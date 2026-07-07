@@ -144,7 +144,7 @@ exports.handler = async (event, context) => {
       `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
         chat_id: tgRecord.chatId,
-        text: `🔐 *Your CVerve verification code is:*\n\n\`${otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+        text: `🔐 *Your CVcase verification code is:*\n\n\`${otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
         parse_mode: 'Markdown'
       }
     );
