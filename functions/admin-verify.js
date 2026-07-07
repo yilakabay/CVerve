@@ -18,7 +18,7 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 // ── Plan catalogue — kept in sync with get-user.js ───────────────────────────
 const VALID_PLANS = ['free', 'basic', 'pro'];
 
-const PLAN_PRICES = { free: 0, basic: 270, pro: 599 };
+const PLAN_PRICES = { free: 0, basic: 199, pro: 399 };
 
 // Plan subscription is valid for 30 days from activation
 const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
