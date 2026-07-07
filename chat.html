@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CVerve – Chats</title>
+    <title>CVerve – Notifications</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -45,7 +45,7 @@
         <button class="back-btn" onclick="goBack()">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
         </button>
-        <h2>Chats</h2>
+        <h2>Notifications</h2>
     </div>
     <div id="threadList" class="flex-1 overflow-y-auto">
         <div class="empty"><div class="spinner"></div><p>Loading…</p></div>
@@ -171,7 +171,7 @@ function groupBySender(arr) {
 function renderThreads() {
     const c = document.getElementById('threadList');
     if (_notifs.length===0) {
-        c.innerHTML=`<div class="empty"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><p>No chats yet.<br>Notifications from CVerve will appear here.</p></div>`;
+        c.innerHTML=`<div class="empty"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><p>No notifications yet.<br>Updates from CVcase will appear here.</p></div>`;
         return;
     }
     const groups = groupBySender(_notifs);
@@ -242,7 +242,7 @@ async function load() {
         const params = new URLSearchParams(location.search);
         if (params.get('open')) openChat(params.get('open'));
     } catch {
-        document.getElementById('threadList').innerHTML='<div class="empty"><p>Could not load. Please go back and try again.</p></div>';
+        document.getElementById('threadList').innerHTML='<div class="empty"><p>Could not load notifications. Please go back and try again.</p></div>';
     }
 }
 load();
