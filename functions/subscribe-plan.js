@@ -11,7 +11,7 @@
 //
 // On success:
 //   - Sets user.plan, user.planExpiry (+1 month), user.planActivatedAt
-//   - Resets user.usageCounts to { letters:0, pdfMerges:0, cvBuilds:0 }
+//   - Resets user.usageCounts to { lettersInternal:0, lettersExternal:0, pdfMerges:0, cvBuilds:0, fitTests:0 }
 //   - Writes a plan_activated notification to the user
 //   - Returns { success, plan, planExpiry }
 
@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-const PLAN_PRICES = { basic: 270, pro: 599 };
+const PLAN_PRICES = { basic: 199, pro: 399 };
 
 function verifyToken(token) {
   if (!token) return false;
