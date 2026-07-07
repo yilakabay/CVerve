@@ -46,10 +46,15 @@ exports.handler = async (event, context) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'profile object required' }) };
       }
 
-      const { fullName, phone, email, address, cvText, cvFilename, cvPdfBase64 } = profile;
+      const { fullName, phone, email, address, canRelocate, cvText, cvFilename, cvPdfBase64 } = profile;
 
-      if (!fullName || !phone || !email || !address) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields (fullName, phone, email, address)' }) };
+      // Partial saves are allowed (e.g. the step-by-step onboarding flow, which
+      // saves one field at a time and lets the user skip any step with "Maybe later").
+      // At least one recognizable field must be present.
+      const hasAnyField = [fullName, phone, email, address, canRelocate, cvText, cvFilename, cvPdfBase64]
+        .some(v => v !== undefined && v !== null && v !== '');
+      if (!hasAnyField) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'No profile fields provided.' }) };
       }
 
       // ── CV PDF validation ────────────────────────────────────────────────
@@ -85,27 +90,37 @@ exports.handler = async (event, context) => {
         existingCvPdf = existing ? existing.cvPdfBase64 || null : null;
       }
 
-      const updateDoc = {
-        userId,
-        fullName,
-        phone,
-        email,
-        address,
-        cvText: cvText || null,
-        cvFilename: cvFilename || null,
-        // store new PDF if provided; keep existing if not touched; clear if explicitly null
-        cvPdfBase64: cvPdfToStore !== null ? cvPdfToStore : (cvPdfBase64 === null ? null : existingCvPdf),
-        updatedAt: new Date()
-      };
+      // Only set fields that were actually sent — this lets the onboarding flow
+      // save one field per step ("maybe later" skips are simply omitted) without
+      // wiping out previously saved fields.
+      const updateDoc = { userId, updatedAt: new Date() };
+      if (fullName !== undefined)    updateDoc.fullName    = fullName;
+      if (phone !== undefined)       updateDoc.phone        = phone;
+      if (email !== undefined)       updateDoc.email        = email;
+      if (address !== undefined)     updateDoc.address      = address;
+      if (canRelocate !== undefined) updateDoc.canRelocate  = canRelocate; // true/false — willing to relocate for interviews
+      if (cvText !== undefined)      updateDoc.cvText       = cvText || null;
+      if (cvFilename !== undefined)  updateDoc.cvFilename   = cvFilename || null;
+      if (cvPdfToStore !== null) {
+        updateDoc.cvPdfBase64 = cvPdfToStore;
+      } else if (cvPdfBase64 === null) {
+        updateDoc.cvPdfBase64 = null;
+      } else if (existingCvPdf !== null) {
+        updateDoc.cvPdfBase64 = existingCvPdf;
+      }
 
-      await profiles.findOneAndUpdate(
+      const result = await profiles.findOneAndUpdate(
         { userId },
         { $set: updateDoc },
         { upsert: true, returnDocument: 'after' }
       );
 
+      const saved = (result && result.value) ? result.value : updateDoc;
+
       // Don't echo the PDF bytes back — return a flag instead so the client knows if a PDF is stored
-      const responseProfile = { ...updateDoc, hasCvPdf: !!updateDoc.cvPdfBase64 };
+      const responseProfile = { ...saved };
+      delete responseProfile._id;
+      responseProfile.hasCvPdf = !!responseProfile.cvPdfBase64;
       delete responseProfile.cvPdfBase64;
 
       return { statusCode: 200, body: JSON.stringify({ success: true, profile: responseProfile }) };
