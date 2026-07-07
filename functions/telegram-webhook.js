@@ -4,7 +4,7 @@
 //   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-site>/.netlify/functions/telegram-webhook
 //
 // Anti-fraud: each Telegram user ID (tgUserId) can only ever be linked to ONE
-// CVerve account. A person with 10 phone numbers still only has one Telegram
+// CVcase account. A person with 10 phone numbers still only has one Telegram
 // identity, so they can only register once.
 
 const { MongoClient } = require('mongodb');
@@ -92,13 +92,13 @@ exports.handler = async (event, context) => {
 
     // ── /start ────────────────────────────────────────────────────────────────
     if (text === '/start' || text.startsWith('/start ')) {
-      // Check if this Telegram account is already linked to a CVerve account
+      // Check if this Telegram account is already linked to a CVcase account
       const existing = await tgCol.findOne({ tgUserId });
       if (existing && existing.phoneNumber) {
         const user = await usersCol.findOne({ phoneNumber: existing.phoneNumber });
         if (user) {
           await sendMessage(botToken, chatId,
-            `✅ You already have a CVerve account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nIf you need to reset your password, tap the button below to share your phone number again.`,
+            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nIf you need to reset your password, tap the button below to share your phone number again.`,
             shareButton
           );
           return { statusCode: 200, body: 'OK' };
@@ -106,7 +106,7 @@ exports.handler = async (event, context) => {
       }
 
       await sendMessage(botToken, chatId,
-        `👋 *Welcome to CVerve!*\n\nTo verify your account, tap the button below to share your phone number.`,
+        `👋 *Welcome to CVcase!*\n\nTo verify your account, tap the button below to share your phone number.`,
         shareButton
       );
       return { statusCode: 200, body: 'OK' };
@@ -134,13 +134,13 @@ exports.handler = async (event, context) => {
         const prevUser = await usersCol.findOne({ phoneNumber: existingTgRecord.phoneNumber });
         if (prevUser) {
           await sendMessage(botToken, chatId,
-            `⛔ This Telegram account is already linked to a CVerve account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVerve account.`
+            `⛔ This Telegram account is already linked to a CVcase account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVcase account.`
           );
           return { statusCode: 200, body: 'OK' };
         }
       }
 
-      // ── CHECK: Does this phone already have a CVerve account? ────────────
+      // ── CHECK: Does this phone already have a CVcase account? ────────────
       // If yes, this is an EXISTING USER linking Telegram (e.g. for password reset).
       // We allow it — link their Telegram and deliver any pending OTP.
       const existingUser = await usersCol.findOne({ phoneNumber });
@@ -173,7 +173,7 @@ exports.handler = async (event, context) => {
         const pendingReset = await resetCol.findOne({ phoneNumber, verified: false });
         if (pendingReset && new Date() < new Date(pendingReset.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔑 *Your CVerve password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`,
+            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`,
             { remove_keyboard: true }
           );
           return { statusCode: 200, body: 'OK' };
@@ -183,7 +183,7 @@ exports.handler = async (event, context) => {
         const pendingOtp = await otpCol.findOne({ phoneNumber, verified: false });
         if (pendingOtp && new Date() < new Date(pendingOtp.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔐 *Your CVerve verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+            `🔐 *Your CVcase verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
             { remove_keyboard: true }
           );
           return { statusCode: 200, body: 'OK' };
@@ -225,12 +225,12 @@ exports.handler = async (event, context) => {
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
       if (pending && new Date() < new Date(pending.expiresAt)) {
         await sendMessage(botToken, chatId,
-          `🔐 *Your CVerve verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+          `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
           { remove_keyboard: true }
         );
       } else {
         await sendMessage(botToken, chatId,
-          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVerve, your verification code will be sent here.`,
+          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`,
           { remove_keyboard: true }
         );
       }
@@ -240,7 +240,7 @@ exports.handler = async (event, context) => {
 
     // ── Any other message ─────────────────────────────────────────────────────
     await sendMessage(botToken, chatId,
-      `To verify your CVerve account, please share your phone number using the button below.`,
+      `To verify your CVcase account, please share your phone number using the button below.`,
       shareButton
     );
 
