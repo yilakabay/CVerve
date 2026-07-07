@@ -62,7 +62,7 @@ exports.handler = async (event, context) => {
 
       const notification = {
         type:        'announcement',
-        sender:      'CVerve Official',
+        sender:      'CVcase Official',
         title:       title.trim(),
         body:        msgBody.trim(),
         announceId,
