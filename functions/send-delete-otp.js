@@ -100,7 +100,7 @@ exports.handler = async (event, context) => {
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       {
         chat_id: tgRecord.chatId,
-        text: `⚠️ *CVerve Account Deletion Request*\n\nYour confirmation code is:\n\n\`${otp}\`\n\nThis code expires in *10 minutes*.\n\n*If you did not request this, ignore this message — your account is safe.*`,
+        text: `⚠️ *CVcase Account Deletion Request*\n\nYour confirmation code is:\n\n\`${otp}\`\n\nThis code expires in *10 minutes*.\n\n*If you did not request this, ignore this message — your account is safe.*`,
         parse_mode: 'Markdown'
       }
     );
