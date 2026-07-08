@@ -1621,6 +1621,123 @@
             switchJdInputMode('url');
         }
 
+        // ── Smart Finder (Basic/Pro only) ──────────────────────────────────────────
+        let smartFinderCache = null; // { matches, jobsUsed } — avoid re-running on every subtab click
+
+        async function runSmartFinder(force) {
+            const listEl = document.getElementById('smartFinderList');
+
+            const cvForMatching = storedCvText;
+            if (!cvForMatching || cvForMatching.trim().length < 20) {
+                listEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+                        <div class="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mb-4">
+                            <svg class="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </div>
+                        <h3 class="text-base font-bold text-gray-800 mb-1">We need your CV first</h3>
+                        <p class="text-sm text-gray-500 mb-4">Smart Finder matches jobs against your CV. Add one on the Application Letter tab (upload or autofill), then come back here.</p>
+                        <button onclick="switchTab('letter')" class="bg-indigo-500 text-white text-xs font-semibold px-5 py-2 rounded-full hover:bg-indigo-600 transition-colors">Add my CV</button>
+                    </div>`;
+                return;
+            }
+
+            if (smartFinderCache && !force) { renderSmartFinderResults(smartFinderCache.matches, smartFinderCache.jobs); return; }
+
+            listEl.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-16 text-center">
+                    <div class="w-8 h-8 border-[3px] border-gray-200 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                    <p class="text-sm text-gray-500 font-medium">Matching jobs to your CV…</p>
+                </div>`;
+
+            try {
+                // Make sure we have the job list to match against
+                if (!allJobsCache) {
+                    const res0 = await fetch('/.netlify/functions/manage-jobs', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'list' })
+                    });
+                    const data0 = await res0.json();
+                    if (!res0.ok || !data0.success) throw new Error(data0.error || 'Failed to load jobs.');
+                    allJobsCache = data0.jobs || [];
+                }
+
+                const flatPositions = [];
+                (allJobsCache || []).forEach(job => {
+                    (job.positions || []).forEach((pos, posIdx) => {
+                        flatPositions.push({
+                            jobId: job._id, positionIndex: posIdx,
+                            company: job.company, title: pos.title,
+                            qualification: pos.qualification, experience: pos.experience,
+                            shortDescription: pos.shortDescription
+                        });
+                    });
+                });
+
+                if (flatPositions.length === 0) {
+                    listEl.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-10">No jobs posted yet — nothing to match against.</p>';
+                    return;
+                }
+
+                const res = await fetch('/.netlify/functions/smart-finder', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cvText: cvForMatching, jobs: flatPositions })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Smart Finder failed.');
+
+                smartFinderCache = { matches: data.matches, jobs: allJobsCache };
+                renderSmartFinderResults(data.matches, allJobsCache);
+
+            } catch (err) {
+                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(err.message)}</p>`;
+            }
+        }
+
+        function renderSmartFinderResults(matches, jobsList) {
+            const listEl = document.getElementById('smartFinderList');
+            if (!matches || matches.length === 0) {
+                listEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+                        <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+                            <svg class="w-7 h-7 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <h3 class="text-base font-bold text-gray-800 mb-1">No strong matches right now</h3>
+                        <p class="text-sm text-gray-500">We didn't find a job that's a genuine fit for your CV among current postings. Check back as new jobs are added.</p>
+                    </div>`;
+                return;
+            }
+
+            let html = '';
+            matches.forEach(m => {
+                const job = (jobsList || []).find(j => j._id === m.jobId);
+                if (!job) return;
+                const pos = job.positions[m.positionIndex];
+                if (!pos) return;
+
+                const scoreColor = m.matchScore >= 80 ? 'bg-emerald-50 text-emerald-700' : m.matchScore >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600';
+
+                html += `
+                <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                        <div class="min-w-0">
+                            <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${escapeHtmlJob(job.company)}</p>
+                            <h3 class="text-base font-bold text-gray-800">${escapeHtmlJob(pos.title)}</h3>
+                        </div>
+                        <span class="${scoreColor} text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">${m.matchScore}% match</span>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-2 italic">"${escapeHtmlJob(m.reason)}"</p>
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex gap-2 flex-wrap">
+                            <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
+                            <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
+                        </div>
+                        <button onclick="openJobDetail('${job._id}', ${m.positionIndex})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
+                    </div>
+                </div>`;
+            });
+            listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${matches.length} match${matches.length !== 1 ? 'es' : ''} found, best first</p></div>` + html;
+        }
+
         window.switchFindJobSubtab = (which) => {
             document.querySelectorAll('.findjob-subpanel').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.findjob-subtab-button').forEach(b => {
@@ -1634,13 +1751,13 @@
                 document.getElementById('fj-smartfinder-btn').classList.add('text-indigo-600', 'border-indigo-500');
 
                 // Smart Finder itself is gated by plan — All Jobs stays free for everyone
-                const upgradeBox = document.getElementById('findjob-smartfinder-upgrade');
                 if (!planLimit('smartFinder')) {
-                    upgradeBox.classList.remove('hidden');
-                    const reasonEl = document.getElementById('findjob-smartfinder-upgrade-reason');
-                    if (reasonEl) reasonEl.textContent = 'Smart Finder isn\'t included in your current (Free) plan. Upgrade to Basic or Pro to unlock it.';
+                    document.getElementById('findjob-smartfinder-locked').classList.remove('hidden');
+                    document.getElementById('findjob-smartfinder-unlocked').classList.add('hidden');
                 } else {
-                    upgradeBox.classList.add('hidden');
+                    document.getElementById('findjob-smartfinder-locked').classList.add('hidden');
+                    document.getElementById('findjob-smartfinder-unlocked').classList.remove('hidden');
+                    runSmartFinder();
                 }
             } else {
                 document.getElementById('findjob-alljobs-panel').classList.remove('hidden');
@@ -4667,17 +4784,25 @@
 
             <!-- Smart Finder sub-tab (Basic/Pro only) -->
             <div id="findjob-smartfinder-panel" class="findjob-subpanel hidden">
-                <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+
+                <!-- Locked state: shown to Free-plan users -->
+                <div id="findjob-smartfinder-locked" class="hidden flex flex-col items-center justify-center py-16 px-6 text-center">
                     <div class="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-4">
                         <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                     </div>
-                    <span class="bg-amber-100 text-amber-600 text-xs font-bold px-3 py-1 rounded-full mb-3">Coming Soon</span>
                     <h2 class="text-xl font-bold text-gray-800 mb-2">Smart Finder</h2>
-                    <p class="text-sm text-gray-500">AI filters and ranks jobs to match your CV automatically, so you don't need to scroll through every listing. This feature is under development and will be available soon.</p>
-                    <div id="findjob-smartfinder-upgrade" class="mt-5 w-full max-w-sm bg-indigo-50 border border-indigo-100 rounded-xl p-4 hidden">
+                    <p class="text-sm text-gray-500">AI filters and ranks jobs to match your CV automatically, so you don't need to scroll through every listing.</p>
+                    <div class="mt-5 w-full max-w-sm bg-indigo-50 border border-indigo-100 rounded-xl p-4">
                         <p class="text-sm font-semibold text-indigo-700 mb-1">Smart Finder is a Basic/Pro feature</p>
-                        <p class="text-xs text-indigo-500 mb-3" id="findjob-smartfinder-upgrade-reason">Upgrade your plan to unlock Smart Finder once it launches.</p>
+                        <p class="text-xs text-indigo-500 mb-3">Smart Finder isn't included in your current (Free) plan. Upgrade to Basic or Pro to unlock it.</p>
                         <button onclick="showUpgradePrompt('Smart Finder requires a paid plan', 'Upgrade to Basic or Pro to unlock Smart Finder.')" class="w-full bg-indigo-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-indigo-700 transition-colors">Upgrade plan</button>
+                    </div>
+                </div>
+
+                <!-- Unlocked state: shown to Basic/Pro users -->
+                <div id="findjob-smartfinder-unlocked" class="hidden">
+                    <div id="smartFinderList" class="p-3 space-y-3">
+                        <p class="text-sm text-gray-400 italic text-center py-10">Preparing Smart Finder…</p>
                     </div>
                 </div>
             </div>
