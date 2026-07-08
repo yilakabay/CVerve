@@ -13,7 +13,7 @@
   }
   html,body{height:100%;font-family:'DM Sans',sans-serif;background:#f8faff;color:var(--text);}
   .wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px;}
-  .card{width:100%;max-width:440px;background:#fff;border:1px solid var(--border);border-radius:20px;padding:36px 32px;box-shadow:0 10px 40px rgba(15,23,42,0.06);}
+  .card{width:100%;max-width:440px;background:#fff;border:1px solid var(--border);border-radius:20px;padding:36px 32px;box-shadow:0 10px 40px rgba(15,23,42,0.06);position:relative;overflow:hidden;}
   .logo{display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:20px;}
   .logo-text{font-family:'Sora',sans-serif;font-weight:800;font-size:1.2rem;color:var(--text);}
   .logo-text span{color:var(--indigo);}
@@ -40,6 +40,7 @@
   }
   .cv-drop:hover{border-color:var(--indigo);background:#f5f5ff;}
   .cv-drop.has-file{border-style:solid;border-color:#22c55e;background:#f0fdf4;}
+  .cv-drop.extracting{border-style:solid;border-color:var(--indigo);background:#f5f5ff;cursor:wait;}
   .cv-drop svg{margin-bottom:8px;}
   .cv-file-name{font-size:0.82rem;font-weight:600;color:#16a34a;word-break:break-word;}
   .telegram-note{
@@ -47,18 +48,44 @@
   }
   .telegram-note a{color:var(--indigo);font-weight:700;text-decoration:underline;}
   .btn-row{display:flex;gap:10px;margin-top:26px;}
-  .btn-primary{flex:1;padding:12px;background:var(--indigo);color:#fff;border:none;border-radius:10px;font-family:'Sora',sans-serif;font-weight:700;font-size:0.9rem;cursor:pointer;transition:background .15s;}
+  .btn-primary{flex:1;padding:12px;background:var(--indigo);color:#fff;border:none;border-radius:10px;font-family:'Sora',sans-serif;font-weight:700;font-size:0.9rem;cursor:pointer;transition:background .15s,opacity .15s;display:flex;align-items:center;justify-content:center;gap:8px;}
   .btn-primary:hover{background:var(--indigo-dark);}
+  .btn-primary:disabled{opacity:0.65;cursor:not-allowed;}
   .btn-skip{padding:12px 16px;background:#fff;color:var(--text-2);border:1.5px solid var(--border);border-radius:10px;font-family:'Sora',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;}
   .btn-skip:hover{border-color:var(--text-3);}
+  .btn-skip:disabled{opacity:0.5;cursor:not-allowed;}
   .err{font-size:0.78rem;color:#dc2626;margin-top:8px;display:none;}
   .success-wrap{text-align:center;padding:12px 0;}
   .success-icon{width:56px;height:56px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+
+  /* Spinner used inline in buttons */
+  .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* Full-card loading overlay shown between steps so it never looks stuck */
+  .card-overlay{
+    position:absolute;inset:0;background:rgba(255,255,255,0.92);display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5;
+  }
+  .card-overlay.active{display:flex;}
+  .overlay-spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--indigo);border-radius:50%;animation:spin 0.8s linear infinite;}
+  .overlay-text{font-size:0.85rem;color:var(--text-2);font-weight:600;}
+
+  .cv-progress-track{width:100%;height:6px;background:var(--border);border-radius:99px;margin-top:14px;overflow:hidden;display:none;}
+  .cv-progress-track.active{display:block;}
+  .cv-progress-fill{height:100%;width:0%;background:var(--indigo);border-radius:99px;transition:width .3s ease;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="card">
+
+    <!-- Loading overlay — shown while a step is saving / moving to the next screen -->
+    <div class="card-overlay" id="cardOverlay">
+      <div class="overlay-spinner"></div>
+      <div class="overlay-text" id="overlayText">Saving…</div>
+    </div>
+
     <div class="logo">
       <svg width="26" height="18" viewBox="145 423 346 229" xmlns="http://www.w3.org/2000/svg">
         <g transform="translate(0,1066) scale(0.1,-0.1)" fill="#4f46e5" stroke="none">
@@ -69,7 +96,7 @@
     </div>
 
     <div class="progress" id="progressBar">
-      <i data-step="0"></i><i data-step="1"></i><i data-step="2"></i><i data-step="3"></i><i data-step="4"></i>
+      <i data-step="0"></i><i data-step="1"></i><i data-step="2"></i><i data-step="3"></i><i data-step="4"></i><i data-step="5"></i>
     </div>
 
     <!-- STEP 0: Full name -->
@@ -80,24 +107,37 @@
       <div class="err" id="errFullName">Please enter your full name.</div>
       <div class="btn-row">
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
-        <button class="btn-primary" onclick="saveStep('fullName')">Continue</button>
+        <button class="btn-primary" onclick="saveStep('fullName')"><span class="btn-label">Continue</span></button>
       </div>
     </div>
 
-    <!-- STEP 1: Email -->
+    <!-- STEP 1: Phone number used for applications -->
     <div class="step" data-step="1">
+      <div class="step-title">Phone number for applications</div>
+      <div class="step-desc">This is the number shown on your letters and CV — it can be different from the number you registered with.</div>
+      <input type="tel" id="fldAppPhone" class="field-input" placeholder="e.g. 0912345678">
+      <div class="field-hint">We'll pre-fill this with your registration number, but feel free to change it.</div>
+      <div class="err" id="errAppPhone">Please enter a valid phone number.</div>
+      <div class="btn-row">
+        <button class="btn-skip" onclick="skipStep()">Maybe later</button>
+        <button class="btn-primary" onclick="saveStep('appPhone')"><span class="btn-label">Continue</span></button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Email -->
+    <div class="step" data-step="2">
       <div class="step-title">What's your email?</div>
       <div class="step-desc">Used for application letters and account notifications.</div>
       <input type="email" id="fldEmail" class="field-input" placeholder="e.g. abebe@email.com">
       <div class="err" id="errEmail">Please enter a valid email address.</div>
       <div class="btn-row">
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
-        <button class="btn-primary" onclick="saveStep('email')">Continue</button>
+        <button class="btn-primary" onclick="saveStep('email')"><span class="btn-label">Continue</span></button>
       </div>
     </div>
 
-    <!-- STEP 2: Address -->
-    <div class="step" data-step="2">
+    <!-- STEP 3: Address -->
+    <div class="step" data-step="3">
       <div class="step-title">Your current address</div>
       <div class="step-desc">Shown on your letters and CV. Example: <em>Addis Ababa, Ethiopia</em>.</div>
       <input type="text" id="fldAddress" class="field-input" placeholder="e.g. Addis Ababa, Ethiopia">
@@ -111,12 +151,12 @@
       <div class="err" id="errAddress">Please enter your address.</div>
       <div class="btn-row">
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
-        <button class="btn-primary" onclick="saveStep('address')">Continue</button>
+        <button class="btn-primary" onclick="saveStep('address')"><span class="btn-label">Continue</span></button>
       </div>
     </div>
 
-    <!-- STEP 3: CV -->
-    <div class="step" data-step="3">
+    <!-- STEP 4: CV -->
+    <div class="step" data-step="4">
       <div class="step-title">Upload your CV</div>
       <div class="step-desc">Your CV powers auto-generated letters, PDF merging, Smart Finder, and Fit/Not fit tests.</div>
 
@@ -126,6 +166,7 @@
         <div id="cvDropSub" style="font-size:0.76rem;color:var(--text-3);margin-top:3px;">PDF only, up to 6 MB</div>
       </div>
       <input type="file" id="cvFileInput" accept="application/pdf" class="hidden" style="display:none;" onchange="handleCvFile(event)">
+      <div class="cv-progress-track" id="cvProgressTrack"><div class="cv-progress-fill" id="cvProgressFill"></div></div>
       <div class="err" id="errCv">Please choose a PDF file.</div>
 
       <div class="telegram-note">
@@ -135,19 +176,19 @@
 
       <div class="btn-row">
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
-        <button class="btn-primary" onclick="saveStep('cv')">Continue</button>
+        <button class="btn-primary" id="cvContinueBtn" onclick="saveStep('cv')"><span class="btn-label">Continue</span></button>
       </div>
     </div>
 
-    <!-- STEP 4: Done -->
-    <div class="step" data-step="4">
+    <!-- STEP 5: Done -->
+    <div class="step" data-step="5">
       <div class="success-wrap">
         <div class="success-icon">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         </div>
         <div class="step-title">You're all set!</div>
         <div class="step-desc">Your profile is saved. You can edit any of this anytime from your profile page in the app.</div>
-        <button class="btn-primary" style="width:100%;" onclick="finishOnboarding()">Go to CVcase</button>
+        <button class="btn-primary" style="width:100%;" onclick="finishOnboarding()"><span class="btn-label">Go to CVcase</span></button>
       </div>
     </div>
 
@@ -158,9 +199,8 @@
 const params  = new URLSearchParams(location.search);
 const userId  = params.get('userId') || localStorage.getItem('cv_userId') || '';
 let currentStep = 0;
-const TOTAL_STEPS = 5; // includes final "done" screen
 let selectedRelocate = null;
-let cvBase64 = null, cvFilename = null;
+let cvBase64 = null, cvFilename = null, cvText = null, cvExtracting = false;
 
 function updateProgress() {
   document.querySelectorAll('#progressBar i').forEach(function(el) {
@@ -178,7 +218,41 @@ function showStep(n) {
   updateProgress();
 }
 
-function skipStep() { showStep(currentStep + 1); }
+// ── Loading overlay helpers — keeps every transition visibly "alive" ──────────
+function showOverlay(text) {
+  document.getElementById('overlayText').textContent = text || 'Saving…';
+  document.getElementById('cardOverlay').classList.add('active');
+}
+function hideOverlay() {
+  document.getElementById('cardOverlay').classList.remove('active');
+}
+
+// Disable/enable both buttons on the current step + show a spinner on Continue
+function setStepBusy(stepEl, busy, busyLabel) {
+  var primaryBtn = stepEl.querySelector('.btn-primary');
+  var skipBtn    = stepEl.querySelector('.btn-skip');
+  var label      = primaryBtn.querySelector('.btn-label');
+  if (busy) {
+    primaryBtn.disabled = true;
+    if (skipBtn) skipBtn.disabled = true;
+    primaryBtn.dataset.origLabel = label.textContent;
+    label.innerHTML = '';
+    var spin = document.createElement('span');
+    spin.className = 'spinner';
+    label.appendChild(spin);
+    label.appendChild(document.createTextNode(' ' + (busyLabel || 'Saving…')));
+  } else {
+    primaryBtn.disabled = false;
+    if (skipBtn) skipBtn.disabled = false;
+    label.textContent = primaryBtn.dataset.origLabel || 'Continue';
+  }
+}
+
+function skipStep() {
+  var stepEl = document.querySelector('.step[data-step="' + currentStep + '"]');
+  showOverlay('Skipping…');
+  setTimeout(function() { hideOverlay(); showStep(currentStep + 1); }, 250);
+}
 
 function pickRelocate(val) {
   selectedRelocate = val;
@@ -186,7 +260,38 @@ function pickRelocate(val) {
   document.getElementById('relocateNo').classList.toggle('selected', val === false);
 }
 
-function handleCvFile(evt) {
+// ── Extract CV text right after upload, so autofill has real text later ──────
+async function extractCvText(base64, filename) {
+  var track = document.getElementById('cvProgressTrack');
+  var fill  = document.getElementById('cvProgressFill');
+  track.classList.add('active');
+  fill.style.width = '15%';
+  try {
+    fill.style.width = '45%';
+    var res = await fetch('/.netlify/functions/extract-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [{ data: base64, type: 'application/pdf' }],
+        fileType: 'cv'
+      })
+    });
+    fill.style.width = '80%';
+    var data = await res.json();
+    fill.style.width = '100%';
+    setTimeout(function() { track.classList.remove('active'); fill.style.width = '0%'; }, 500);
+    if (res.ok && data.success && data.extractedText) {
+      return data.extractedText;
+    }
+    return null; // extraction failed — PDF may be image-based; we still keep the file
+  } catch (e) {
+    track.classList.remove('active');
+    fill.style.width = '0%';
+    return null;
+  }
+}
+
+async function handleCvFile(evt) {
   var file = evt.target.files[0];
   if (!file) return;
   if (file.type !== 'application/pdf') {
@@ -200,14 +305,32 @@ function handleCvFile(evt) {
     return;
   }
   document.getElementById('errCv').style.display = 'none';
+
   var reader = new FileReader();
-  reader.onload = function() {
+  reader.onload = async function() {
     cvBase64 = reader.result.split(',')[1];
     cvFilename = file.name;
+
     var drop = document.getElementById('cvDrop');
-    drop.classList.add('has-file');
+    var cvBtn = document.getElementById('cvContinueBtn');
+    drop.classList.add('extracting');
+    cvExtracting = true;
+    cvBtn.disabled = true;
     document.getElementById('cvDropLabel').innerHTML = '<span class="cv-file-name">' + file.name + '</span>';
-    document.getElementById('cvDropSub').textContent = 'Ready to save';
+    document.getElementById('cvDropSub').textContent = 'Reading your CV…';
+
+    cvText = await extractCvText(cvBase64, cvFilename);
+
+    drop.classList.remove('extracting');
+    drop.classList.add('has-file');
+    cvExtracting = false;
+    cvBtn.disabled = false;
+
+    if (cvText) {
+      document.getElementById('cvDropSub').textContent = 'CV text extracted — ready to save';
+    } else {
+      document.getElementById('cvDropSub').textContent = 'Saved, but text could not be auto-read (image-based PDF). You can re-upload later from your profile.';
+    }
   };
   reader.readAsDataURL(file);
 }
@@ -227,38 +350,79 @@ async function saveProfileField(profile) {
 }
 
 async function saveStep(which) {
+  var stepEl = document.querySelector('.step[data-step="' + currentStep + '"]');
+
   if (which === 'fullName') {
     var v = document.getElementById('fldFullName').value.trim();
     if (!v) { document.getElementById('errFullName').style.display = 'block'; return; }
     document.getElementById('errFullName').style.display = 'none';
+    setStepBusy(stepEl, true, 'Saving…');
     await saveProfileField({ fullName: v });
-    showStep(1);
+    setStepBusy(stepEl, false);
+    showOverlay('Saved!');
+    setTimeout(function() { hideOverlay(); showStep(1); }, 300);
+
+  } else if (which === 'appPhone') {
+    var v = document.getElementById('fldAppPhone').value.trim();
+    var ok = /^0[97]\d{8}$/.test(v) || v.length >= 7;
+    if (!v || !ok) { document.getElementById('errAppPhone').style.display = 'block'; return; }
+    document.getElementById('errAppPhone').style.display = 'none';
+    setStepBusy(stepEl, true, 'Saving…');
+    await saveProfileField({ phone: v });
+    setStepBusy(stepEl, false);
+    showOverlay('Saved!');
+    setTimeout(function() { hideOverlay(); showStep(2); }, 300);
+
   } else if (which === 'email') {
     var v = document.getElementById('fldEmail').value.trim();
     var ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
     if (!ok) { document.getElementById('errEmail').style.display = 'block'; return; }
     document.getElementById('errEmail').style.display = 'none';
+    setStepBusy(stepEl, true, 'Saving…');
     await saveProfileField({ email: v });
-    showStep(2);
+    setStepBusy(stepEl, false);
+    showOverlay('Saved!');
+    setTimeout(function() { hideOverlay(); showStep(3); }, 300);
+
   } else if (which === 'address') {
     var v = document.getElementById('fldAddress').value.trim();
     if (!v) { document.getElementById('errAddress').style.display = 'block'; return; }
     document.getElementById('errAddress').style.display = 'none';
     var payload = { address: v };
     if (selectedRelocate !== null) payload.canRelocate = selectedRelocate;
+    setStepBusy(stepEl, true, 'Saving…');
     await saveProfileField(payload);
-    showStep(3);
+    setStepBusy(stepEl, false);
+    showOverlay('Saved!');
+    setTimeout(function() { hideOverlay(); showStep(4); }, 300);
+
   } else if (which === 'cv') {
+    if (cvExtracting) { return; } // wait for extraction to finish
     if (!cvBase64) { document.getElementById('errCv').style.display = 'block'; document.getElementById('errCv').textContent = 'Please choose a PDF file.'; return; }
     document.getElementById('errCv').style.display = 'none';
-    await saveProfileField({ cvPdfBase64: cvBase64, cvFilename: cvFilename });
-    showStep(4);
+    setStepBusy(stepEl, true, 'Saving CV…');
+    await saveProfileField({ cvPdfBase64: cvBase64, cvFilename: cvFilename, cvText: cvText || '' });
+    setStepBusy(stepEl, false);
+    showOverlay('Saved!');
+    setTimeout(function() { hideOverlay(); showStep(5); }, 300);
   }
 }
 
 function finishOnboarding() {
-  window.location.href = '/login.html?registered=1';
+  showOverlay('Taking you to login…');
+  setTimeout(function() {
+    window.location.href = '/login.html?registered=1';
+  }, 400);
 }
+
+// Prefill the "application phone" step with the registration phone (still editable)
+(function prefillAppPhone() {
+  var regPhone = params.get('userId') || localStorage.getItem('cv_userId') || '';
+  if (regPhone) {
+    var el = document.getElementById('fldAppPhone');
+    if (el) el.value = regPhone;
+  }
+})();
 
 updateProgress();
 </script>
