@@ -263,7 +263,8 @@
         function planColor(p)    { return { pro:'#f97316', basic:'#4f46e5', free:'#64748b' }[p] || '#64748b'; }
         let cvFilesArray = [];
         let jdFilesArray = [];
-        let jdInputMode = 'url'; // 'url' | 'file'
+        let jdInputMode = 'url'; // 'url' | 'file' | 'prefill'
+        let prefilledJdText = null; // set when a job is opened from Find Job → Detail → Generate Application Letter
         let jdUrl = '';
         let pdfFilesArray = [];
 
@@ -1492,6 +1493,134 @@
             setTimeout(() => { syncBalance(); loadNotifications(); }, 300);
         };
 
+        // ── Job Feed (All Jobs) ────────────────────────────────────────────────────
+        let allJobsCache = null;
+
+        function escapeHtmlJob(s) { return (s || '').toString().replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+        async function loadAllJobs(force) {
+            const listEl = document.getElementById('allJobsList');
+            if (allJobsCache && !force) { renderAllJobs(allJobsCache); return; }
+            listEl.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-10">Loading jobs…</p>';
+            try {
+                const res = await fetch('/.netlify/functions/manage-jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'list' })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load jobs.');
+                allJobsCache = data.jobs || [];
+                renderAllJobs(allJobsCache);
+            } catch (err) {
+                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(err.message)}</p>`;
+            }
+        }
+
+        function renderAllJobs(jobs) {
+            const listEl = document.getElementById('allJobsList');
+            if (!jobs || jobs.length === 0) {
+                listEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+                        <div class="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+                            <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <h2 class="text-lg font-bold text-gray-800 mb-1">No jobs posted yet</h2>
+                        <p class="text-sm text-gray-500">Check back soon — new jobs are added regularly.</p>
+                    </div>`;
+                return;
+            }
+
+            let html = '';
+            jobs.forEach(job => {
+                (job.positions || []).forEach((pos, posIdx) => {
+                    html += `
+                    <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <div class="min-w-0">
+                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${escapeHtmlJob(job.company)}</p>
+                                <h3 class="text-base font-bold text-gray-800">${escapeHtmlJob(pos.title)}</h3>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-500 mb-3">${escapeHtmlJob(pos.shortDescription)}</p>
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex gap-2 flex-wrap">
+                                <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
+                                <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
+                            </div>
+                            <button onclick="openJobDetail('${job._id}', ${posIdx})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
+                        </div>
+                    </div>`;
+                });
+            });
+            listEl.innerHTML = `<div class="p-3 space-y-3">${html}</div>`;
+        }
+
+        let currentJobDetail = null; // { company, title, ... } for the "Generate Application Letter" hand-off
+
+        function openJobDetail(jobId, posIdx) {
+            const job = (allJobsCache || []).find(j => j._id === jobId);
+            if (!job) return;
+            const pos = job.positions[posIdx];
+            if (!pos) return;
+
+            document.getElementById('jobDetailCompany').textContent    = job.company;
+            document.getElementById('jobDetailTitle').textContent      = pos.title;
+            document.getElementById('jobDetailSalary').textContent     = pos.salary;
+            document.getElementById('jobDetailExpiry').textContent     = 'Due ' + pos.expireDate;
+            document.getElementById('jobDetailQualification').textContent = pos.qualification;
+            document.getElementById('jobDetailExperience').textContent = pos.experience;
+            document.getElementById('jobDetailFull').textContent       = pos.fullDescription;
+
+            currentJobDetail = { company: job.company, title: pos.title, jobId, sourceUrl: job.sourceUrl, fullDescription: pos.fullDescription };
+            document.getElementById('jobDetailModal').classList.remove('hidden');
+        }
+
+        function closeJobDetailModal() {
+            document.getElementById('jobDetailModal').classList.add('hidden');
+        }
+
+        function applyToJobFromDetail() {
+            if (!currentJobDetail) return;
+            closeJobDetailModal();
+
+            // Hand off to the Application Letter tab: prefill the position and use this
+            // job's full description directly as the JD text (bypassing URL/file upload).
+            switchTab('letter');
+            prefilledJdText = currentJobDetail.fullDescription || '';
+            jdInputMode = 'prefill';
+
+            const posLabel = currentJobDetail.title + ' at ' + currentJobDetail.company;
+            const targetInput = document.getElementById('targetPosition');
+            if (targetInput) { targetInput.value = posLabel; clearFieldError && clearFieldError('targetPosition'); }
+            const dtTargetInput = document.getElementById('dt-targetPosition');
+            if (dtTargetInput) dtTargetInput.value = posLabel;
+
+            // Hide the URL/file toggle panels and show a small "using this job's description" note
+            const urlPanel  = document.getElementById('jdUrlPanel');
+            const filePanel = document.getElementById('jdFilePanel');
+            if (urlPanel)  urlPanel.classList.add('hidden');
+            if (filePanel) filePanel.classList.add('hidden');
+            let note = document.getElementById('jdPrefillNote');
+            if (!note) {
+                note = document.createElement('div');
+                note.id = 'jdPrefillNote';
+                note.className = 'text-xs bg-indigo-50 text-indigo-700 rounded-lg px-3 py-2 flex items-center justify-between gap-2';
+                filePanel && filePanel.parentNode.insertBefore(note, filePanel);
+            }
+            note.classList.remove('hidden');
+            note.innerHTML = `<span>Using job description from <strong>${posLabel}</strong></span> <button type="button" onclick="clearJdPrefill()" class="text-indigo-500 underline font-semibold flex-shrink-0">Change</button>`;
+
+            showMessage('success', `Pre-filled with "${currentJobDetail.title}" — just add your CV and hit Generate.`);
+        }
+
+        function clearJdPrefill() {
+            prefilledJdText = null;
+            const note = document.getElementById('jdPrefillNote');
+            if (note) note.classList.add('hidden');
+            switchJdInputMode('url');
+        }
+
         window.switchFindJobSubtab = (which) => {
             document.querySelectorAll('.findjob-subpanel').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.findjob-subtab-button').forEach(b => {
@@ -1517,6 +1646,7 @@
                 document.getElementById('findjob-alljobs-panel').classList.remove('hidden');
                 document.getElementById('fj-alljobs-btn').classList.remove('text-gray-400', 'border-transparent');
                 document.getElementById('fj-alljobs-btn').classList.add('text-indigo-600', 'border-indigo-500');
+                loadAllJobs();
             }
         };
 
@@ -3073,6 +3203,8 @@
                 setUploadError('jdError', 'jdUploadBtn', 'Please upload at least one Job Description file');
                 hasError = true;
             }
+            // 'prefill' mode (job opened from Find Job → Detail) needs no extra validation —
+            // prefilledJdText is already set by applyToJobFromDetail().
 
             if (!usingStoredCv && cvFilesArray.length === 0) {
                 setUploadError('cvError', 'cvUploadBtn', 'Please upload your CV');
@@ -3153,6 +3285,8 @@
             try {
                 if (jdInputMode === 'url') {
                     jdText = '__URL__';
+                } else if (jdInputMode === 'prefill') {
+                    jdText = prefilledJdText || '';
                 } else {
                     const toData = async (arr) => { const out = []; for (const f of arr) out.push({ data: await fileToBase64(f), type: f.type }); return out; };
                     const jdFilesData = await toData(jdFilesArray);
@@ -3211,7 +3345,7 @@
             try {
                 const letterResponse = await fetch('/.netlify/functions/generate-letter', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText: jdInputMode === 'url' ? null : jdText, jdUrl: jdInputMode === 'url' ? jdUrl : null, targetPosition }),
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText: cvTextForLetter, jdText: jdInputMode === 'url' ? null : (jdInputMode === 'prefill' ? prefilledJdText : jdText), jdUrl: jdInputMode === 'url' ? jdUrl : null, targetPosition }),
                     signal: generationAbortController.signal
                 });
                 if (!letterResponse.ok) throw new Error(`Letter generation failed: ${(await letterResponse.json()).error}`);
@@ -3715,6 +3849,40 @@
 </div>
 
 <!-- Edit Profile Modal -->
+<!-- Job Detail Modal -->
+<div id="jobDetailModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4" onclick="if(event.target===this) closeJobDetailModal()">
+    <div class="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto">
+        <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-start justify-between">
+            <div>
+                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide" id="jobDetailCompany"></p>
+                <h3 class="text-lg font-bold text-gray-800" id="jobDetailTitle"></h3>
+            </div>
+            <button onclick="closeJobDetailModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <div class="flex gap-3 flex-wrap">
+                <span class="bg-emerald-50 text-emerald-700 text-xs font-semibold px-3 py-1 rounded-full" id="jobDetailSalary"></span>
+                <span class="bg-amber-50 text-amber-700 text-xs font-semibold px-3 py-1 rounded-full" id="jobDetailExpiry"></span>
+            </div>
+            <div>
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Qualification</p>
+                <p class="text-sm text-gray-700 whitespace-pre-line" id="jobDetailQualification"></p>
+            </div>
+            <div>
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Experience</p>
+                <p class="text-sm text-gray-700 whitespace-pre-line" id="jobDetailExperience"></p>
+            </div>
+            <div>
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Full Description</p>
+                <p class="text-sm text-gray-700 whitespace-pre-line" id="jobDetailFull"></p>
+            </div>
+        </div>
+        <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-3">
+            <button onclick="applyToJobFromDetail()" class="w-full bg-indigo-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors">Generate Application Letter</button>
+        </div>
+    </div>
+</div>
+
 <div id="editProfileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-xl max-w-md w-full mx-4">
         <h3 class="text-lg font-bold mb-4">Edit Stored Information</h3>
@@ -4492,13 +4660,8 @@
 
             <!-- All Jobs sub-tab (free feed — always accessible) -->
             <div id="findjob-alljobs-panel" class="findjob-subpanel">
-                <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
-                    <div class="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
-                        <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                    </div>
-                    <span class="bg-indigo-100 text-indigo-600 text-xs font-bold px-3 py-1 rounded-full mb-3">Coming Soon</span>
-                    <h2 class="text-xl font-bold text-gray-800 mb-2">Job Feed</h2>
-                    <p class="text-sm text-gray-500">Browse every job posted on CVcase — free for everyone, on every plan. This feature is under development and will be available soon.</p>
+                <div id="allJobsList" class="p-3 space-y-3">
+                    <p class="text-sm text-gray-400 italic text-center py-10">Loading jobs…</p>
                 </div>
             </div>
 
