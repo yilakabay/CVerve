@@ -357,6 +357,19 @@
         </div>
       </div>
 
+      <!-- Job Postings -->
+      <div class="bg-white border border-emerald-100 rounded-xl p-4 shadow-sm">
+        <h3 class="font-semibold text-gray-800 text-sm mb-1 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m-6 4v8a2 2 0 002 2h16a2 2 0 002-2v-8a2 2 0 00-2-2H4a2 2 0 00-2 2z"/></svg>
+          Job Postings
+        </h3>
+        <p class="text-xs text-gray-400 mb-3">Paste a job URL or upload a description — AI structures it into positions before you post.</p>
+        <button onclick="openJobPostModal()"
+          class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors shadow-sm">
+          + Post a Job
+        </button>
+      </div>
+
     </div><!-- /desktopLeft -->
 
     <!-- CENTER: Results -->
@@ -548,12 +561,108 @@
           Announce to All Users
         </button>
       </div>
+
+      <!-- Job Postings (mobile) -->
+      <div class="border-t border-gray-200 pt-6 mt-6">
+        <h2 class="font-semibold text-gray-700 mb-1 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m-6 4v8a2 2 0 002 2h16a2 2 0 002-2v-8a2 2 0 00-2-2H4a2 2 0 00-2 2z"/></svg>
+          Job Postings
+        </h2>
+        <p class="text-xs text-gray-400 mb-3">Paste a job URL or upload a description — AI structures it before you post.</p>
+        <button onclick="openJobPostModal()"
+          class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
+          + Post a Job
+        </button>
+      </div>
     </div>
   </div><!-- /mobileCard -->
 
 </div><!-- /adminApp -->
 
+<!-- ══════════════════ Job Posting Modal ══════════════════ -->
+<div id="jobPostModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-3 overflow-y-auto">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-6">
+
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <h2 class="font-bold text-gray-800 flex items-center gap-2">
+        <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m-6 4v8a2 2 0 002 2h16a2 2 0 002-2v-8a2 2 0 00-2-2H4a2 2 0 00-2 2z"/></svg>
+        Post a Job
+      </h2>
+      <button onclick="closeJobPostModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+
+    <div class="px-5 py-4">
+
+      <!-- STEP A: source input -->
+      <div id="jp-source-step">
+        <div class="flex gap-2 mb-3">
+          <button id="jp-mode-url-btn" onclick="setJobSourceMode('url')" class="flex-1 py-2 rounded-full text-xs font-semibold bg-emerald-500 text-white">Paste URL</button>
+          <button id="jp-mode-file-btn" onclick="setJobSourceMode('file')" class="flex-1 py-2 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Upload File</button>
+        </div>
+
+        <div id="jp-url-input">
+          <input type="url" id="jpUrl" placeholder="https://example.com/job-posting"
+            class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-gray-50">
+        </div>
+
+        <div id="jp-file-input" class="hidden">
+          <input type="file" id="jpFile" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" onchange="handleJobFile(event)"
+            class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-full file:border-0 file:bg-emerald-50 file:text-emerald-600 file:text-xs file:font-semibold">
+          <p id="jpFileStatus" class="text-xs text-gray-400 mt-1"></p>
+        </div>
+
+        <p id="jpSourceError" class="text-xs text-red-500 mt-2 hidden"></p>
+
+        <button onclick="refineJobPosting()" id="jpRefineBtn"
+          class="w-full mt-4 bg-emerald-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Extract & Refine with AI
+        </button>
+      </div>
+
+      <!-- STEP B: loading -->
+      <div id="jp-loading-step" class="hidden py-10 text-center">
+        <div class="w-8 h-8 mx-auto mb-3 rounded-full border-3 border-gray-200 border-t-emerald-500" style="border-width:3px;animation:jpspin 0.8s linear infinite;"></div>
+        <p class="text-sm text-gray-500 font-medium" id="jp-loading-text">Reading job posting…</p>
+      </div>
+
+      <!-- STEP C: editable structured result -->
+      <div id="jp-review-step" class="hidden">
+        <div class="mb-4">
+          <label class="text-xs font-semibold text-gray-500 mb-1 block">Company</label>
+          <input type="text" id="jpCompany" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-gray-50">
+        </div>
+
+        <div id="jpPositionsList" class="space-y-4"></div>
+
+        <button onclick="addPositionCard()" class="w-full mt-3 py-2 rounded-full text-xs font-semibold border border-dashed border-gray-300 text-gray-500 hover:border-emerald-400 hover:text-emerald-500 transition-colors">
+          + Add another position
+        </button>
+
+        <div class="flex gap-2 mt-5">
+          <button onclick="backToSourceStep()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">Back</button>
+          <button onclick="submitJobPost()" id="jpPostBtn" class="flex-[2] py-2.5 rounded-full text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm">Post Job</button>
+        </div>
+      </div>
+
+      <!-- Posted jobs list -->
+      <div class="border-t border-gray-100 mt-6 pt-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide">Posted Jobs</h3>
+          <button onclick="loadPostedJobs()" class="text-xs text-emerald-600 hover:underline font-medium">↻ Refresh</button>
+        </div>
+        <div id="postedJobsList" class="space-y-2 max-h-64 overflow-y-auto">
+          <p class="text-xs text-gray-400 italic">Loading…</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<style>@keyframes jpspin{to{transform:rotate(360deg);}}</style>
+
 <script>
+
   let adminToken = sessionStorage.getItem('cverve_admin_token') || null;
 
   // ── Utilities ────────────────────────────────────────────────────────────
@@ -1328,6 +1437,239 @@
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────
+
+  // ══════════════════ Job Posting ══════════════════
+
+  let jpSourceMode = 'url';
+  let jpFileBase64 = null, jpFileMime = null, jpExtractedText = null;
+  let jpStructured = null; // { company, positions: [...] }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openJobPostModal() {
+    document.getElementById('jobPostModal').classList.remove('hidden');
+    backToSourceStep();
+    loadPostedJobs();
+  }
+  function closeJobPostModal() {
+    document.getElementById('jobPostModal').classList.add('hidden');
+  }
+
+  function setJobSourceMode(mode) {
+    jpSourceMode = mode;
+    document.getElementById('jp-url-input').classList.toggle('hidden', mode !== 'url');
+    document.getElementById('jp-file-input').classList.toggle('hidden', mode !== 'file');
+    document.getElementById('jp-mode-url-btn').className = 'flex-1 py-2 rounded-full text-xs font-semibold ' + (mode === 'url' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500');
+    document.getElementById('jp-mode-file-btn').className = 'flex-1 py-2 rounded-full text-xs font-semibold ' + (mode === 'file' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500');
+  }
+
+  async function handleJobFile(evt) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    document.getElementById('jpFileStatus').textContent = 'Reading file…';
+    try {
+      jpFileBase64 = await fileToBase64(file);
+      jpFileMime   = file.type || 'application/pdf';
+      document.getElementById('jpFileStatus').textContent = `Ready: ${file.name}`;
+    } catch (e) {
+      document.getElementById('jpFileStatus').textContent = 'Could not read file. Please try another.';
+      jpFileBase64 = null;
+    }
+  }
+
+  function backToSourceStep() {
+    document.getElementById('jp-source-step').classList.remove('hidden');
+    document.getElementById('jp-loading-step').classList.add('hidden');
+    document.getElementById('jp-review-step').classList.add('hidden');
+  }
+
+  function setJpLoading(text) {
+    document.getElementById('jp-source-step').classList.add('hidden');
+    document.getElementById('jp-review-step').classList.add('hidden');
+    document.getElementById('jp-loading-step').classList.remove('hidden');
+    document.getElementById('jp-loading-text').textContent = text || 'Working…';
+  }
+
+  async function refineJobPosting() {
+    const errEl = document.getElementById('jpSourceError');
+    errEl.classList.add('hidden');
+
+    let jdUrl = null, jdText = null;
+
+    if (jpSourceMode === 'url') {
+      jdUrl = document.getElementById('jpUrl').value.trim();
+      if (!jdUrl) { errEl.textContent = 'Please paste a job posting URL.'; errEl.classList.remove('hidden'); return; }
+    } else {
+      if (!jpFileBase64) { errEl.textContent = 'Please choose a file first.'; errEl.classList.remove('hidden'); return; }
+    }
+
+    try {
+      if (jpSourceMode === 'file') {
+        setJpLoading('Extracting text from file…');
+        const res = await fetch('/.netlify/functions/extract-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: [{ data: jpFileBase64, type: jpFileMime }], fileType: 'job-posting' })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Could not extract text from the file.');
+        }
+        jdText = data.extractedText;
+      }
+
+      setJpLoading('Refining with AI…');
+      const res2 = await fetch('/.netlify/functions/refine-job-posting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: adminToken, jdUrl: jdUrl || undefined, jdText: jdText || undefined })
+      });
+      const data2 = await res2.json();
+      if (!res2.ok || !data2.success) {
+        throw new Error(data2.error || 'AI refinement failed.');
+      }
+
+      jpStructured = { company: data2.company, positions: data2.positions, sourceUrl: jdUrl || null };
+      renderPositionsEditor();
+      document.getElementById('jp-loading-step').classList.add('hidden');
+      document.getElementById('jp-review-step').classList.remove('hidden');
+
+    } catch (err) {
+      backToSourceStep();
+      errEl.textContent = err.message || 'Something went wrong. Please try again.';
+      errEl.classList.remove('hidden');
+    }
+  }
+
+  function renderPositionsEditor() {
+    document.getElementById('jpCompany').value = jpStructured.company || '';
+    const list = document.getElementById('jpPositionsList');
+    list.innerHTML = '';
+    jpStructured.positions.forEach((p, idx) => list.appendChild(buildPositionCard(p, idx)));
+  }
+
+  function buildPositionCard(p, idx) {
+    const card = document.createElement('div');
+    card.className = 'border border-gray-200 rounded-xl p-3 bg-gray-50 relative';
+    card.dataset.idx = idx;
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold text-emerald-600">Position ${idx + 1}</span>
+        <button onclick="removePositionCard(${idx})" class="text-gray-400 hover:text-red-500 text-xs font-semibold">Remove</button>
+      </div>
+      <input type="text" class="jp-title w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm font-semibold mb-2" placeholder="Position title" value="${escapeAttr(p.title)}">
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <input type="text" class="jp-salary px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Salary" value="${escapeAttr(p.salary)}">
+        <input type="text" class="jp-expire px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Expire date" value="${escapeAttr(p.expireDate)}">
+      </div>
+      <textarea class="jp-qualification w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Qualification">${escapeHtml(p.qualification)}</textarea>
+      <textarea class="jp-experience w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Experience">${escapeHtml(p.experience)}</textarea>
+      <textarea class="jp-short w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Short description (feed card teaser)">${escapeHtml(p.shortDescription)}</textarea>
+      <textarea class="jp-full w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="4" placeholder="Full description (shown behind Detail button)">${escapeHtml(p.fullDescription)}</textarea>
+    `;
+    return card;
+  }
+
+  function escapeHtml(s) { return (s || '').toString().replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
+
+  function addPositionCard() {
+    const blank = { title: '', qualification: '', experience: '', salary: 'Not specified', expireDate: 'Not specified', shortDescription: '', fullDescription: '' };
+    jpStructured.positions.push(blank);
+    document.getElementById('jpPositionsList').appendChild(buildPositionCard(blank, jpStructured.positions.length - 1));
+  }
+
+  function removePositionCard(idx) {
+    jpStructured.positions.splice(idx, 1);
+    renderPositionsEditor();
+  }
+
+  function collectPositionsFromForm() {
+    const cards = document.querySelectorAll('#jpPositionsList > div');
+    return Array.from(cards).map(card => ({
+      title:            card.querySelector('.jp-title').value.trim(),
+      qualification:    card.querySelector('.jp-qualification').value.trim(),
+      experience:       card.querySelector('.jp-experience').value.trim(),
+      salary:           card.querySelector('.jp-salary').value.trim() || 'Not specified',
+      expireDate:       card.querySelector('.jp-expire').value.trim() || 'Not specified',
+      shortDescription: card.querySelector('.jp-short').value.trim(),
+      fullDescription:  card.querySelector('.jp-full').value.trim()
+    }));
+  }
+
+  async function submitJobPost() {
+    const company = document.getElementById('jpCompany').value.trim();
+    const positions = collectPositionsFromForm();
+
+    if (!company) { showToast('Company name is required.', 'error'); return; }
+    if (positions.length === 0 || positions.some(p => !p.title)) {
+      showToast('Every position needs a title.', 'error'); return;
+    }
+
+    const btn = document.getElementById('jpPostBtn');
+    btn.disabled = true; btn.textContent = 'Posting…';
+    try {
+      const { ok, data } = await api('manage-jobs', {
+        token: adminToken,
+        action: 'create',
+        job: { company, positions, sourceUrl: jpStructured.sourceUrl }
+      });
+      if (!ok) throw new Error(data.error || 'Failed to post job.');
+      showToast('Job posted!', 'success');
+      jpStructured = null; jpFileBase64 = null; jpExtractedText = null;
+      document.getElementById('jpUrl').value = '';
+      document.getElementById('jpFileStatus').textContent = '';
+      backToSourceStep();
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Post Job';
+    }
+  }
+
+  async function loadPostedJobs() {
+    const listEl = document.getElementById('postedJobsList');
+    listEl.innerHTML = '<p class="text-xs text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('manage-jobs', { action: 'list' });
+      if (!ok) throw new Error(data.error || 'Failed to load jobs.');
+      if (!data.jobs || data.jobs.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-gray-400 italic">No jobs posted yet.</p>';
+        return;
+      }
+      listEl.innerHTML = data.jobs.map(j => `
+        <div class="border border-gray-100 rounded-lg p-2.5 flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="text-xs font-bold text-gray-700 truncate">${escapeHtml(j.company)}</p>
+            <p class="text-[0.7rem] text-gray-400">${j.positions.length} position${j.positions.length !== 1 ? 's' : ''} · ${new Date(j.createdAt).toLocaleDateString()}</p>
+          </div>
+          <button onclick="deleteJobPost('${j._id}')" class="text-red-400 hover:text-red-600 text-xs font-semibold flex-shrink-0">Delete</button>
+        </div>
+      `).join('');
+    } catch (err) {
+      listEl.innerHTML = `<p class="text-xs text-red-500">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function deleteJobPost(jobId) {
+    if (!confirm('Delete this job posting?')) return;
+    try {
+      const { ok, data } = await api('manage-jobs', { token: adminToken, action: 'delete', jobId });
+      if (!ok) throw new Error(data.error || 'Failed to delete.');
+      showToast('Job deleted.', 'success');
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
 
   window.addEventListener('DOMContentLoaded', init);
 
