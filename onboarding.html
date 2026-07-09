@@ -32,9 +32,6 @@
   }
   .field-input:focus,.field-select:focus{border-color:var(--indigo);}
   .field-hint{font-size:0.76rem;color:var(--text-3);margin-top:7px;line-height:1.5;}
-  .relocate-row{display:flex;gap:10px;margin-top:14px;}
-  .relocate-btn{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-size:0.85rem;font-weight:600;color:var(--text-2);cursor:pointer;transition:all .15s;}
-  .relocate-btn.selected{border-color:var(--indigo);background:#eef2ff;color:var(--indigo);}
   .cv-drop{
     border:1.5px dashed var(--border);border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;
   }
@@ -146,12 +143,7 @@
       <div class="step-title">Your current address</div>
       <div class="step-desc">Shown on your letters and CV. Example: <em>Addis Ababa, Ethiopia</em>.</div>
       <input type="text" id="fldAddress" class="field-input" placeholder="e.g. Addis Ababa, Ethiopia">
-      <div class="field-hint">Tip: we recommend listing a large Ethiopian city (Addis Ababa, Adama, Bahir Dar, Hawassa, Mekelle, Dire Dawa…) if you're able to relocate — it widens the jobs you'll be considered for.</div>
-
-      <div class="relocate-row">
-        <button type="button" class="relocate-btn" id="relocateYes" onclick="pickRelocate(true)">Yes, I can relocate</button>
-        <button type="button" class="relocate-btn" id="relocateNo" onclick="pickRelocate(false)">No, I can't</button>
-      </div>
+      <div class="field-hint">Tip: we recommend a large Ethiopian city (e.g. Addis Ababa, Adama, Bahir Dar, Hawassa) — even if you're not there, you're expected to relocate if invited for a written exam or interview.</div>
 
       <div class="err" id="errAddress">Please enter your address.</div>
       <div class="btn-row">
@@ -206,7 +198,6 @@
 const params  = new URLSearchParams(location.search);
 const userId  = params.get('userId') || localStorage.getItem('cv_userId') || '';
 let currentStep = 0;
-let selectedRelocate = null;
 let cvBase64 = null, cvFilename = null, cvText = null, cvExtracting = false;
 
 function updateProgress() {
@@ -271,12 +262,6 @@ function goBackStep() {
   // so whatever the person typed there earlier is still sitting in the field —
   // no need to re-fetch anything, just reveal that step again.
   setTimeout(function() { hideOverlay(); showStep(currentStep - 1); }, 200);
-}
-
-function pickRelocate(val) {
-  selectedRelocate = val;
-  document.getElementById('relocateYes').classList.toggle('selected', val === true);
-  document.getElementById('relocateNo').classList.toggle('selected', val === false);
 }
 
 // ── Extract CV text right after upload, so autofill has real text later ──────
@@ -408,7 +393,6 @@ async function saveStep(which) {
     if (!v) { document.getElementById('errAddress').style.display = 'block'; return; }
     document.getElementById('errAddress').style.display = 'none';
     var payload = { address: v };
-    if (selectedRelocate !== null) payload.canRelocate = selectedRelocate;
     setStepBusy(stepEl, true, 'Saving…');
     await saveProfileField(payload);
     setStepBusy(stepEl, false);
