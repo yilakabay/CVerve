@@ -1624,6 +1624,100 @@
         // ── Smart Finder (Basic/Pro only) ──────────────────────────────────────────
         let smartFinderCache = null; // { matches, jobsUsed } — avoid re-running on every subtab click
 
+        // ── Inline CV uploader for Smart Finder (saves straight to profile, like onboarding) ──
+        function smartFinderCvUploaderHtml() {
+            return `
+                <div class="w-full max-w-sm">
+                    <div id="sfCvDrop" onclick="document.getElementById('sfCvFileInput').click()"
+                         class="border-2 border-dashed border-gray-300 rounded-xl p-5 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors">
+                        <svg class="w-7 h-7 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <p id="sfCvDropLabel" class="text-sm font-semibold text-gray-600">Tap to upload a PDF CV</p>
+                        <p id="sfCvDropSub" class="text-xs text-gray-400 mt-1">PDF only, up to 6 MB</p>
+                    </div>
+                    <input type="file" id="sfCvFileInput" accept="application/pdf" class="hidden" onchange="handleSmartFinderCvUpload(event)">
+                    <p id="sfCvError" class="text-xs text-red-500 mt-2 hidden"></p>
+                </div>`;
+        }
+
+        async function handleSmartFinderCvUpload(evt) {
+            const file = evt.target.files[0];
+            if (!file) return;
+
+            const errEl  = document.getElementById('sfCvError');
+            const drop   = document.getElementById('sfCvDrop');
+            const label  = document.getElementById('sfCvDropLabel');
+            const sub    = document.getElementById('sfCvDropSub');
+            errEl.classList.add('hidden');
+
+            if (file.type !== 'application/pdf') {
+                errEl.textContent = 'Only PDF files are accepted.'; errEl.classList.remove('hidden'); return;
+            }
+            if (file.size > 6 * 1024 * 1024) {
+                errEl.textContent = 'File is larger than 6 MB.'; errEl.classList.remove('hidden'); return;
+            }
+
+            drop.style.pointerEvents = 'none';
+            drop.classList.add('border-indigo-400');
+            label.textContent = 'Reading your CV…';
+            sub.textContent = '';
+
+            try {
+                const base64 = await fileToBase64(file);
+
+                // Extract text (same function used in onboarding / letter generation)
+                const extractRes = await fetch('/.netlify/functions/extract-text', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files: [{ data: base64, type: 'application/pdf' }], fileType: 'cv' })
+                });
+                const extractData = await extractRes.json();
+                const extractedText = (extractRes.ok && extractData.success) ? extractData.extractedText : null;
+
+                label.textContent = 'Saving to your profile…';
+
+                // Save to profile — mirrors onboarding.html's manage-profile save
+                const saveRes = await fetch('/.netlify/functions/manage-profile', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, action: 'save', profile: { cvPdfBase64: base64, cvFilename: file.name, cvText: extractedText || '' } })
+                });
+                if (!saveRes.ok) throw new Error('Could not save your CV. Please try again.');
+
+                // Update in-memory state so the rest of the app (letter tab, autofill, etc.) sees it too
+                storedCvText = extractedText || null;
+                storedCvFilename = file.name;
+                usingStoredCv = !!extractedText;
+                storedProfile = storedProfile || {};
+                storedProfile.cvFilename = file.name;
+                storedProfile.hasCvPdf = true;
+                storedProfile.cvText = extractedText || '';
+
+                document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                document.getElementById('cvStoredFilename') && (document.getElementById('cvStoredFilename').innerText = truncateFilename(file.name));
+                document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+                document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                const dtFn = document.getElementById('cvStoredFilename-dt');
+                if (dtFn) dtFn.innerText = truncateFilename(file.name);
+
+                if (!extractedText) {
+                    // Saved, but couldn't read text — re-render so the "couldn't be read" message shows
+                    showMessage('success', 'CV saved, but we couldn\'t auto-read its text (scanned/image PDF). Try a text-based PDF for Smart Finder to work.');
+                    runSmartFinder(true);
+                    return;
+                }
+
+                showMessage('success', 'CV saved! Running Smart Finder…');
+                smartFinderCache = null;
+                runSmartFinder(true);
+
+            } catch (err) {
+                drop.style.pointerEvents = '';
+                drop.classList.remove('border-indigo-400');
+                label.textContent = 'Tap to upload a PDF CV';
+                sub.textContent = 'PDF only, up to 6 MB';
+                errEl.textContent = err.message || 'Something went wrong. Please try again.';
+                errEl.classList.remove('hidden');
+            }
+        }
+
         async function runSmartFinder(force) {
             const listEl = document.getElementById('smartFinderList');
 
@@ -1649,8 +1743,8 @@
                                 <svg class="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                             </div>
                             <h3 class="text-base font-bold text-gray-800 mb-1">Your stored CV couldn't be read</h3>
-                            <p class="text-sm text-gray-500 mb-4">We have a CV file on your profile, but couldn't extract text from it (likely a scanned/image-based PDF). Please re-upload a text-based PDF to use Smart Finder.</p>
-                            <button onclick="switchTab('letter')" class="bg-indigo-500 text-white text-xs font-semibold px-5 py-2 rounded-full hover:bg-indigo-600 transition-colors">Re-upload my CV</button>
+                            <p class="text-sm text-gray-500 mb-4">We have a CV file on your profile, but couldn't extract text from it (likely a scanned/image-based PDF). Upload a text-based PDF below to use Smart Finder.</p>
+                            ${smartFinderCvUploaderHtml()}
                         </div>`;
                     return;
                 }
@@ -1660,8 +1754,8 @@
                             <svg class="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         </div>
                         <h3 class="text-base font-bold text-gray-800 mb-1">We need your CV first</h3>
-                        <p class="text-sm text-gray-500 mb-4">Smart Finder matches jobs against your CV. Add one on the Application Letter tab (upload or autofill), then come back here.</p>
-                        <button onclick="switchTab('letter')" class="bg-indigo-500 text-white text-xs font-semibold px-5 py-2 rounded-full hover:bg-indigo-600 transition-colors">Add my CV</button>
+                        <p class="text-sm text-gray-500 mb-4">Smart Finder matches jobs against your CV. Add one below — it'll be saved to your profile for autofill everywhere else too.</p>
+                        ${smartFinderCvUploaderHtml()}
                     </div>`;
                 return;
             }
