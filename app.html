@@ -165,21 +165,60 @@
             font-weight: 600;
             cursor: pointer;
             border: none;
-            border-bottom: 2px solid transparent;
             transition: all 0.15s;
             background: transparent;
             color: #94a3b8;
             position: relative;
             white-space: nowrap;
         }
+        .desktop-tab-btn::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 2.5px;
+            border-radius: 999px;
+            background: #4f46e5;
+            transition: width 0.15s ease;
+        }
         .desktop-tab-btn.active {
             color: #4f46e5;
-            border-bottom-color: #4f46e5;
             background: transparent;
+        }
+        .desktop-tab-btn.active::after {
+            width: 22px;
         }
         .desktop-tab-btn:not(.active):hover {
             color: #4f46e5;
             background: transparent;
+        }
+
+        /* Mobile main tab buttons (App Letter / PDF Merger / Find Job / CV) —
+           short centered bold underline instead of a full-width border */
+        .tab-button {
+            position: relative;
+        }
+        .tab-button::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 2.5px;
+            border-radius: 999px;
+            background: #6366f1;
+            transition: width 0.15s ease;
+        }
+        .tab-button.tab-active::after {
+            width: 22px;
+        }
+
+        /* Find Job sub-tabs (All Jobs / Smart Finder) — active state is font color only, no underline */
+        .findjob-subtab-button {
+            position: relative;
         }
 
         /* Right panel section heading */
@@ -1945,14 +1984,14 @@
         window.switchFindJobSubtab = (which) => {
             document.querySelectorAll('.findjob-subpanel').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.findjob-subtab-button').forEach(b => {
-                b.classList.remove('text-indigo-600', 'border-indigo-500');
-                b.classList.add('text-gray-400', 'border-transparent');
+                b.classList.remove('text-indigo-600');
+                b.classList.add('text-gray-400');
             });
 
             if (which === 'smartfinder') {
                 document.getElementById('findjob-smartfinder-panel').classList.remove('hidden');
-                document.getElementById('fj-smartfinder-btn').classList.remove('text-gray-400', 'border-transparent');
-                document.getElementById('fj-smartfinder-btn').classList.add('text-indigo-600', 'border-indigo-500');
+                document.getElementById('fj-smartfinder-btn').classList.remove('text-gray-400');
+                document.getElementById('fj-smartfinder-btn').classList.add('text-indigo-600');
 
                 // Smart Finder itself is gated by plan — All Jobs stays free for everyone
                 if (!planLimit('smartFinder')) {
@@ -1965,8 +2004,8 @@
                 }
             } else {
                 document.getElementById('findjob-alljobs-panel').classList.remove('hidden');
-                document.getElementById('fj-alljobs-btn').classList.remove('text-gray-400', 'border-transparent');
-                document.getElementById('fj-alljobs-btn').classList.add('text-indigo-600', 'border-indigo-500');
+                document.getElementById('fj-alljobs-btn').classList.remove('text-gray-400');
+                document.getElementById('fj-alljobs-btn').classList.add('text-indigo-600');
                 loadAllJobs();
             }
         };
@@ -1979,13 +2018,13 @@
             if (content) content.classList.remove('hidden');
             // Reset all tab buttons
             document.querySelectorAll('.tab-button').forEach(b => {
-                b.classList.remove('border-indigo-500', 'text-indigo-600', 'bg-indigo-500', 'text-white');
-                b.classList.add('text-gray-400', 'border-transparent');
+                b.classList.remove('tab-active', 'text-indigo-600', 'bg-indigo-500', 'text-white');
+                b.classList.add('text-gray-400');
             });
             const activeBtn = document.getElementById(tabName + '-button');
             if (activeBtn) {
-                activeBtn.classList.remove('text-gray-400', 'border-transparent', 'bg-indigo-500', 'text-white');
-                activeBtn.classList.add('text-indigo-600', 'border-indigo-500');
+                activeBtn.classList.remove('text-gray-400', 'bg-indigo-500', 'text-white');
+                activeBtn.classList.add('text-indigo-600', 'tab-active');
             }
             if (tabName !== 'cv' && tabName !== 'findjob') {
                 localStorage.setItem('cv_activeTab', tabName);
@@ -4942,12 +4981,12 @@
 
         <!-- ── Top bar 2: Tabs ── -->
         <div id="mobileTabBar" class="flex bg-white border-b border-gray-100 px-2" style="min-height:36px">
-            <button id="cv-button" onclick="switchTab('cv')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-indigo-600 border-b-2 border-indigo-500 relative">
+            <button id="cv-button" onclick="switchTab('cv')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-indigo-600 tab-active relative">
                 CV <span class="absolute top-1 right-1 text-[0.5rem] bg-amber-400 text-white px-1 rounded-full leading-tight">Soon</span>
             </button>
-            <button id="letter-button" onclick="switchTab('letter')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent">App Letter</button>
-            <button id="merger-button" onclick="switchTab('merger')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent">PDF Merger</button>
-            <button id="findjob-button" onclick="switchTab('findjob')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent relative">
+            <button id="letter-button" onclick="switchTab('letter')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400">App Letter</button>
+            <button id="merger-button" onclick="switchTab('merger')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400">PDF Merger</button>
+            <button id="findjob-button" onclick="switchTab('findjob')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 relative">
                 Find Job
             </button>
         </div>
@@ -4970,12 +5009,12 @@
         <div id="findjob-content" class="tab-content hidden">
             <!-- Sub-tabs: All Jobs (free) vs Smart Finder (Basic/Pro) -->
             <div class="flex bg-white border-b border-gray-100 px-2" style="min-height:34px">
-                <button id="fj-alljobs-btn" onclick="switchFindJobSubtab('alljobs')" class="findjob-subtab-button flex-1 py-2 text-xs font-semibold transition-all text-indigo-600 border-b-2 border-indigo-500">
+                <button id="fj-alljobs-btn" onclick="switchFindJobSubtab('alljobs')" class="findjob-subtab-button flex-1 py-2 text-xs font-semibold transition-all text-indigo-600">
                     All Jobs
                 </button>
-                <button id="fj-smartfinder-btn" onclick="switchFindJobSubtab('smartfinder')" class="findjob-subtab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent relative">
+                <button id="fj-smartfinder-btn" onclick="switchFindJobSubtab('smartfinder')" class="findjob-subtab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 relative">
                     Smart Finder
-                    <svg class="inline h-3 w-3 -mt-0.5 ml-0.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1.06A6.99 6.99 0 0116 11h1a1 1 0 110 2h-1a6.99 6.99 0 01-5 6.71V21a1 1 0 11-2 0v-1.29A6.99 6.99 0 013 13H2a1 1 0 110-2h1a6.99 6.99 0 015-6.94V3a1 1 0 011-1z"/></svg>
+                    <svg class="inline h-3 w-3 -mt-0.5 ml-0.5 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h4m-4 4h4m-7 4h10a2 2 0 002-2V8.414a2 2 0 00-.586-1.414l-3.414-3.414A2 2 0 0012.586 3H6a2 2 0 00-2 2v14a2 2 0 002 2z"/><circle cx="16.5" cy="16.5" r="2.25"/><path stroke-linecap="round" d="M18.1 18.1L19.5 19.5"/></svg>
                 </button>
             </div>
 
@@ -5005,7 +5044,7 @@
                 <!-- Locked state: shown to Free-plan users -->
                 <div id="findjob-smartfinder-locked" class="hidden flex flex-col items-center justify-center py-16 px-6 text-center">
                     <div class="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-4">
-                        <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h4m-4 4h4m-7 4h10a2 2 0 002-2V8.414a2 2 0 00-.586-1.414l-3.414-3.414A2 2 0 0012.586 3H6a2 2 0 00-2 2v14a2 2 0 002 2z"/><circle cx="16.5" cy="16.5" r="2.25"/><path stroke-linecap="round" d="M18.1 18.1L19.5 19.5"/></svg>
                     </div>
                     <h2 class="text-xl font-bold text-gray-800 mb-2">Smart Finder</h2>
                     <p class="text-sm text-gray-500">AI filters and ranks jobs to match your CV automatically, so you don't need to scroll through every listing.</p>
