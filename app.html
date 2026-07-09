@@ -1495,8 +1495,69 @@
 
         // ── Job Feed (All Jobs) ────────────────────────────────────────────────────
         let allJobsCache = null;
+        let allJobsSearchTerm = '';
+        let allJobsDateFilter = 'all';
+        let smartFinderSearchTerm = '';
+        let smartFinderDateFilter = 'all';
 
         function escapeHtmlJob(s) { return (s || '').toString().replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+        // Upwork-style highlight: wraps matched keyword(s) in an orange <mark>
+        function highlightTerms(text, term) {
+            const escaped = escapeHtmlJob(text);
+            if (!term || !term.trim()) return escaped;
+            const words = term.trim().split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            if (words.length === 0) return escaped;
+            const re = new RegExp('(' + words.join('|') + ')', 'gi');
+            return escaped.replace(re, '<mark style="background:#fed7aa;color:#9a3412;padding:0 2px;border-radius:3px;">$1</mark>');
+        }
+
+        // Loose "match any keyword" search, like Upwork's job search
+        function jobMatchesSearch(term, haystack) {
+            if (!term || !term.trim()) return true;
+            const words = term.toLowerCase().trim().split(/\s+/).filter(Boolean);
+            const hay = (haystack || '').toLowerCase();
+            return words.some(w => hay.includes(w));
+        }
+
+        function jobMatchesDateFilter(createdAt, filter) {
+            if (!filter || filter === 'all' || !createdAt) return true;
+            const created = new Date(createdAt);
+            const now = new Date();
+            if (filter === 'today') return created.toDateString() === now.toDateString();
+            if (filter === 'week')  { const d = new Date(now); d.setDate(now.getDate() - 7);  return created >= d; }
+            if (filter === 'month') { const d = new Date(now); d.setMonth(now.getMonth() - 1); return created >= d; }
+            return true;
+        }
+
+        function setDateFilter(panel, filter) {
+            const barId = panel === 'alljobs' ? 'allJobsDateFilterBar' : 'smartFinderDateFilterBar';
+            const bar = document.getElementById(barId);
+            bar.querySelectorAll('.jf-filter-btn').forEach(btn => {
+                const active = btn.dataset.filter === filter;
+                btn.classList.toggle('bg-indigo-500', active);
+                btn.classList.toggle('text-white', active);
+                btn.classList.toggle('bg-gray-100', !active);
+                btn.classList.toggle('text-gray-500', !active);
+            });
+            if (panel === 'alljobs') {
+                allJobsDateFilter = filter;
+                renderAllJobs(allJobsCache);
+            } else {
+                smartFinderDateFilter = filter;
+                renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
+            }
+        }
+
+        function filterAllJobs() {
+            allJobsSearchTerm = document.getElementById('allJobsSearchInput').value;
+            renderAllJobs(allJobsCache);
+        }
+
+        function filterSmartFinderResults() {
+            smartFinderSearchTerm = document.getElementById('smartFinderSearchInput').value;
+            renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
+        }
 
         async function loadAllJobs(force) {
             const listEl = document.getElementById('allJobsList');
@@ -1531,18 +1592,25 @@
                 return;
             }
 
+            const term = allJobsSearchTerm;
             let html = '';
+            let shown = 0;
+
             jobs.forEach(job => {
+                if (!jobMatchesDateFilter(job.createdAt, allJobsDateFilter)) return;
                 (job.positions || []).forEach((pos, posIdx) => {
+                    const haystack = [job.company, pos.title, pos.shortDescription, pos.qualification, pos.experience].join(' ');
+                    if (!jobMatchesSearch(term, haystack)) return;
+                    shown++;
                     html += `
                     <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
                         <div class="flex items-start justify-between gap-2 mb-1">
                             <div class="min-w-0">
-                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${escapeHtmlJob(job.company)}</p>
-                                <h3 class="text-base font-bold text-gray-800">${escapeHtmlJob(pos.title)}</h3>
+                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${highlightTerms(job.company, term)}</p>
+                                <h3 class="text-base font-bold text-gray-800">${highlightTerms(pos.title, term)}</h3>
                             </div>
                         </div>
-                        <p class="text-sm text-gray-500 mb-3">${escapeHtmlJob(pos.shortDescription)}</p>
+                        <p class="text-sm text-gray-500 mb-3">${highlightTerms(pos.shortDescription, term)}</p>
                         <div class="flex items-center justify-between gap-2">
                             <div class="flex gap-2 flex-wrap">
                                 <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
@@ -1553,7 +1621,12 @@
                     </div>`;
                 });
             });
-            listEl.innerHTML = `<div class="p-3 space-y-3">${html}</div>`;
+
+            if (shown === 0) {
+                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No jobs match your search or filter.</p>`;
+                return;
+            }
+            listEl.innerHTML = html;
         }
 
         let currentJobDetail = null; // { company, title, ... } for the "Generate Application Letter" hand-off
@@ -1826,12 +1899,19 @@
                 return;
             }
 
+            const term = smartFinderSearchTerm;
             let html = '';
+            let shown = 0;
             matches.forEach(m => {
                 const job = (jobsList || []).find(j => j._id === m.jobId);
                 if (!job) return;
                 const pos = job.positions[m.positionIndex];
                 if (!pos) return;
+                if (!jobMatchesDateFilter(job.createdAt, smartFinderDateFilter)) return;
+
+                const haystack = [job.company, pos.title, pos.shortDescription, pos.qualification, pos.experience, m.reason].join(' ');
+                if (!jobMatchesSearch(term, haystack)) return;
+                shown++;
 
                 const scoreColor = m.matchScore >= 80 ? 'bg-emerald-50 text-emerald-700' : m.matchScore >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600';
 
@@ -1839,12 +1919,12 @@
                 <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
                     <div class="flex items-start justify-between gap-2 mb-1">
                         <div class="min-w-0">
-                            <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${escapeHtmlJob(job.company)}</p>
-                            <h3 class="text-base font-bold text-gray-800">${escapeHtmlJob(pos.title)}</h3>
+                            <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${highlightTerms(job.company, term)}</p>
+                            <h3 class="text-base font-bold text-gray-800">${highlightTerms(pos.title, term)}</h3>
                         </div>
                         <span class="${scoreColor} text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">${m.matchScore}% match</span>
                     </div>
-                    <p class="text-sm text-gray-500 mb-2 italic">"${escapeHtmlJob(m.reason)}"</p>
+                    <p class="text-sm text-gray-500 mb-2 italic">"${highlightTerms(m.reason, term)}"</p>
                     <div class="flex items-center justify-between gap-2">
                         <div class="flex gap-2 flex-wrap">
                             <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
@@ -1854,7 +1934,12 @@
                     </div>
                 </div>`;
             });
-            listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${matches.length} match${matches.length !== 1 ? 'es' : ''} found, best first</p></div>` + html;
+
+            if (shown === 0) {
+                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No matches for that search or filter.</p>`;
+                return;
+            }
+            listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${shown} match${shown !== 1 ? 'es' : ''} shown</p></div>` + html;
         }
 
         window.switchFindJobSubtab = (which) => {
@@ -4562,7 +4647,7 @@
                 <button id="dt-cv-btn" class="desktop-tab-btn active relative" onclick="switchTab('cv');setDesktopTab('cv')">CV <span class="absolute top-1 right-0 text-[0.5rem] bg-amber-400 text-white px-1 rounded-full leading-tight">Soon</span></button>
                 <button id="dt-letter-btn" class="desktop-tab-btn" onclick="switchTab('letter');setDesktopTab('letter')">Application Letter</button>
                 <button id="dt-merger-btn" class="desktop-tab-btn" onclick="switchTab('merger');setDesktopTab('merger')">PDF Merger</button>
-                <button id="dt-findjob-btn" class="desktop-tab-btn relative" onclick="switchTab('findjob');setDesktopTab('findjob')">Find Job <span class="absolute top-1 right-0 text-[0.5rem] bg-amber-400 text-white px-1 rounded-full leading-tight">Soon</span></button>
+                <button id="dt-findjob-btn" class="desktop-tab-btn relative" onclick="switchTab('findjob');setDesktopTab('findjob')">Find Job</button>
             </div>
             <!-- RIGHT cell: Home · Chat · Account icons -->
             <div class="flex items-center justify-end gap-1" style="padding:4px 8px;border-left:1px solid #f1f5f9;">
@@ -4863,7 +4948,7 @@
             <button id="letter-button" onclick="switchTab('letter')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent">App Letter</button>
             <button id="merger-button" onclick="switchTab('merger')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent">PDF Merger</button>
             <button id="findjob-button" onclick="switchTab('findjob')" class="tab-button flex-1 py-2 text-xs font-semibold transition-all text-gray-400 border-b-2 border-transparent relative">
-                Find Job <span class="absolute top-1 right-1 text-[0.5rem] bg-amber-400 text-white px-1 rounded-full leading-tight">Soon</span>
+                Find Job
             </button>
         </div>
 
@@ -4896,6 +4981,19 @@
 
             <!-- All Jobs sub-tab (free feed — always accessible) -->
             <div id="findjob-alljobs-panel" class="findjob-subpanel">
+                <div class="p-3 pb-2 space-y-2 bg-white border-b border-gray-50 sticky top-0 z-10">
+                    <div class="relative">
+                        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <input type="text" id="allJobsSearchInput" oninput="filterAllJobs()" placeholder="Search jobs — e.g. marketing manager"
+                            class="w-full pl-9 pr-3 py-2 rounded-full border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50">
+                    </div>
+                    <div class="flex gap-1.5 overflow-x-auto" id="allJobsDateFilterBar">
+                        <button data-filter="all" onclick="setDateFilter('alljobs','all')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500 text-white">All time</button>
+                        <button data-filter="today" onclick="setDateFilter('alljobs','today')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Today</button>
+                        <button data-filter="week" onclick="setDateFilter('alljobs','week')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">This Week</button>
+                        <button data-filter="month" onclick="setDateFilter('alljobs','month')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">This Month</button>
+                    </div>
+                </div>
                 <div id="allJobsList" class="p-3 space-y-3">
                     <p class="text-sm text-gray-400 italic text-center py-10">Loading jobs…</p>
                 </div>
@@ -4920,6 +5018,19 @@
 
                 <!-- Unlocked state: shown to Basic/Pro users -->
                 <div id="findjob-smartfinder-unlocked" class="hidden">
+                    <div class="p-3 pb-2 space-y-2 bg-white border-b border-gray-50 sticky top-0 z-10">
+                        <div class="relative">
+                            <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            <input type="text" id="smartFinderSearchInput" oninput="filterSmartFinderResults()" placeholder="Search matches — e.g. marketing manager"
+                                class="w-full pl-9 pr-3 py-2 rounded-full border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50">
+                        </div>
+                        <div class="flex gap-1.5 overflow-x-auto" id="smartFinderDateFilterBar">
+                            <button data-filter="all" onclick="setDateFilter('smartfinder','all')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500 text-white">All time</button>
+                            <button data-filter="today" onclick="setDateFilter('smartfinder','today')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Today</button>
+                            <button data-filter="week" onclick="setDateFilter('smartfinder','week')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">This Week</button>
+                            <button data-filter="month" onclick="setDateFilter('smartfinder','month')" class="jf-filter-btn flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">This Month</button>
+                        </div>
+                    </div>
                     <div id="smartFinderList" class="p-3 space-y-3">
                         <p class="text-sm text-gray-400 italic text-center py-10">Preparing Smart Finder…</p>
                     </div>
