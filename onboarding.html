@@ -54,6 +54,9 @@
   .btn-skip{padding:12px 16px;background:#fff;color:var(--text-2);border:1.5px solid var(--border);border-radius:10px;font-family:'Sora',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;}
   .btn-skip:hover{border-color:var(--text-3);}
   .btn-skip:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-back{padding:12px 14px;background:#fff;color:var(--text-3);border:1.5px solid transparent;border-radius:10px;font-family:'Sora',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;}
+  .btn-back:hover{color:var(--indigo);}
+  .btn-back:disabled{opacity:0.4;cursor:not-allowed;}
   .err{font-size:0.78rem;color:#dc2626;margin-top:8px;display:none;}
   .success-wrap{text-align:center;padding:12px 0;}
   .success-icon{width:56px;height:56px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
@@ -119,6 +122,7 @@
       <div class="field-hint">We'll pre-fill this with your registration number, but feel free to change it.</div>
       <div class="err" id="errAppPhone">Please enter a valid phone number.</div>
       <div class="btn-row">
+        <button class="btn-back" onclick="goBackStep()">Back</button>
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
         <button class="btn-primary" onclick="saveStep('appPhone')"><span class="btn-label">Continue</span></button>
       </div>
@@ -131,6 +135,7 @@
       <input type="email" id="fldEmail" class="field-input" placeholder="e.g. abebe@email.com">
       <div class="err" id="errEmail">Please enter a valid email address.</div>
       <div class="btn-row">
+        <button class="btn-back" onclick="goBackStep()">Back</button>
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
         <button class="btn-primary" onclick="saveStep('email')"><span class="btn-label">Continue</span></button>
       </div>
@@ -150,6 +155,7 @@
 
       <div class="err" id="errAddress">Please enter your address.</div>
       <div class="btn-row">
+        <button class="btn-back" onclick="goBackStep()">Back</button>
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
         <button class="btn-primary" onclick="saveStep('address')"><span class="btn-label">Continue</span></button>
       </div>
@@ -175,6 +181,7 @@
       </div>
 
       <div class="btn-row">
+        <button class="btn-back" onclick="goBackStep()">Back</button>
         <button class="btn-skip" onclick="skipStep()">Maybe later</button>
         <button class="btn-primary" id="cvContinueBtn" onclick="saveStep('cv')"><span class="btn-label">Continue</span></button>
       </div>
@@ -231,10 +238,12 @@ function hideOverlay() {
 function setStepBusy(stepEl, busy, busyLabel) {
   var primaryBtn = stepEl.querySelector('.btn-primary');
   var skipBtn    = stepEl.querySelector('.btn-skip');
+  var backBtn    = stepEl.querySelector('.btn-back');
   var label      = primaryBtn.querySelector('.btn-label');
   if (busy) {
     primaryBtn.disabled = true;
     if (skipBtn) skipBtn.disabled = true;
+    if (backBtn) backBtn.disabled = true;
     primaryBtn.dataset.origLabel = label.textContent;
     label.innerHTML = '';
     var spin = document.createElement('span');
@@ -244,6 +253,7 @@ function setStepBusy(stepEl, busy, busyLabel) {
   } else {
     primaryBtn.disabled = false;
     if (skipBtn) skipBtn.disabled = false;
+    if (backBtn) backBtn.disabled = false;
     label.textContent = primaryBtn.dataset.origLabel || 'Continue';
   }
 }
@@ -252,6 +262,15 @@ function skipStep() {
   var stepEl = document.querySelector('.step[data-step="' + currentStep + '"]');
   showOverlay('Skipping…');
   setTimeout(function() { hideOverlay(); showStep(currentStep + 1); }, 250);
+}
+
+function goBackStep() {
+  if (currentStep <= 0) return;
+  showOverlay('Going back…');
+  // Inputs on the previous step are untouched DOM elements (this isn't a SPA reload),
+  // so whatever the person typed there earlier is still sitting in the field —
+  // no need to re-fetch anything, just reveal that step again.
+  setTimeout(function() { hideOverlay(); showStep(currentStep - 1); }, 200);
 }
 
 function pickRelocate(val) {
