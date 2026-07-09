@@ -1695,45 +1695,111 @@
         function applyToJobFromDetail() {
             if (!currentJobDetail) return;
             closeJobDetailModal();
+            openJobLetterModal();
+        }
 
-            // Hand off to the Application Letter tab: prefill the position and use this
-            // job's full description directly as the JD text (bypassing URL/file upload).
-            switchTab('letter');
-            prefilledJdText = currentJobDetail.fullDescription || '';
-            jdInputMode = 'prefill';
+        function openJobLetterModal() {
+            if (!currentJobDetail) return;
 
-            const posLabel = currentJobDetail.title + ' at ' + currentJobDetail.company;
-            const targetInput = document.getElementById('targetPosition');
-            if (targetInput) { targetInput.value = posLabel; clearFieldError && clearFieldError('targetPosition'); }
-            const dtTargetInput = document.getElementById('dt-targetPosition');
-            if (dtTargetInput) dtTargetInput.value = posLabel;
+            document.getElementById('jobLetterPositionLabel').textContent = currentJobDetail.title + ' at ' + currentJobDetail.company;
 
-            // Hide the URL/file toggle panels and show a small "using this job's description" note
-            const urlPanel  = document.getElementById('jdUrlPanel');
-            const filePanel = document.getElementById('jdFilePanel');
-            if (urlPanel)  urlPanel.classList.add('hidden');
-            if (filePanel) filePanel.classList.add('hidden');
-            let note = document.getElementById('jdPrefillNote');
-            if (!note) {
-                note = document.createElement('div');
-                note.id = 'jdPrefillNote';
-                note.className = 'text-xs bg-indigo-50 text-indigo-700 rounded-lg px-3 py-2 flex items-center justify-between gap-2';
-                filePanel && filePanel.parentNode.insertBefore(note, filePanel);
+            // Reset to step 1 with today's date pre-filled
+            document.getElementById('jobLetterDateStep').classList.remove('hidden');
+            document.getElementById('jobLetterLoadingStep').classList.add('hidden');
+            document.getElementById('jobLetterResultStep').classList.add('hidden');
+            document.getElementById('jobLetterError').classList.add('hidden');
+            const dateInput = document.getElementById('jobLetterAppDate');
+            const today = new Date();
+            dateInput.value = today.toISOString().split('T')[0];
+
+            document.getElementById('jobLetterModal').classList.remove('hidden');
+        }
+
+        function closeJobLetterModal() {
+            document.getElementById('jobLetterModal').classList.add('hidden');
+        }
+
+        async function generateLetterForJob() {
+            if (!currentJobDetail) return;
+            const errEl = document.getElementById('jobLetterError');
+            errEl.classList.add('hidden');
+
+            // Use stored profile info only — this flow deliberately doesn't touch the Letter tab's form
+            const fullName = (storedProfile && storedProfile.fullName) || '';
+            const phone    = (storedProfile && storedProfile.phone)    || userId || '';
+            const email    = (storedProfile && storedProfile.email)    || '';
+            const address  = (storedProfile && storedProfile.address)  || '';
+            const cvText   = storedCvText || '';
+            const appDateRaw = document.getElementById('jobLetterAppDate').value;
+
+            if (!fullName) {
+                errEl.textContent = 'Your profile is missing a full name. Please add it in your profile, then try again.';
+                errEl.classList.remove('hidden');
+                return;
             }
-            note.classList.remove('hidden');
-            note.innerHTML = `<span>Using job description from <strong>${posLabel}</strong></span> <button type="button" onclick="clearJdPrefill()" class="text-indigo-500 underline font-semibold flex-shrink-0">Change</button>`;
+            if (!cvText || cvText.trim().length < 20) {
+                errEl.textContent = 'We need a readable CV on your profile first. Add one from the Smart Finder tab, then try again.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            if (!appDateRaw) {
+                errEl.textContent = 'Please choose a date of application.';
+                errEl.classList.remove('hidden');
+                return;
+            }
 
-            showMessage('success', `Pre-filled with "${currentJobDetail.title}" — just add your CV and hit Generate.`);
+            const appDate = new Date(appDateRaw + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            const targetPosition = currentJobDetail.title + ' at ' + currentJobDetail.company;
+
+            document.getElementById('jobLetterDateStep').classList.add('hidden');
+            document.getElementById('jobLetterLoadingStep').classList.remove('hidden');
+
+            try {
+                const res = await fetch('/.netlify/functions/generate-letter', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fullName, phone, email, address, appDate, cvText, jdText: currentJobDetail.fullDescription || '', jdUrl: null, targetPosition })
+                });
+                if (!res.ok) throw new Error((await res.json()).error || 'Letter generation failed.');
+                const { letterText } = await res.json();
+                if (!letterText) throw new Error('Could not generate letter. Please try again.');
+
+                // Feed the same globals the Letter tab's PDF/download logic already uses,
+                // so "Download PDF" below reuses that exact code path.
+                lastGeneratedLetterText = letterText;
+                lastGeneratedLetterHtml = null;
+                lastGeneratedFirstName  = fullName.split(' ')[0] || 'Letter';
+
+                // Keep the hidden Letter-tab phone/email inputs in sync so PDF link
+                // building (which reads those fields) matches what was actually used.
+                const phoneField = document.getElementById('phone');
+                const emailField = document.getElementById('email');
+                if (phoneField) phoneField.value = phone;
+                if (emailField) emailField.value = email;
+
+                await incrementUsage('letters');
+
+                document.getElementById('jobLetterResultText').textContent = letterText;
+                document.getElementById('jobLetterLoadingStep').classList.add('hidden');
+                document.getElementById('jobLetterResultStep').classList.remove('hidden');
+
+            } catch (err) {
+                document.getElementById('jobLetterLoadingStep').classList.add('hidden');
+                document.getElementById('jobLetterDateStep').classList.remove('hidden');
+                errEl.textContent = err.message || 'Something went wrong. Please try again.';
+                errEl.classList.remove('hidden');
+            }
         }
 
-        function clearJdPrefill() {
-            prefilledJdText = null;
-            const note = document.getElementById('jdPrefillNote');
-            if (note) note.classList.add('hidden');
-            switchJdInputMode('url');
+        function copyJobLetterText() {
+            const text = document.getElementById('jobLetterResultText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                showMessage('success', 'Letter copied to clipboard!');
+            }).catch(() => {
+                showMessage('error', 'Could not copy. Please select and copy manually.');
+            });
         }
 
-        // ── Smart Finder (Basic/Pro only) ──────────────────────────────────────────
+
         let smartFinderCache = null; // { matches, jobsUsed } — avoid re-running on every subtab click
 
         // ── Inline CV uploader for Smart Finder (saves straight to profile, like onboarding) ──
@@ -4239,6 +4305,50 @@
         </div>
         <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-3">
             <button onclick="applyToJobFromDetail()" class="w-full bg-indigo-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors">Generate Application Letter</button>
+        </div>
+    </div>
+</div>
+
+<!-- Job Application Letter Modal — generates a letter for a posted job using stored profile info,
+     only asking for the application date. Stays on the current tab (no redirect to Letter tab). -->
+<div id="jobLetterModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4" onclick="if(event.target===this) closeJobLetterModal()">
+    <div class="bg-white rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto">
+        <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-start justify-between">
+            <div>
+                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide">Application Letter</p>
+                <h3 class="text-base font-bold text-gray-800" id="jobLetterPositionLabel"></h3>
+            </div>
+            <button onclick="closeJobLetterModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div class="px-5 py-5">
+
+            <!-- Step 1: date of application -->
+            <div id="jobLetterDateStep">
+                <p class="text-sm text-gray-500 mb-4">We'll use your stored profile and CV to write this letter. Just confirm the date of application.</p>
+                <label class="text-xs font-semibold text-gray-500 mb-1 block">Date of application</label>
+                <input type="date" id="jobLetterAppDate" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50">
+                <p id="jobLetterError" class="text-xs text-red-500 mt-2 hidden"></p>
+                <button onclick="generateLetterForJob()" class="w-full mt-5 bg-indigo-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors">Generate Letter</button>
+            </div>
+
+            <!-- Step 2: loading -->
+            <div id="jobLetterLoadingStep" class="hidden py-10 text-center">
+                <div class="w-8 h-8 mx-auto mb-3 rounded-full border-[3px] border-gray-200 border-t-indigo-500 animate-spin"></div>
+                <p class="text-sm text-gray-500 font-medium">Writing your letter…</p>
+            </div>
+
+            <!-- Step 3: result -->
+            <div id="jobLetterResultStep" class="hidden">
+                <div class="bg-gray-50 border border-gray-100 rounded-xl p-4 max-h-72 overflow-y-auto">
+                    <pre id="jobLetterResultText" class="text-xs text-gray-700 whitespace-pre-wrap font-sans"></pre>
+                </div>
+                <div class="flex gap-2 mt-4">
+                    <button onclick="copyJobLetterText()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">Copy Text</button>
+                    <button onclick="downloadLetterAsPdf()" class="flex-1 py-2.5 rounded-full text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-600">Download PDF</button>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
