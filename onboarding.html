@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Set up your profile — CVcase</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
   :root{
@@ -160,12 +163,12 @@
 
       <div class="cv-drop" id="cvDrop" onclick="document.getElementById('cvFileInput').click()">
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        <div id="cvDropLabel" style="font-size:0.85rem;color:var(--text-2);font-weight:600;">Tap to upload a PDF CV</div>
-        <div id="cvDropSub" style="font-size:0.76rem;color:var(--text-3);margin-top:3px;">PDF only, up to 6 MB</div>
+        <div id="cvDropLabel" style="font-size:0.85rem;color:var(--text-2);font-weight:600;">Tap to upload your CV</div>
+        <div id="cvDropSub" style="font-size:0.76rem;color:var(--text-3);margin-top:3px;">PDF, Word, or image — up to 6 MB</div>
       </div>
-      <input type="file" id="cvFileInput" accept="application/pdf" class="hidden" style="display:none;" onchange="handleCvFile(event)">
+      <input type="file" id="cvFileInput" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" class="hidden" style="display:none;" onchange="handleCvFile(event)">
       <div class="cv-progress-track" id="cvProgressTrack"><div class="cv-progress-fill" id="cvProgressFill"></div></div>
-      <div class="err" id="errCv">Please choose a PDF file.</div>
+      <div class="err" id="errCv">Please choose a PDF, Word document, or image.</div>
 
       <div class="telegram-note">
         Want a professionally written CV instead? Our team can build one for you —
@@ -264,43 +267,161 @@ function goBackStep() {
   setTimeout(function() { hideOverlay(); showStep(currentStep - 1); }, 200);
 }
 
-// ── Extract CV text right after upload, so autofill has real text later ──────
-async function extractCvText(base64, filename) {
+// ── Helpers ported from app.html so onboarding can accept PDF, Word, and image
+//    CVs, fall back to OCR for image-based PDFs, and always store a real PDF ──
+const CV_ACCEPTED_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+function isAcceptedCvFile(file) {
+  return CV_ACCEPTED_TYPES.includes(file.type) || file.type.startsWith('image/');
+}
+
+function fileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() { resolve(reader.result.split(',')[1]); };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function rasterisePdfToImageFiles(file) {
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  var arrayBuffer = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  var imageFiles = [];
+  for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    var page = await pdf.getPage(pageNum);
+    var viewport = page.getViewport({ scale: 2.0 });
+    var canvas = document.createElement('canvas');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+    imageFiles.push({ data: canvas.toDataURL('image/png').split(',')[1], type: 'image/png' });
+  }
+  return imageFiles;
+}
+
+async function imageFileToPdfBuffer(imageFile) {
+  var PDFDocument = window.PDFLib.PDFDocument;
+  var imgBytes = new Uint8Array(await imageFile.arrayBuffer());
+  var pdfDoc = await PDFDocument.create();
+  var embeddedImg;
+  if (imageFile.type === 'image/jpeg' || imageFile.type === 'image/jpg') {
+    embeddedImg = await pdfDoc.embedJpg(imgBytes);
+  } else if (imageFile.type === 'image/png') {
+    embeddedImg = await pdfDoc.embedPng(imgBytes);
+  } else {
+    var blob = new Blob([imgBytes], { type: imageFile.type });
+    var url = URL.createObjectURL(blob);
+    var img = await new Promise(function(res, rej) { var i = new Image(); i.onload = function(){res(i);}; i.onerror = rej; i.src = url; });
+    URL.revokeObjectURL(url);
+    var canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    var pngBlob = await new Promise(function(r) { canvas.toBlob(r, 'image/png'); });
+    embeddedImg = await pdfDoc.embedPng(new Uint8Array(await pngBlob.arrayBuffer()));
+  }
+  var A4_W = 595.28, A4_H = 841.89;
+  var page = pdfDoc.addPage([A4_W, A4_H]);
+  var scale = Math.min(A4_W / embeddedImg.width, A4_H / embeddedImg.height, 1);
+  var w = embeddedImg.width * scale, h = embeddedImg.height * scale;
+  page.drawImage(embeddedImg, { x: (A4_W - w) / 2, y: (A4_H - h) / 2, width: w, height: h });
+  return (await pdfDoc.save()).buffer;
+}
+
+function textToPdfBuffer(text, filename) {
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  var pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+  var mL = 60, mR = 60, mT = 60, mB = 60, lineH = 14;
+  doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+  var y = mT;
+  (text || '').split('\n').forEach(function(rawLine) {
+    var wrapped = doc.splitTextToSize(rawLine === '' ? ' ' : rawLine, pageW - mL - mR);
+    wrapped.forEach(function(line) {
+      if (y + lineH > pageH - mB) { doc.addPage(); y = mT; }
+      doc.text(line, mL, y); y += lineH;
+    });
+  });
+  return doc.output('arraybuffer');
+}
+
+// Converts whatever was uploaded (PDF, Word, or image) into real PDF bytes for
+// storage, so "Merge with CV" elsewhere in the app always has an actual PDF to work with.
+async function convertCvFileToStoredPdf(file, extractedText) {
+  var PDFDocument = window.PDFLib.PDFDocument;
+  var merged = await PDFDocument.create();
+  if (file.type === 'application/pdf') {
+    var srcDoc = await PDFDocument.load(await file.arrayBuffer());
+    var pages = await merged.copyPages(srcDoc, srcDoc.getPageIndices());
+    pages.forEach(function(p) { merged.addPage(p); });
+  } else if (file.type.startsWith('image/')) {
+    var imgPdfBuf = await imageFileToPdfBuffer(file);
+    var imgDoc = await PDFDocument.load(imgPdfBuf);
+    var pages2 = await merged.copyPages(imgDoc, imgDoc.getPageIndices());
+    pages2.forEach(function(p) { merged.addPage(p); });
+  } else {
+    var txtBuf = textToPdfBuffer(extractedText || '[No text extracted]', file.name);
+    var txtDoc = await PDFDocument.load(txtBuf);
+    var pages3 = await merged.copyPages(txtDoc, txtDoc.getPageIndices());
+    pages3.forEach(function(p) { merged.addPage(p); });
+  }
+  var pdfBytes = await merged.save();
+  var baseName = file.name.replace(/\.[^.]+$/, '') || 'cv';
+  var base64 = btoa(new Uint8Array(pdfBytes).reduce(function(data, byte) { return data + String.fromCharCode(byte); }, ''));
+  return { base64: base64, filename: baseName + '.pdf' };
+}
+
+// Extracts text from any supported CV format, falling back to client-side
+// rasterization + server OCR when a PDF turns out to be image-based.
+async function extractCvText(file) {
   var track = document.getElementById('cvProgressTrack');
   var fill  = document.getElementById('cvProgressFill');
   track.classList.add('active');
   fill.style.width = '15%';
+
+  var callExtract = async function(files) {
+    var res = await fetch('/.netlify/functions/extract-text', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: files, fileType: 'cv' })
+    });
+    var data = await res.json();
+    if (res.ok && data.success && data.extractedText) return data.extractedText;
+    throw new Error(data.error || 'No text found');
+  };
+
   try {
     fill.style.width = '45%';
-    var res = await fetch('/.netlify/functions/extract-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        files: [{ data: base64, type: 'application/pdf' }],
-        fileType: 'cv'
-      })
-    });
-    fill.style.width = '80%';
-    var data = await res.json();
-    fill.style.width = '100%';
-    setTimeout(function() { track.classList.remove('active'); fill.style.width = '0%'; }, 500);
-    if (res.ok && data.success && data.extractedText) {
-      return data.extractedText;
+    var base64 = await fileToBase64(file);
+    try {
+      var text = await callExtract([{ data: base64, type: file.type }]);
+      fill.style.width = '100%';
+      setTimeout(function() { track.classList.remove('active'); fill.style.width = '0%'; }, 500);
+      return text;
+    } catch (firstErr) {
+      if (file.type === 'application/pdf') {
+        fill.style.width = '65%';
+        var imageFiles = await rasterisePdfToImageFiles(file);
+        var text2 = await callExtract(imageFiles);
+        fill.style.width = '100%';
+        setTimeout(function() { track.classList.remove('active'); fill.style.width = '0%'; }, 500);
+        return text2;
+      }
+      throw firstErr;
     }
-    return null; // extraction failed — PDF may be image-based; we still keep the file
   } catch (e) {
     track.classList.remove('active');
     fill.style.width = '0%';
-    return null;
+    return null; // extraction failed — we still keep the file
   }
 }
 
 async function handleCvFile(evt) {
   var file = evt.target.files[0];
   if (!file) return;
-  if (file.type !== 'application/pdf') {
+  if (!isAcceptedCvFile(file)) {
     document.getElementById('errCv').style.display = 'block';
-    document.getElementById('errCv').textContent = 'Only PDF files are accepted.';
+    document.getElementById('errCv').textContent = 'Please choose a PDF, Word document, or image.';
     return;
   }
   if (file.size > 6 * 1024 * 1024) {
@@ -310,20 +431,22 @@ async function handleCvFile(evt) {
   }
   document.getElementById('errCv').style.display = 'none';
 
-  var reader = new FileReader();
-  reader.onload = async function() {
-    cvBase64 = reader.result.split(',')[1];
-    cvFilename = file.name;
+  var drop = document.getElementById('cvDrop');
+  var cvBtn = document.getElementById('cvContinueBtn');
+  drop.classList.add('extracting');
+  cvExtracting = true;
+  cvBtn.disabled = true;
+  document.getElementById('cvDropLabel').innerHTML = '<span class="cv-file-name">' + file.name + '</span>';
+  document.getElementById('cvDropSub').textContent = 'Reading your CV…';
 
-    var drop = document.getElementById('cvDrop');
-    var cvBtn = document.getElementById('cvContinueBtn');
-    drop.classList.add('extracting');
-    cvExtracting = true;
-    cvBtn.disabled = true;
-    document.getElementById('cvDropLabel').innerHTML = '<span class="cv-file-name">' + file.name + '</span>';
-    document.getElementById('cvDropSub').textContent = 'Reading your CV…';
+  try {
+    var extractedText = await extractCvText(file);
+    document.getElementById('cvDropSub').textContent = 'Preparing your CV…';
+    var stored = await convertCvFileToStoredPdf(file, extractedText || '[No text extracted]');
 
-    cvText = await extractCvText(cvBase64, cvFilename);
+    cvBase64 = stored.base64;
+    cvFilename = stored.filename;
+    cvText = extractedText;
 
     drop.classList.remove('extracting');
     drop.classList.add('has-file');
@@ -331,12 +454,20 @@ async function handleCvFile(evt) {
     cvBtn.disabled = false;
 
     if (cvText) {
+      document.getElementById('cvDropLabel').innerHTML = '<span class="cv-file-name">' + stored.filename + '</span>';
       document.getElementById('cvDropSub').textContent = 'CV text extracted — ready to save';
     } else {
-      document.getElementById('cvDropSub').textContent = 'Saved, but text could not be auto-read (image-based PDF). You can re-upload later from your profile.';
+      document.getElementById('cvDropSub').textContent = 'Saved, but text could not be auto-read (scanned image or handwritten content). You can re-upload later from your profile.';
     }
-  };
-  reader.readAsDataURL(file);
+  } catch (err) {
+    drop.classList.remove('extracting');
+    cvExtracting = false;
+    cvBtn.disabled = false;
+    document.getElementById('errCv').style.display = 'block';
+    document.getElementById('errCv').textContent = 'Could not process that file. Please try again.';
+    document.getElementById('cvDropLabel').textContent = 'Tap to upload your CV';
+    document.getElementById('cvDropSub').textContent = 'PDF, Word, or image — up to 6 MB';
+  }
 }
 
 async function saveProfileField(profile) {
@@ -401,7 +532,7 @@ async function saveStep(which) {
 
   } else if (which === 'cv') {
     if (cvExtracting) { return; } // wait for extraction to finish
-    if (!cvBase64) { document.getElementById('errCv').style.display = 'block'; document.getElementById('errCv').textContent = 'Please choose a PDF file.'; return; }
+    if (!cvBase64) { document.getElementById('errCv').style.display = 'block'; document.getElementById('errCv').textContent = 'Please choose a PDF, Word document, or image.'; return; }
     document.getElementById('errCv').style.display = 'none';
     setStepBusy(stepEl, true, 'Saving CV…');
     await saveProfileField({ cvPdfBase64: cvBase64, cvFilename: cvFilename, cvText: cvText || '' });
