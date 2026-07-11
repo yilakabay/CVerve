@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CVcase Admin</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="/assets/fonts.css" rel="stylesheet">
+  <link href="/assets/tailwind.css" rel="stylesheet">
   <style>
     /* ── Desktop 3-column layout ─────────────────────────────────────── */
     @media (min-width: 768px) {
@@ -1164,7 +1164,7 @@
         const userId = document.getElementById('lookupUserId').value.trim();
         if (userId) doLookupUser();
       } else {
-        showToast(result?.reason || 'Verification failed', 'error');
+        showToast((result && result.reason) || 'Verification failed', 'error');
       }
     } catch {
       showToast('Verification failed. Please try again.', 'error');
@@ -1392,7 +1392,7 @@
         loadPending();
         loadSmsDetections();
       } else {
-        showToast(result?.reason || 'Verification failed', 'error');
+        showToast((result && result.reason) || 'Verification failed', 'error');
       }
     } catch {
       showToast('Verification failed. Please try again.', 'error');
@@ -1735,8 +1735,8 @@
 
   // ── Official Announcement ─────────────────────────────────────────────────
   async function doAnnounce() {
-    const title = (document.getElementById('announceTitle')?.value || '').trim();
-    const body  = (document.getElementById('announceBody')?.value  || '').trim();
+    const title = ((document.getElementById('announceTitle') && document.getElementById('announceTitle').value) || '').trim();
+    const body  = ((document.getElementById('announceBody') && document.getElementById('announceBody').value)  || '').trim();
     if (!title) { showToast('Please enter a title.', 'error'); return; }
     if (!body)  { showToast('Please enter a message body.', 'error'); return; }
     if (!confirm(`Send this announcement to ALL users?\n\n"${title}"`)) return;
@@ -1756,8 +1756,8 @@
   }
 
   async function doAnnounceMobile() {
-    const title = (document.getElementById('announceTitleMob')?.value || '').trim();
-    const body  = (document.getElementById('announceBodyMob')?.value  || '').trim();
+    const title = ((document.getElementById('announceTitleMob') && document.getElementById('announceTitleMob').value) || '').trim();
+    const body  = ((document.getElementById('announceBodyMob') && document.getElementById('announceBodyMob').value)  || '').trim();
     if (!title) { alert('Please enter a title.'); return; }
     if (!body)  { alert('Please enter a message body.'); return; }
     if (!confirm(`Send this announcement to ALL users?\n\n"${title}"`)) return;
