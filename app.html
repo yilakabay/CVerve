@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
     <title>CVcase — App</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="/assets/fonts.css" rel="stylesheet">
+    <link href="/assets/tailwind.css" rel="stylesheet">
     <style>
         @keyframes onAutoFillStart { from {} to {} }
         input:-webkit-autofill { animation-name: onAutoFillStart; animation-duration: 1ms; }
@@ -274,10 +274,8 @@
         }
         .workspace-idle svg { opacity: 0.35; }
     </style>
-    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="/assets/js/vendor.min.js" defer></script>
+    <script src="/assets/js/pdf.min.js" defer></script>
     <script>
         let userId = null;
         let userBalance = 0;
@@ -340,7 +338,7 @@
         async function rasterisePdfToImageFiles(file) {
             if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
                 pdfjsLib.GlobalWorkerOptions.workerSrc =
-                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                    '/assets/js/pdf.worker.min.js';
             }
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -437,7 +435,7 @@
                 }
             }
             const pdfBytes = await merged.save();
-            const baseName = cvFiles[0]?.name.replace(/\.[^.]+$/, '') || 'letter';
+            const baseName = (cvFiles[0] && cvFiles[0].name.replace(/\.[^.]+$/, '')) || 'letter';
             return { buffer: pdfBytes.buffer, filename: baseName + '_converted.pdf' };
         }
 
@@ -488,13 +486,13 @@
         function attachEventListeners() {
             const ids = { mergePdfBtn: mergePdfs, downloadPdfBtn: downloadMergedPdf, generateLetterBtn: generateLetter };
             Object.entries(ids).forEach(([id, fn]) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); });
-            document.getElementById('cvFile')?.addEventListener('change', handleCvFileSelect);
-            document.getElementById('jdFile')?.addEventListener('change', handleJdFileSelect);
-            document.getElementById('pdfInput')?.addEventListener('change', handlePdfFileSelect);
-            document.getElementById('jdUrlInput')?.addEventListener('input', e => {
+            (document.getElementById('cvFile') && document.getElementById('cvFile').addEventListener('change', handleCvFileSelect));
+            (document.getElementById('jdFile') && document.getElementById('jdFile').addEventListener('change', handleJdFileSelect));
+            (document.getElementById('pdfInput') && document.getElementById('pdfInput').addEventListener('change', handlePdfFileSelect));
+            (document.getElementById('jdUrlInput') && document.getElementById('jdUrlInput').addEventListener('input', e => {
                 jdUrl = e.target.value.trim();
                 if (jdUrl) { e.target.classList.remove('border-red-400'); e.target.classList.add('border-gray-300'); clearUploadError('jdError', null); }
-            });
+            }));
             // Clear field errors on input, change, and browser autofill (animationstart)
             ['fullName','phone','email','address','appDate','targetPosition'].forEach(id => {
                 const el = document.getElementById(id);
@@ -523,8 +521,8 @@
             updateCvFilesList();
             if (cvFilesArray.length > 0) {
                 usingStoredCv = false;
-                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+                (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
                 clearUploadError('cvError', 'cvUploadBtn');
             }
         }
@@ -611,12 +609,12 @@
             cvFilesArray.splice(i, 1); updateCvFilesList();
             if (cvFilesArray.length === 0 && storedProfile && storedProfile.cvText) {
                 usingStoredCv = true;
-                document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
-                document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+                (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'));
+                (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.add('hidden'));
             } else {
                 usingStoredCv = false;
-                document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
+                (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+                (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
             }
         }
         function removeJdFile(i)  { jdFilesArray.splice(i, 1);  updateJdFilesList(); }
@@ -668,7 +666,7 @@
             if (mode === 'url') { setToggle(dtBtnUrl, dtBtnFile); } else { setToggle(dtBtnFile, dtBtnUrl); }
             if (dtJdLabel) dtJdLabel.textContent = mode === 'url' ? 'Job Description (Link)' : 'Job Description (Image, Word or PDF)';
             if (dtJdUploadBtn) dtJdUploadBtn.classList.toggle('hidden', mode !== 'file');
-            const urlVal = document.getElementById('jdUrlInput')?.value || document.getElementById('sbJdUrlInput')?.value || '';
+            const urlVal = (document.getElementById('jdUrlInput') && document.getElementById('jdUrlInput').value) || (document.getElementById('sbJdUrlInput') && document.getElementById('sbJdUrlInput').value) || '';
             jdUrl = urlVal.trim();
         }
 
@@ -986,7 +984,7 @@
             if (!newPassword)                  { showMessage('error', 'Please enter a new password'); return; }
             if (newPassword.length < 6)        { showMessage('error', 'Password must be at least 6 characters'); return; }
             if (newPassword !== confirmNew)    { showMessage('error', 'Passwords do not match'); return; }
-            if (!window._pendingReset?.resetToken) { showMessage('error', 'Session expired. Please start over.'); showLoginForm(); return; }
+            if (!(window._pendingReset && window._pendingReset.resetToken)) { showMessage('error', 'Session expired. Please start over.'); showLoginForm(); return; }
 
             showLoadingOverlay('Resetting password...');
             try {
@@ -1189,8 +1187,8 @@
             const address  = document.getElementById('drawerEditAddress').value.trim();
             if (!fullName || !phone || !email || !address) { showMessage('error', 'All fields are required.'); return; }
 
-            let cvText     = storedProfile?.cvText     || null;
-            let cvFilename = storedProfile?.cvFilename || null;
+            let cvText     = (storedProfile && storedProfile.cvText)     || null;
+            let cvFilename = (storedProfile && storedProfile.cvFilename) || null;
 
             // If user chose a new CV file, extract it first
             if (window._drawerPendingCvFile) {
@@ -1948,7 +1946,7 @@
             if (!fullName) {
                 errEl.textContent = 'Please enter your full name above.';
                 errEl.classList.remove('hidden');
-                fullNameInput?.focus();
+                (fullNameInput && fullNameInput.focus());
                 return;
             }
             if (!cvText || cvText.trim().length < 20) {
@@ -2146,10 +2144,10 @@
                 storedProfile.hasCvPdf = true;
                 storedProfile.cvText = extractedText || '';
 
-                document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'));
                 document.getElementById('cvStoredFilename') && (document.getElementById('cvStoredFilename').innerText = truncateFilename(stored.filename));
-                document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-                document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.add('hidden'));
+                (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.remove('hidden'));
                 const dtFn = document.getElementById('cvStoredFilename-dt');
                 if (dtFn) dtFn.innerText = truncateFilename(stored.filename);
 
@@ -2603,31 +2601,31 @@
                     storedProfile = data.profile;
                     if (storedProfile.cvText) {
                         storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true;
-                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                        (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'));
                         document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
-                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
+                        (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.add('hidden'));
                         // Desktop CV badge
-                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                        (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.remove('hidden'));
                         const dtFn = document.getElementById('cvStoredFilename-dt');
                         if (dtFn) dtFn.innerText = truncateFilename(storedCvFilename);
                     } else {
                         usingStoredCv = false;
-                        document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                        document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
+                        (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+                        (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
+                        (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.add('hidden'));
                     }
-                    document.getElementById('autofillHint')?.classList.remove('hidden');
-                    document.getElementById('autofillHint-dt')?.classList.remove('hidden');
-                    document.getElementById('sbAutofillHint')?.classList.remove('hidden');
+                    (document.getElementById('autofillHint') && document.getElementById('autofillHint').classList.remove('hidden'));
+                    (document.getElementById('autofillHint-dt') && document.getElementById('autofillHint-dt').classList.remove('hidden'));
+                    (document.getElementById('sbAutofillHint') && document.getElementById('sbAutofillHint').classList.remove('hidden'));
                     updateDesktopRight();
                 } else {
                     storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false;
-                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-                    document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
-                    document.getElementById('autofillHint')?.classList.add('hidden');
-                    document.getElementById('autofillHint-dt')?.classList.add('hidden');
-                    document.getElementById('sbAutofillHint')?.classList.add('hidden');
+                    (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+                    (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
+                    (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.add('hidden'));
+                    (document.getElementById('autofillHint') && document.getElementById('autofillHint').classList.add('hidden'));
+                    (document.getElementById('autofillHint-dt') && document.getElementById('autofillHint-dt').classList.add('hidden'));
+                    (document.getElementById('sbAutofillHint') && document.getElementById('sbAutofillHint').classList.add('hidden'));
                     updateDesktopRight();
                 }
             } catch(e) { console.error('Load profile error', e); }
@@ -2642,10 +2640,10 @@
                     storedProfile = data.profile;
                     if (storedProfile.cvText) {
                         storedCvText = storedProfile.cvText; storedCvFilename = storedProfile.cvFilename || 'Stored CV document'; usingStoredCv = true;
-                        document.getElementById('cvStoredBadgeContainer')?.classList.remove('hidden');
+                        (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.remove('hidden'));
                         document.getElementById('cvStoredFilename').innerText = truncateFilename(storedCvFilename);
-                        document.getElementById('cvFileInputContainer')?.classList.add('hidden');
-                        document.getElementById('cvStoredBadgeContainer-dt')?.classList.remove('hidden');
+                        (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.add('hidden'));
+                        (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.remove('hidden'));
                         const dtFn = document.getElementById('cvStoredFilename-dt');
                         if (dtFn) dtFn.innerText = truncateFilename(storedCvFilename);
                     }
@@ -2661,11 +2659,11 @@
                 const res = await fetch('/.netlify/functions/manage-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, action: 'delete' }) });
                 if (res.ok) {
                     storedProfile = null; storedCvText = null; storedCvFilename = null; usingStoredCv = false;
-                    document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-                    document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-                    document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
-                    document.getElementById('autofillHint')?.classList.add('hidden');
-                    document.getElementById('autofillHint-dt')?.classList.add('hidden');
+                    (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+                    (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
+                    (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.add('hidden'));
+                    (document.getElementById('autofillHint') && document.getElementById('autofillHint').classList.add('hidden'));
+                    (document.getElementById('autofillHint-dt') && document.getElementById('autofillHint-dt').classList.add('hidden'));
                     updateDesktopRight();
                     showMessage('success', 'Stored profile deleted.'); return true;
                 }
@@ -2682,9 +2680,9 @@
         function replaceStoredCv() {
             usingStoredCv = false; storedCvText = null; storedCvFilename = null;
             if (storedProfile) updateProfileWithCurrentData(storedProfile.fullName, storedProfile.phone, storedProfile.email, storedProfile.address, null, null);
-            document.getElementById('cvStoredBadgeContainer')?.classList.add('hidden');
-            document.getElementById('cvFileInputContainer')?.classList.remove('hidden');
-            document.getElementById('cvStoredBadgeContainer-dt')?.classList.add('hidden');
+            (document.getElementById('cvStoredBadgeContainer') && document.getElementById('cvStoredBadgeContainer').classList.add('hidden'));
+            (document.getElementById('cvFileInputContainer') && document.getElementById('cvFileInputContainer').classList.remove('hidden'));
+            (document.getElementById('cvStoredBadgeContainer-dt') && document.getElementById('cvStoredBadgeContainer-dt').classList.add('hidden'));
             cvFilesArray = []; updateCvFilesList();
             showMessage('success', 'You can now upload new CV files.');
         }
@@ -2971,7 +2969,7 @@
             document.getElementById('sb-appDate').value  = document.getElementById('appDate').value;
             document.getElementById('sb-targetPosition').value = document.getElementById('targetPosition').value;
             if (jdInputMode === 'url') document.getElementById('sbJdUrlInput').value = document.getElementById('jdUrlInput').value;
-            if (storedProfile) document.getElementById('sbAutofillHint')?.classList.remove('hidden');
+            if (storedProfile) (document.getElementById('sbAutofillHint') && document.getElementById('sbAutofillHint').classList.remove('hidden'));
         }
 
         function hideSidebar() {
@@ -3405,8 +3403,8 @@
             if (lastGeneratedLetterHtml) {
                 div.innerHTML = lastGeneratedLetterHtml;
             } else {
-                const phone = document.getElementById('phone')?.value || '';
-                const email = document.getElementById('email')?.value || '';
+                const phone = (document.getElementById('phone') && document.getElementById('phone').value) || '';
+                const email = (document.getElementById('email') && document.getElementById('email').value) || '';
                 div.innerHTML = textToHtmlWithLinks(lastGeneratedLetterText || '', phone, email);
                 lastGeneratedLetterHtml = div.innerHTML;
             }
@@ -3503,7 +3501,7 @@
         document.addEventListener('selectionchange', () => {
             const popup = document.getElementById('editLetterPopup');
             const div = document.getElementById('editLetterDiv');
-            if (!popup?.classList.contains('hidden')) {
+            if (!(popup && popup.classList.contains('hidden'))) {
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0 && div && div.contains(sel.getRangeAt(0).commonAncestorContainer)) {
                     _savedRange = sel.getRangeAt(0).cloneRange();
@@ -3782,8 +3780,8 @@
             if (lastGeneratedLetterHtml) {
                 renderHtmlToPdf(doc, lastGeneratedLetterHtml, mL, mR, mT, mB);
             } else if (lastGeneratedLetterText) {
-                const phone = document.getElementById('phone')?.value || '';
-                const email = document.getElementById('email')?.value || '';
+                const phone = (document.getElementById('phone') && document.getElementById('phone').value) || '';
+                const email = (document.getElementById('email') && document.getElementById('email').value) || '';
                 const html  = textToHtmlWithLinks(lastGeneratedLetterText, phone, email);
                 renderHtmlToPdf(doc, html, mL, mR, mT, mB);
             }
@@ -3893,7 +3891,7 @@
             const email          = document.getElementById('email').value;
             const address        = document.getElementById('address').value;
             const appDate        = document.getElementById('appDate').value;
-            const targetPosition = (document.getElementById('targetPosition')?.value || '').trim();
+            const targetPosition = ((document.getElementById('targetPosition') && document.getElementById('targetPosition').value) || '').trim();
 
             clearAllErrors();
 
@@ -3906,7 +3904,7 @@
             if (!targetPosition) { setFieldError('targetPosition', 'Position is required'); hasError = true; }
 
             if (jdInputMode === 'url') {
-                jdUrl = (document.getElementById('jdUrlInput')?.value || '').trim();
+                jdUrl = ((document.getElementById('jdUrlInput') && document.getElementById('jdUrlInput').value) || '').trim();
                 if (!jdUrl) {
                     const jdUrlInput = document.getElementById('jdUrlInput');
                     if (jdUrlInput) { jdUrlInput.classList.add('border-red-400'); jdUrlInput.classList.remove('border-gray-300'); }
@@ -6153,7 +6151,7 @@
         });
 
 
-        document.getElementById('sidebarGenerateBtn')?.addEventListener('click', () => {
+        (document.getElementById('sidebarGenerateBtn') && document.getElementById('sidebarGenerateBtn').addEventListener('click', () => {
             document.getElementById('fullName').value = document.getElementById('sb-fullName').value;
             document.getElementById('phone').value    = document.getElementById('sb-phone').value;
             document.getElementById('email').value    = document.getElementById('sb-email').value;
@@ -6163,7 +6161,7 @@
             if (jdInputMode === 'url') { const v = document.getElementById('sbJdUrlInput').value; document.getElementById('jdUrlInput').value = v; jdUrl = v.trim(); }
             hideSidebar();
             generateLetter();
-        });
+        }));
     });
 </script>
 
@@ -6364,8 +6362,8 @@ function syncDtJdMode(mode) {
 document.addEventListener('DOMContentLoaded', function() {
 
     // ── Observe mobile tab buttons to mirror desktop tab highlight
-    document.getElementById('merger-button')?.addEventListener('click', function() { setDesktopTab('merger'); });
-    document.getElementById('letter-button')?.addEventListener('click', function() { setDesktopTab('letter'); syncDesktopFromMain(); });
+    (document.getElementById('merger-button') && document.getElementById('merger-button').addEventListener('click', function() { setDesktopTab('merger'); }));
+    (document.getElementById('letter-button') && document.getElementById('letter-button').addEventListener('click', function() { setDesktopTab('letter'); syncDesktopFromMain(); }));
 
     // ── Observe pdfFilesList changes → sync desktop
     var pdfList = document.getElementById('pdfFilesList');
@@ -6380,8 +6378,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (cvBadge) new MutationObserver(syncCvListDesktop).observe(cvBadge, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
 
     // ── Observe JD toggle buttons → mirror to desktop
-    document.getElementById('jdBtnUrl')?.addEventListener('click',  function() { syncDtJdMode('url');  });
-    document.getElementById('jdBtnFile')?.addEventListener('click', function() { syncDtJdMode('file'); });
+    (document.getElementById('jdBtnUrl') && document.getElementById('jdBtnUrl').addEventListener('click',  function() { syncDtJdMode('url');  }));
+    (document.getElementById('jdBtnFile') && document.getElementById('jdBtnFile').addEventListener('click', function() { syncDtJdMode('file'); }));
 
     // ── Observe mergerProgressView → desktop merger workspace
     var mpv = document.getElementById('mergerProgressView');
