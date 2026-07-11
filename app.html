@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
     <title>CVcase — App</title>
-    <link href="/assets/fonts.css" rel="stylesheet">
-    <link href="/assets/tailwind.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes onAutoFillStart { from {} to {} }
         input:-webkit-autofill { animation-name: onAutoFillStart; animation-duration: 1ms; }
@@ -274,10 +274,10 @@
         }
         .workspace-idle svg { opacity: 0.35; }
     </style>
-    <script src="/assets/js/pdf-lib.min.js"></script>
-    <script src="/assets/js/html2canvas.min.js"></script>
-    <script src="/assets/js/jspdf.umd.min.js"></script>
-    <script src="/assets/js/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         let userId = null;
         let userBalance = 0;
@@ -340,7 +340,7 @@
         async function rasterisePdfToImageFiles(file) {
             if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
                 pdfjsLib.GlobalWorkerOptions.workerSrc =
-                    '/assets/js/pdf.worker.min.js';
+                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
             }
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
