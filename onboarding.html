@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Set up your profile — CVcase</title>
-<link href="/assets/fonts.css" rel="stylesheet">
-<script src="/assets/js/pdf-lib.min.js"></script>
-<script src="/assets/js/jspdf.umd.min.js"></script>
-<script src="/assets/js/pdf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
   :root{
@@ -285,7 +285,7 @@ function fileToBase64(file) {
 
 async function rasterisePdfToImageFiles(file) {
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/js/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
   var arrayBuffer = await file.arrayBuffer();
   var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
