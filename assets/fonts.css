@@ -1,0 +1,29 @@
+/* Self-hosted replacement for Google Fonts (Sora, DM Sans, Inter).
+   Loaded from your own domain instead of fonts.googleapis.com, so the page
+   never depends on that third-party domain being reachable.
+   Uses variable fonts — one file per family covers every weight (400-800),
+   instead of a separate file per weight. */
+
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/sora-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/dm-sans-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
