@@ -145,7 +145,10 @@ exports.handler = async (event, context) => {
             "salary": "Salary or salary range if stated, otherwise \\"Not specified\\"",
             "expireDate": "Application deadline if stated, in YYYY-MM-DD format if possible, otherwise \\"Not specified\\"",
             "shortDescription": "1-2 sentence teaser summarizing the role, shown on a job feed card",
-            "fullDescription": "The complete detail for this position — responsibilities, requirements, benefits, how to apply, everything relevant from the source, well formatted with line breaks between sections. Do not include information about OTHER positions here."
+            "fullDescription": "The complete detail for this position — responsibilities, requirements, benefits, how to apply, everything relevant from the source, well formatted with line breaks between sections. Do not include information about OTHER positions here.",
+            "applicationType": "\\"online\\" or \\"physical\\" — see rules below",
+            "applicationUrl": "If an application link/URL/email is explicitly given in the source for THIS position, extract it exactly as written. Otherwise empty string.",
+            "physicalAddress": "Only if applicationType is \\"physical\\": the office/location address stated for submitting the application in person. Otherwise empty string."
           }
         ]
       }
@@ -156,6 +159,8 @@ exports.handler = async (event, context) => {
       - Do not invent facts. If a field isn't stated in the source, use "Not specified".
       - Keep "shortDescription" genuinely short (max ~30 words) — it's a preview, not the full posting.
       - "fullDescription" should be thorough and self-contained for that specific position only.
+      - "applicationType": use "physical" ONLY when the posting explicitly requires submitting the application in person, by hand delivery, or by visiting a physical office/location to apply. Use "online" for everything else, including applying by email, an online portal/link, or when the method isn't stated at all — online is the default assumption.
+      - "applicationUrl": only extract a value if the source text literally contains a link or email address meant for applying to THIS position. Never guess or construct a URL that isn't explicitly present — leave it as an empty string if unsure. The admin will fill this in manually afterward if it's missing.
       - Return raw JSON only — no backticks, no explanation text before or after.
     `;
 
@@ -179,6 +184,14 @@ exports.handler = async (event, context) => {
         if (!structured || !structured.company || !Array.isArray(structured.positions) || structured.positions.length === 0) {
           throw new Error('AI response was missing required fields. Please try again.');
         }
+
+        // Safety defaults in case the AI omits the newer application-method fields
+        structured.positions = structured.positions.map(p => ({
+          ...p,
+          applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
+          applicationUrl:   p.applicationUrl || '',
+          physicalAddress:  p.physicalAddress || ''
+        }));
 
         return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
       } catch (err) {
