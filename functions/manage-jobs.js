@@ -43,7 +43,10 @@ function sanitizePosition(p) {
     salary:           (p.salary || 'Not specified').toString().trim(),
     expireDate:       (p.expireDate || 'Not specified').toString().trim(),
     shortDescription: (p.shortDescription || '').toString().trim(),
-    fullDescription:  (p.fullDescription || '').toString().trim()
+    fullDescription:  (p.fullDescription || '').toString().trim(),
+    applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
+    applicationUrl:   (p.applicationUrl || '').toString().trim(),
+    physicalAddress:  (p.physicalAddress || '').toString().trim()
   };
 }
 
