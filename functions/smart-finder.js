@@ -59,10 +59,12 @@ exports.handler = async (event, context) => {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
-      You are a job-matching assistant. Given an applicant's CV and a list of open
-      positions, decide which positions are a reasonable fit for this applicant.
+      You are a job-matching assistant talking directly to a job seeker. Given their
+      CV and a list of open positions, decide which positions are a reasonable fit
+      for THEM. Address them directly as "you"/"your" in every reason — never refer
+      to them in the third person (never say "the applicant" or "the candidate").
 
-      APPLICANT'S CV:
+      THEIR CV:
       """
       ${truncatedCv}
       """
@@ -74,13 +76,13 @@ exports.handler = async (event, context) => {
       - Judge fit based on qualifications, experience, and role alignment with the CV.
       - Only include positions that are a genuine, defensible match — do not include weak or unrelated matches just to fill space. It is fine to return an empty list if nothing fits well.
       - Give each included position a matchScore from 0-100 (100 = ideal fit).
-      - Give each included position a short reason (1 sentence, specific to this applicant's background, not generic).
+      - Give each included position a short reason (1 sentence, specific to their background, speaking directly to them with "you"/"your" — e.g. "Your 3 years in customer support and CRM tools line up well with this role." Never say "the applicant" or "the candidate".)
       - Sort the result by matchScore, highest first.
 
       Return ONLY valid JSON (no markdown fences, no commentary) in exactly this shape:
       {
         "matches": [
-          { "idx": 0, "matchScore": 87, "reason": "Strong match because..." }
+          { "idx": 0, "matchScore": 87, "reason": "Your experience with... makes this a strong match." }
         ]
       }
     `;
