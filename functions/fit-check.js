@@ -63,10 +63,13 @@ exports.handler = async (event, context) => {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
-      You are helping a job applicant understand whether they are a reasonable fit for
-      ONE specific job posting, by comparing their CV against the posting's requirements.
+      You are talking directly to a job applicant, helping them understand whether
+      THEY are a reasonable fit for ONE specific job posting, by comparing their CV
+      against the posting's requirements. Address them directly as "you"/"your" in
+      the reason and tip — never refer to them in the third person (never say "the
+      applicant" or "the candidate").
 
-      APPLICANT'S CV:
+      THEIR CV:
       """
       ${truncatedCv}
       """
@@ -78,11 +81,11 @@ exports.handler = async (event, context) => {
 
       HOW TO JUDGE FIT — this distinction matters a lot:
 
-      1. Treat the applicant as "fit" (verdict: "fit") when the gap is something that could
+      1. Treat them as "fit" (verdict: "fit") when the gap is something that could
          reasonably be a CV omission, or something learnable/developable on the job:
          - A specific tool, software, or soft skill mentioned in the posting but not listed
-           on the CV (e.g. "computer skills" or "Excel" not mentioned). The applicant may
-           simply have forgotten to list it, or could pick it up quickly.
+           on the CV (e.g. "computer skills" or "Excel" not mentioned). They may simply
+           have forgotten to list it, or could pick it up quickly.
          - Preferred (not mandatory) qualifications the posting lists as a "plus" or "nice
            to have" rather than a strict requirement.
          - Experience that's close to what's asked but not an exact field/title match, where
@@ -90,7 +93,7 @@ exports.handler = async (event, context) => {
          In these cases, say they ARE a fit, and briefly note the specific gap as something
          to develop, mention, or clarify — framed constructively, not as a disqualifier.
 
-      2. Treat the applicant as "not fit" (verdict: "not_fit") ONLY when there's a hard,
+      2. Treat them as "not fit" (verdict: "not_fit") ONLY when there's a hard,
          explicit, checkable requirement in the posting that the CV's own stated facts fail
          to meet — for example:
          - A minimum CGPA/GPA is stated and the CV states a lower one (e.g. posting requires
@@ -109,8 +112,8 @@ exports.handler = async (event, context) => {
       Return ONLY valid JSON (no markdown fences, no commentary) in exactly this shape:
       {
         "verdict": "fit" or "not_fit",
-        "reason": "One short sentence (max ~25 words) explaining the verdict in plain, encouraging language.",
-        "tip": "Optional: if fit but with a gap, one short sentence suggesting what to develop or mention. Empty string if not applicable or if not_fit."
+        "reason": "One short sentence (max ~25 words) explaining the verdict, speaking directly to the applicant with 'you'/'your' — e.g. 'You're a strong fit — your CV covers the core requirements even though X isn't listed.' Never say 'the applicant' or 'the candidate'.",
+        "tip": "Optional: if fit but with a gap, one short sentence speaking directly to the applicant ('you'/'your') suggesting what to develop or mention. Empty string if not applicable or if not_fit."
       }
     `;
 
