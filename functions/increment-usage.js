@@ -27,12 +27,11 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 
 // ── Plan limits ───────────────────────────────────────────────────────────────
 // -1 = unlimited
-// Free: letters are tracked separately for jobs posted on CVcase (lettersInternal)
-//       vs jobs posted outside the platform (lettersExternal).
-// Basic/Pro: letters are combined into a single monthly total (lettersTotal),
-//       counted against usageCounts.lettersInternal + usageCounts.lettersExternal.
+// All plans track letters as a single combined monthly total (lettersTotal),
+// counted against usageCounts.lettersInternal + usageCounts.lettersExternal —
+// it doesn't matter whether the job was posted on CVcase or externally.
 const PLAN_LIMITS = {
-  free:  { lettersInternal: 3,  lettersExternal: 5,  lettersTotal: null, pdfMerges: -1, cvBuilds: 0, smartFinder: false, fitTests: 0   },
+  free:  { lettersInternal: null, lettersExternal: null, lettersTotal: 8,   pdfMerges: -1, cvBuilds: 0, smartFinder: false, fitTests: 0   },
   basic: { lettersInternal: null, lettersExternal: null, lettersTotal: 35,  pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 0   },
   pro:   { lettersInternal: null, lettersExternal: null, lettersTotal: 110, pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 100 }
 };
