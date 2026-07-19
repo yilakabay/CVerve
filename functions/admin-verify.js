@@ -1,13 +1,18 @@
 // functions/admin-verify.js
 // POST body: { token, action: 'list' | 'verify' | 'reject', entries?, paymentId? }
 //
-// CHANGED IN SESSION 4:
-//   verify action now activates a plan subscription instead of crediting balance.
-//   Each entry must carry a `plan` field ('free'|'basic'|'pro').
-//   The pending_payments document stores the chosen plan; admin supplies it on verify.
-//   Legacy balance $inc is removed; $inc { balance } is no longer called.
+// Manual review path — used when a payment wasn't auto-resolved by SMS detection
+// within 30 minutes and the user clicked "Report" on it.
 //
-// Reject flow is unchanged.
+// 'verify' entries now only need { paymentId, amount } — the admin checks their
+// own bank statement/app for the real amount and enters it; the plan tier is
+// then resolved automatically using the exact same rules as receive-sms.js:
+//   < 199 ETB            → rejected, nothing activated, full refund-eligible
+//   199 ETB – 398.99 ETB → Basic activated, excess above 199 refund-eligible
+//   >= 399 ETB           → Pro activated,   excess above 399 refund-eligible
+//
+// 'reject' is for when the transaction ID itself is invalid/fake — no payment
+// was actually made, so there's nothing to refund.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -15,13 +20,14 @@ const crypto = require('crypto');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ── Plan catalogue — kept in sync with get-user.js ───────────────────────────
-const VALID_PLANS = ['free', 'basic', 'pro'];
-
-const PLAN_PRICES = { free: 0, basic: 199, pro: 399 };
-
-// Plan subscription is valid for 30 days from activation
-const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+// ── Plan tier resolution — kept identical to receive-sms.js ──────────────────
+const PLAN_PRICES = { basic: 199, pro: 399 };
+function resolvePlanTier(amount) {
+  if (amount < 199) return null;
+  if (amount < 399) return 'basic';
+  return 'pro';
+}
+const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function verifyToken(token) {
   if (!token) return false;
@@ -42,31 +48,24 @@ async function writeNotification(usersCol, userId, notification) {
   try {
     await usersCol.updateOne(
       { phoneNumber: userId },
-      { $push: { notifications: { ...notification, createdAt: new Date() } } }
+      { $push: { notifications: { id: crypto.randomUUID(), read: false, ...notification, createdAt: new Date() } } }
     );
   } catch (e) {
     console.error('writeNotification error:', e.message);
   }
 }
 
-// Activate a plan on the user document
 async function activatePlan(usersCol, userId, plan) {
   const now    = new Date();
   const expiry = new Date(now.getTime() + PLAN_DURATION_MS);
-  await usersCol.findOneAndUpdate(
+  await usersCol.updateOne(
     { phoneNumber: userId },
     {
       $set: {
         plan,
         planActivatedAt: now,
-        planExpiry:      plan === 'free' ? null : expiry,
-        // Reset usage counters to zero at the start of the new plan period
-        usageCounts: {
-          letters:     0,
-          merges:      0,
-          cvBuilds:    0,
-          periodStart: now
-        }
+        planExpiry:      expiry,
+        usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
       }
     },
     { upsert: false }
@@ -96,21 +95,18 @@ exports.handler = async (event, context) => {
     const usersCol    = db.collection('users');
 
     // ── list ──────────────────────────────────────────────────────────────────
+    // Reported (30+ min, user clicked Report) entries surface first.
     if (action === 'list') {
       const pending = await pendingCol
         .find({ status: 'pending' })
-        .sort({ submittedAt: -1 })
+        .sort({ reported: -1, submittedAt: 1 })
         .limit(100)
         .toArray();
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, pending })
-      };
+      return { statusCode: 200, body: JSON.stringify({ success: true, pending }) };
     }
 
     // ── verify ────────────────────────────────────────────────────────────────
-    // entry shape: { paymentId, amount, plan }
-    // `plan` is required: admin must select which plan to activate for this payment.
+    // entry shape: { paymentId, amount } — plan is resolved automatically from amount.
     if (action === 'verify') {
       const { entries } = body;
       if (!Array.isArray(entries) || entries.length === 0) {
@@ -122,123 +118,73 @@ exports.handler = async (event, context) => {
       for (const entry of entries) {
         const entryId  = String(entry.paymentId || '').trim().toLowerCase();
         const entryAmt = parseFloat(String(entry.amount || '').replace(/[^\d.]/g, ''));
-        const entryPlan = String(entry.plan || '').toLowerCase().trim();
 
-        // ── Validate entry fields ────────────────────────────────────────────
-        if (!entryId) {
-          results.push({ paymentId: entryId, status: 'skipped', reason: 'Empty payment ID' });
-          continue;
-        }
-        if (isNaN(entryAmt)) {
-          results.push({ paymentId: entryId, status: 'skipped', reason: 'Invalid amount' });
-          continue;
-        }
-        if (!VALID_PLANS.includes(entryPlan)) {
-          results.push({ paymentId: entryId, status: 'skipped', reason: `Invalid plan "${entryPlan}". Must be: free, basic, or pro.` });
-          continue;
-        }
+        if (!entryId) { results.push({ paymentId: entryId, status: 'skipped', reason: 'Empty payment ID' }); continue; }
+        if (isNaN(entryAmt) || entryAmt <= 0) { results.push({ paymentId: entryId, status: 'skipped', reason: 'Invalid amount' }); continue; }
 
-        // ── Verify price matches plan (soft check — admin can override) ───────
-        // We warn in the result but still allow if admin confirmed via the UI
-        const expectedPrice = PLAN_PRICES[entryPlan];
-        const priceMismatch = expectedPrice > 0 && Math.abs(entryAmt - expectedPrice) > 1;
+        const pending = await pendingCol.findOne({ paymentId: entryId, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
+        if (!pending) { results.push({ paymentId: entryId, status: 'not_found', reason: 'No pending payment found with this ID' }); continue; }
 
-        // ── Find pending payment ─────────────────────────────────────────────
-        const pending = await pendingCol.findOne(
-          { paymentId: entryId, status: 'pending' },
-          { collation: { locale: 'en', strength: 2 } }
-        );
+        const plan = resolvePlanTier(entryAmt);
 
-        if (!pending) {
-          results.push({ paymentId: entryId, status: 'not_found', reason: 'No pending payment found with this ID' });
-          continue;
-        }
-
-        if (Math.abs(pending.amount - entryAmt) > 1) {
-          results.push({
-            paymentId: entryId,
-            status:    'amount_mismatch',
-            reason:    `Submitted amount ${entryAmt} does not match recorded amount ${pending.amount}`
+        if (!plan) {
+          // Amount too low — reject, nothing activated, full refund-eligible
+          await verifiedCol.insertOne({
+            paymentId: pending.paymentId, userId: pending.userId, amount: entryAmt, plan: null,
+            status: 'rejected_low_amount', paymentMethod: pending.paymentMethod || 'unknown',
+            resolvedAt: new Date(), submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
           });
+          await pendingCol.deleteOne({ _id: pending._id });
+          await writeNotification(usersCol, pending.userId, {
+            type: 'payment_rejected', amount: entryAmt, paymentId: pending.paymentId,
+            refundEligible: true, refundAmount: entryAmt
+          });
+          results.push({ paymentId: entryId, status: 'rejected_low_amount', userId: pending.userId, amount: entryAmt });
           continue;
         }
 
-        // ── Move to verified payments ────────────────────────────────────────
-        await verifiedCol.insertOne({
-          paymentId:     pending.paymentId,
-          userId:        pending.userId,
-          amount:        pending.amount,
-          plan:          entryPlan,
-          receiverName:  pending.receiverName  || null,
-          paymentMethod: pending.paymentMethod || 'unknown',
-          verifiedAt:    new Date(),
-          submittedAt:   pending.submittedAt
-        });
+        const tierPrice = PLAN_PRICES[plan];
+        const excess     = Math.round((entryAmt - tierPrice) * 100) / 100;
 
+        await verifiedCol.insertOne({
+          paymentId: pending.paymentId, userId: pending.userId, amount: entryAmt, plan, tierPrice, excess,
+          paymentMethod: pending.paymentMethod || 'unknown', verifiedAt: new Date(),
+          submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
+        });
         await pendingCol.deleteOne({ _id: pending._id });
 
-        // ── Activate plan on user document ───────────────────────────────────
-        const planExpiry = await activatePlan(usersCol, pending.userId, entryPlan);
+        const planExpiry = await activatePlan(usersCol, pending.userId, plan);
 
-        // ── Notify user ──────────────────────────────────────────────────────
         await writeNotification(usersCol, pending.userId, {
-          type:      'plan_activated',
-          plan:      entryPlan,
-          amount:    pending.amount,
-          paymentId: pending.paymentId,
-          expiry:    entryPlan !== 'free' ? planExpiry : null,
+          type: 'plan_activated', plan, amount: entryAmt, paymentId: pending.paymentId, expiry: planExpiry,
+          refundEligible: excess > 0, refundAmount: excess > 0 ? excess : 0
         });
 
-        results.push({
-          paymentId:   entryId,
-          status:      'verified',
-          userId:      pending.userId,
-          amount:      pending.amount,
-          plan:        entryPlan,
-          planExpiry:  entryPlan !== 'free' ? planExpiry : null,
-          ...(priceMismatch ? { warning: `Amount ${entryAmt} ETB differs from standard ${entryPlan} price ${expectedPrice} ETB` } : {})
-        });
+        results.push({ paymentId: entryId, status: 'verified', userId: pending.userId, amount: entryAmt, plan, planExpiry, excess });
       }
 
       const verifiedCount = results.filter(r => r.status === 'verified').length;
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, results, verifiedCount })
-      };
+      return { statusCode: 200, body: JSON.stringify({ success: true, results, verifiedCount }) };
     }
 
     // ── reject ────────────────────────────────────────────────────────────────
+    // For invalid/fake transaction IDs — no payment actually occurred, no refund.
     if (action === 'reject') {
       const { paymentId } = body;
-      if (!paymentId) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'paymentId is required' }) };
-      }
+      if (!paymentId) return { statusCode: 400, body: JSON.stringify({ error: 'paymentId is required' }) };
 
       const pid     = String(paymentId).trim().toLowerCase();
-      const pending = await pendingCol.findOne(
-        { paymentId: pid, status: 'pending' },
-        { collation: { locale: 'en', strength: 2 } }
-      );
-
-      if (!pending) {
-        return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
-      }
+      const pending = await pendingCol.findOne({ paymentId: pid, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
+      if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
 
       await pendingCol.deleteOne({ _id: pending._id });
 
       await writeNotification(usersCol, pending.userId, {
-        type:      'payment_rejected',
-        amount:    pending.amount,
-        paymentId: pending.paymentId
+        type: 'payment_rejected', paymentId: pending.paymentId, invalidTransaction: true,
+        refundEligible: false
       });
 
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          success: true,
-          message: `Payment ${paymentId} has been rejected and removed.`
-        })
-      };
+      return { statusCode: 200, body: JSON.stringify({ success: true, message: `Payment ${paymentId} has been rejected and removed.` }) };
     }
 
     return { statusCode: 400, body: JSON.stringify({ error: 'Unknown action' }) };
