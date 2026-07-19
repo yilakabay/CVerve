@@ -1,8 +1,31 @@
+// functions/receive-sms.js
+// Receives bank SMS forwarded from the admin's Android device, extracts the
+// transaction ID and amount via Gemini, matches it to a pending payment by
+// paymentId, then resolves which plan tier that amount qualifies for:
+//   < 199 ETB            → rejected, no plan activated. Full amount is refund-eligible.
+//   199 ETB – 398.99 ETB → Basic activated. Any amount above 199 is refund-eligible.
+//   >= 399 ETB           → Pro activated.   Any amount above 399 is refund-eligible.
+//
+// The user is notified either way. If there's a refund-eligible excess (or the
+// payment was rejected outright), the notification carries enough info for the
+// app to show a "Refund" button, which lets the user submit their bank details
+// via request-refund.js for the admin to process from the Refunds tab.
+
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
+const crypto = require('crypto');
 
 const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+// ── Plan tier resolution ──────────────────────────────────────────────────────
+const PLAN_PRICES = { basic: 199, pro: 399 };
+function resolvePlanTier(amount) {
+  if (amount < 199) return null;      // too low — reject, nothing activated
+  if (amount < 399) return 'basic';
+  return 'pro';
+}
+const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // ── Allowed bank senders ──────────────────────────────────────────────────────
 const ALLOWED_SENDERS = [
@@ -48,18 +71,104 @@ async function writeNotification(usersCol, userId, notification) {
     try {
         await usersCol.updateOne(
             { phoneNumber: userId },
-            { $push: { notifications: { ...notification, createdAt: new Date() } } }
+            { $push: { notifications: { id: crypto.randomUUID(), read: false, ...notification, createdAt: new Date() } } }
         );
     } catch (e) {
         console.error('writeNotification error:', e.message);
     }
 }
 
+// Activate a plan on the user document, resetting usage counters for the new period
+async function activatePlan(usersCol, userId, plan) {
+    const now    = new Date();
+    const expiry = new Date(now.getTime() + PLAN_DURATION_MS);
+    await usersCol.updateOne(
+        { phoneNumber: userId },
+        {
+            $set: {
+                plan,
+                planActivatedAt: now,
+                planExpiry:      expiry,
+                usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
+            }
+        },
+        { upsert: false }
+    );
+    return expiry;
+}
+
+// ── Core resolution logic — shared shape with admin-verify.js's manual path ──
+async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
+    const usersCol    = db.collection('users');
+    const verifiedCol = db.collection('payments');
+    const pendingCol  = db.collection('pending_payments');
+
+    const plan = resolvePlanTier(smsAmount);
+
+    if (!plan) {
+        // ── Amount too low — reject, nothing activated, full refund-eligible ───
+        await verifiedCol.insertOne({
+            paymentId:     pending.paymentId,
+            userId:        pending.userId,
+            amount:        smsAmount,
+            plan:          null,
+            status:        'rejected_low_amount',
+            paymentMethod: pending.paymentMethod || 'unknown',
+            resolvedAt:    new Date(),
+            submittedAt:   pending.submittedAt,
+            ...extra
+        });
+        await pendingCol.deleteOne({ _id: pending._id });
+
+        await writeNotification(usersCol, pending.userId, {
+            type:           'payment_rejected',
+            amount:         smsAmount,
+            paymentId:      pending.paymentId,
+            refundEligible: true,
+            refundAmount:   smsAmount
+        });
+
+        return { status: 'rejected_low_amount', userId: pending.userId, amount: smsAmount };
+    }
+
+    // ── Plan qualifies — activate, and flag any excess above the tier price ───
+    const tierPrice = PLAN_PRICES[plan];
+    const excess     = Math.round((smsAmount - tierPrice) * 100) / 100;
+
+    await verifiedCol.insertOne({
+        paymentId:     pending.paymentId,
+        userId:        pending.userId,
+        amount:        smsAmount,
+        plan,
+        tierPrice,
+        excess,
+        paymentMethod: pending.paymentMethod || 'unknown',
+        verifiedAt:    new Date(),
+        submittedAt:   pending.submittedAt,
+        autoVerified:  true,
+        smsBody,
+        ...extra
+    });
+    await pendingCol.deleteOne({ _id: pending._id });
+
+    const planExpiry = await activatePlan(usersCol, pending.userId, plan);
+
+    await writeNotification(usersCol, pending.userId, {
+        type:           'plan_activated',
+        plan,
+        amount:         smsAmount,
+        paymentId:      pending.paymentId,
+        expiry:         planExpiry,
+        refundEligible: excess > 0,
+        refundAmount:   excess > 0 ? excess : 0
+    });
+
+    return { status: 'verified', userId: pending.userId, amount: smsAmount, plan, excess };
+}
+
 // ── Auto verify logic ─────────────────────────────────────────────────────────
 async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
     const pendingCol  = db.collection('pending_payments');
-    const verifiedCol = db.collection('payments');
-    const usersCol    = db.collection('users');
     const smsCol      = db.collection('sms_detections');
 
     const pending = await pendingCol.findOne({ paymentId, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
@@ -73,69 +182,14 @@ async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
         return { status: 'waiting' };
     }
 
-    const amountMatches = Math.abs(pending.amount - smsAmount) <= 1;
-
-    if (!amountMatches) {
-        // Flag for manual admin review
-        await smsCol.updateOne(
-            { _id: smsDocId },
-            { $set: {
-                status:         'amount_mismatch',
-                matchedUserId:  pending.userId,
-                userAmount:     pending.amount,
-                smsAmount,
-                resolvedAt:     new Date()
-            }}
-        );
-        return {
-            status:     'amount_mismatch',
-            userId:     pending.userId,
-            userAmount: pending.amount,
-            smsAmount
-        };
-    }
-
-    // ── Match found — auto verify ─────────────────────────────────────────────
-    await verifiedCol.insertOne({
-        paymentId:     pending.paymentId,
-        userId:        pending.userId,
-        amount:        pending.amount,
-        paymentMethod: pending.paymentMethod,
-        verifiedAt:    new Date(),
-        submittedAt:   pending.submittedAt,
-        autoVerified:  true,
-        smsBody
-    });
-
-    await pendingCol.deleteOne({ _id: pending._id });
-
-    await usersCol.findOneAndUpdate(
-        { phoneNumber: pending.userId },
-        { $inc: { balance: pending.amount } },
-        { upsert: false }
-    );
+    const result = await resolvePendingPayment(db, pending, smsAmount, smsBody, {});
 
     await smsCol.updateOne(
         { _id: smsDocId },
-        { $set: {
-            status:        'verified',
-            matchedUserId: pending.userId,
-            resolvedAt:    new Date()
-        }}
+        { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
     );
 
-    // ── Write verified notification to user ───────────────────────────────────
-    await writeNotification(usersCol, pending.userId, {
-        type:      'payment_verified',
-        amount:    pending.amount,
-        paymentId: pending.paymentId
-    });
-
-    return {
-        status: 'verified',
-        userId: pending.userId,
-        amount: pending.amount
-    };
+    return result;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
