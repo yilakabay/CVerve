@@ -2,9 +2,9 @@
 // Receives bank SMS forwarded from the admin's Android device, extracts the
 // transaction ID and amount via Gemini, matches it to a pending payment by
 // paymentId, then resolves which plan tier that amount qualifies for:
-//   < 199 ETB            → rejected, no plan activated. Full amount is refund-eligible.
-//   199 ETB – 398.99 ETB → Basic activated. Any amount above 199 is refund-eligible.
-//   >= 399 ETB           → Pro activated.   Any amount above 399 is refund-eligible.
+//   < 49 ETB           → rejected, no plan activated. Full amount is refund-eligible.
+//   49 ETB – 78.99 ETB → Basic activated. Any amount above 49 is refund-eligible.
+//   >= 79 ETB          → Pro activated.   Any amount above 79 is refund-eligible.
 //
 // The user is notified either way. If there's a refund-eligible excess (or the
 // payment was rejected outright), the notification carries enough info for the
@@ -19,10 +19,10 @@ const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Plan tier resolution ──────────────────────────────────────────────────────
-const PLAN_PRICES = { basic: 199, pro: 399 };
+const PLAN_PRICES = { basic: 49, pro: 79 };
 function resolvePlanTier(amount) {
-  if (amount < 199) return null;      // too low — reject, nothing activated
-  if (amount < 399) return 'basic';
+  if (amount < 49) return null;      // too low — reject, nothing activated
+  if (amount < 79) return 'basic';
   return 'pro';
 }
 const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
