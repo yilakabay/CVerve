@@ -7,9 +7,9 @@
 // 'verify' entries now only need { paymentId, amount } — the admin checks their
 // own bank statement/app for the real amount and enters it; the plan tier is
 // then resolved automatically using the exact same rules as receive-sms.js:
-//   < 199 ETB            → rejected, nothing activated, full refund-eligible
-//   199 ETB – 398.99 ETB → Basic activated, excess above 199 refund-eligible
-//   >= 399 ETB           → Pro activated,   excess above 399 refund-eligible
+//   < 49 ETB           → rejected, nothing activated, full refund-eligible
+//   49 ETB – 78.99 ETB → Basic activated, excess above 49 refund-eligible
+//   >= 79 ETB          → Pro activated,   excess above 79 refund-eligible
 //
 // 'reject' is for when the transaction ID itself is invalid/fake — no payment
 // was actually made, so there's nothing to refund.
@@ -21,10 +21,10 @@ const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Plan tier resolution — kept identical to receive-sms.js ──────────────────
-const PLAN_PRICES = { basic: 199, pro: 399 };
+const PLAN_PRICES = { basic: 49, pro: 79 };
 function resolvePlanTier(amount) {
-  if (amount < 199) return null;
-  if (amount < 399) return 'basic';
+  if (amount < 49) return null;
+  if (amount < 79) return 'basic';
   return 'pro';
 }
 const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
