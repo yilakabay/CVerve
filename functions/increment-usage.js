@@ -13,9 +13,9 @@
 //   500 { error }
 //
 // Plan limits:
-//   free:  letters=5,  pdfMerges=15, cvBuilds=0  (no CV on free)
-//   basic: letters=30, pdfMerges=∞,  cvBuilds=3
-//   pro:   letters=∞,  pdfMerges=∞,  cvBuilds=15
+//   free:  letters=8,   pdfMerges=∞, cvBuilds=0, fitTests=0   (0 ETB)
+//   basic: letters=35,  pdfMerges=∞, cvBuilds=0, fitTests=20  (49 ETB/mo)
+//   pro:   letters=100, pdfMerges=∞, cvBuilds=0, fitTests=100 (79 ETB/mo)
 //
 // "∞" is represented as -1 (unlimited).
 
@@ -32,8 +32,8 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 // it doesn't matter whether the job was posted on CVcase or externally.
 const PLAN_LIMITS = {
   free:  { lettersInternal: null, lettersExternal: null, lettersTotal: 8,   pdfMerges: -1, cvBuilds: 0, smartFinder: false, fitTests: 0   },
-  basic: { lettersInternal: null, lettersExternal: null, lettersTotal: 35,  pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 0   },
-  pro:   { lettersInternal: null, lettersExternal: null, lettersTotal: 110, pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 100 }
+  basic: { lettersInternal: null, lettersExternal: null, lettersTotal: 35,  pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 20  },
+  pro:   { lettersInternal: null, lettersExternal: null, lettersTotal: 100, pdfMerges: -1, cvBuilds: 0, smartFinder: true,  fitTests: 100 }
 };
 
 // Map incoming action name → usageCounts field name
