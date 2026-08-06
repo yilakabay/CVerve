@@ -5,9 +5,9 @@
 // The actual amount is determined automatically by receive-sms.js (SMS detection)
 // or, if that fails within 30 minutes, by an admin during manual review
 // (admin-verify.js). The plan tier is then resolved from that amount:
-//   < 199 ETB            → no plan activated, rejected (full refund offered)
-//   199 ETB – 398.99 ETB → Basic activated (any excess above 199 refund-eligible)
-//   >= 399 ETB           → Pro activated   (any excess above 399 refund-eligible)
+//   < 49 ETB           → no plan activated, rejected (full refund offered)
+//   49 ETB – 78.99 ETB → Basic activated (any excess above 49 refund-eligible)
+//   >= 79 ETB          → Pro activated   (any excess above 79 refund-eligible)
 //
 // This function's only job is to:
 //   1. Record the pending payment (paymentId + submittedAt, no amount yet).
