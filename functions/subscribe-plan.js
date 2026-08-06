@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-const PLAN_PRICES = { basic: 199, pro: 399 };
+const PLAN_PRICES = { basic: 49, pro: 79 };
 
 function verifyToken(token) {
   if (!token) return false;
