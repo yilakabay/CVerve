@@ -7,137 +7,75 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    /* ── Desktop 3-column layout ─────────────────────────────────────── */
+    body { background: #f1f5f9; font-family: 'Inter', sans-serif; }
+
+    /* ── Top bar ─────────────────────────────────────────────────────── */
+    #topBar {
+      position: sticky; top: 0; z-index: 40;
+      height: 56px; background: #ffffff; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; box-sizing: border-box;
+    }
+    #menuBtn {
+      width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s; flex-shrink: 0;
+    }
+    #menuBtn:hover { background: #f8fafc; border-color: #c7d2fe; }
+    .menu-icon-line { display: block; height: 2px; border-radius: 2px; background: #475569; transition: background 0.15s; }
+    #menuBtn:hover .menu-icon-line { background: #4f46e5; }
+
+    /* ── Sidebar (off-canvas overlay) — same component on mobile & desktop,
+         only the width/proportions differ. ─────────────────────────────── */
+    #sidebarBackdrop {
+      display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.35);
+      z-index: 9984; opacity: 0; transition: opacity 0.2s;
+    }
+    #sidebarBackdrop.open { display: block; opacity: 1; }
+
+    #adminSidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 92vw; max-width: 360px;
+      background: #ffffff; border-right: 1px solid #e2e8f0;
+      z-index: 9985; box-sizing: border-box;
+      display: flex; flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.22s cubic-bezier(.4,0,.2,1);
+    }
+    #adminSidebar.open { transform: translateX(0); }
     @media (min-width: 768px) {
-      body { background: #f1f5f9; }
-
-      #adminApp {
-        display: flex !important;
-        flex-direction: column;
-        min-height: 100vh;
-        width: 100%;
-        margin: 0; padding: 0;
-        box-sizing: border-box;
-      }
-
-      /* Top nav bar */
-      #desktopNav {
-        display: flex !important;
-        width: 100%;
-        box-sizing: border-box;
-      }
-
-      /* Full-width wrapper that holds the 3 columns */
-      #desktopLayout {
-        display: grid !important;
-        flex: 1;
-        width: 100%;
-        grid-template-columns: 300px 1fr 300px;
-        gap: 0;
-        min-height: calc(100vh - 56px);
-        box-sizing: border-box;
-      }
-
-      /* Left panel – Admin Actions */
-      #desktopLeft {
-        background: #ffffff;
-        border-right: 1px solid #e2e8f0;
-        overflow-y: auto;
-        padding: 20px 16px;
-        display: flex !important;
-        flex-direction: column;
-        gap: 14px;
-        box-sizing: border-box;
-      }
-
-      /* Center workspace – Results */
-      #desktopCenter {
-        background: #f8fafc;
-        display: flex !important;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-start;
-        padding: 32px 32px 28px;
-        min-height: 100%;
-        box-sizing: border-box;
-      }
-
-      /* Right panel – Pending Payments */
-      #desktopRight {
-        background: #ffffff;
-        border-left: 1px solid #e2e8f0;
-        overflow-y: auto;
-        padding: 20px 16px;
-        display: flex !important;
-        flex-direction: column;
-        gap: 14px;
-        box-sizing: border-box;
-      }
-
-      /* The original single-column card is hidden on desktop */
-      #mobileCard { display: none !important; }
-
-      /* Center workspace content */
-      #desktopCenter .workspace-inner {
-        width: 100%;
-        max-width: 560px;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-      }
+      #adminSidebar { width: 340px; }
     }
 
-    @media (max-width: 767px) {
-      #desktopNav    { display: none !important; }
-      #desktopLayout { display: none !important; }
-      #mobileCard    { display: block !important; }
+    .sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 16px 12px; border-bottom: 1px solid #f1f5f9; flex-shrink: 0;
     }
-
-    /* Default: hide desktop elements (mobile-first) */
-    #desktopNav    { display: none; }
-    #desktopLayout { display: none; }
-
-    /* Desktop nav bar style */
-    #desktopNav {
-      height: 56px;
-      background: #ffffff;
-      border-bottom: 1px solid #e2e8f0;
-      padding: 0 24px;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 30;
-      box-sizing: border-box;
+    .sidebar-close-btn {
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+      background: transparent; border: none; border-radius: 8px;
+      color: #94a3b8; cursor: pointer; transition: background 0.15s, color 0.15s;
     }
+    .sidebar-close-btn:hover { background: #f8fafc; color: #4f46e5; }
+    .sidebar-body { flex: 1; overflow-y: auto; padding: 14px 16px 32px; display: flex; flex-direction: column; gap: 14px; }
 
-    /* Right panel section heading */
-    .right-section-title {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #94a3b8;
-      margin-bottom: 6px;
-    }
+    /* ── Main content ────────────────────────────────────────────────── */
+    #mainContent { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
 
-    /* Workspace idle state */
-    .workspace-idle {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      gap: 12px;
-      color: #94a3b8;
-      padding: 48px 0;
-      min-height: 300px;
+    /* ── Tabs ────────────────────────────────────────────────────────── */
+    .main-tab-btn {
+      flex: 1; padding: 10px 8px; font-size: 0.82rem; font-weight: 700;
+      border-radius: 10px; transition: all 0.15s; text-align: center; position: relative;
+      color: #64748b; background: transparent;
     }
-    .workspace-idle svg { opacity: 0.35; }
+    .main-tab-btn.active { background: #fff; color: #4f46e5; box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+
+    /* ── Results modal ───────────────────────────────────────────────── */
+    #resultsModal { display: none; position: fixed; inset: 0; z-index: 9990; background: rgba(15,23,42,0.4); align-items: center; justify-content: center; padding: 16px; }
+    #resultsModal.open { display: flex; }
   </style>
 </head>
-<body class="bg-gray-100 text-gray-800 font-[Inter] min-h-screen">
+<body class="text-gray-800 min-h-screen">
 
 <!-- Toast -->
 <div id="toast" class="hidden fixed top-4 inset-x-0 flex justify-center z-50">
@@ -153,17 +91,14 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════
-     AUTH PANEL (mobile & desktop pre-login)
+     AUTH PANEL (pre-login)
 ═══════════════════════════════════════════════════════════════ -->
 <div id="authWrapper" class="min-h-screen flex items-center justify-center p-4">
   <div class="w-full max-w-lg">
-
-    <!-- Auth panel -->
     <div id="authPanel" class="bg-white rounded-2xl shadow-lg p-8">
       <h1 class="text-2xl font-bold text-indigo-600 text-center mb-1">CVcase Admin</h1>
       <p id="authSubtitle" class="text-sm text-center text-gray-500 mb-6">Payment Verification</p>
 
-      <!-- Login form -->
       <div id="loginForm">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">Admin Password</label>
@@ -176,7 +111,6 @@
         </button>
       </div>
 
-      <!-- Register form (shown only when no admin exists) -->
       <div id="registerForm" class="hidden">
         <p class="text-sm text-amber-700 bg-amber-50 rounded-lg p-3 mb-4">
           No admin account exists yet. You are the first visitor — set your admin password now.
@@ -197,7 +131,6 @@
         </button>
       </div>
     </div>
-
   </div>
 </div>
 
@@ -206,27 +139,40 @@
 ═══════════════════════════════════════════════════════════════ -->
 <div id="adminApp" class="hidden">
 
-  <!-- ── Desktop top nav ──────────────────────────────────────────── -->
-  <div id="desktopNav">
+  <!-- ── Top bar ──────────────────────────────────────────────────── -->
+  <div id="topBar">
     <div class="flex items-center gap-3">
-      <span class="text-lg font-bold text-indigo-600">CVcase Admin</span>
-      <span class="text-xs bg-indigo-100 text-indigo-600 font-semibold px-2 py-0.5 rounded-full">Dashboard</span>
+      <button id="menuBtn" onclick="toggleSidebar()" title="Menu" aria-label="Toggle menu">
+        <div style="display:flex;flex-direction:column;gap:4px;width:18px;">
+          <span class="menu-icon-line" style="width:100%;"></span>
+          <span class="menu-icon-line" style="width:65%;"></span>
+          <span class="menu-icon-line" style="width:100%;"></span>
+        </div>
+      </button>
+      <span class="text-base font-bold text-indigo-600">CVcase Admin</span>
+      <span class="hidden sm:inline text-xs bg-indigo-100 text-indigo-600 font-semibold px-2 py-0.5 rounded-full">Dashboard</span>
     </div>
     <div class="flex items-center gap-4">
-      <span id="dt-adminLabel" class="text-sm text-gray-500">Admin</span>
-      <button onclick="doLogout()"
-        class="text-sm text-gray-500 hover:text-red-500 transition-colors font-medium">
-        Logout
-      </button>
+      <span id="adminLabel" class="hidden sm:inline text-sm text-gray-500">Admin</span>
+      <button onclick="doLogout()" class="text-sm text-gray-500 hover:text-red-500 transition-colors font-medium">Logout</button>
     </div>
   </div>
 
-  <!-- ── Desktop 3-column layout ──────────────────────────────────── -->
-  <div id="desktopLayout">
+  <!-- ── Sidebar backdrop ─────────────────────────────────────────── -->
+  <div id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 
-    <!-- LEFT: Admin Actions -->
-    <div id="desktopLeft">
-      <p class="right-section-title">Admin Actions</p>
+  <!-- ── Sidebar — every admin action lives here ─────────────────────
+       Same component on mobile and desktop; only its width differs
+       (92vw on mobile, fixed 340px on desktop). ─────────────────────── -->
+  <div id="adminSidebar">
+    <div class="sidebar-header">
+      <span class="font-bold text-gray-800 text-sm">Admin Actions</span>
+      <button onclick="toggleSidebar()" class="sidebar-close-btn" title="Close menu" aria-label="Close menu">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-body">
 
       <!-- Verify Payments -->
       <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
@@ -309,7 +255,6 @@
         </button>
       </div>
 
-
       <!-- Official Announcement -->
       <div class="bg-white border border-indigo-100 rounded-xl p-4 shadow-sm">
         <h3 class="font-semibold text-gray-800 text-sm mb-1 flex items-center gap-2">
@@ -329,6 +274,7 @@
           Announce to All Users
         </button>
       </div>
+
       <!-- Sent Announcements -->
       <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
         <div class="flex items-center justify-between mb-2">
@@ -370,213 +316,68 @@
         </button>
       </div>
 
-    </div><!-- /desktopLeft -->
+    </div><!-- /sidebar-body -->
+  </div><!-- /adminSidebar -->
 
-    <!-- CENTER: Results -->
-    <div id="desktopCenter">
-      <div class="workspace-inner">
+  <!-- ── Main content — 3 tabs: Pending / Reports / SMS ──────────────── -->
+  <div id="mainContent">
 
-        <!-- Idle state -->
-        <div id="dt-idle" class="workspace-idle">
-          <svg width="64" height="64" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-          </svg>
-          <p class="text-base font-semibold text-gray-400">Results will appear here</p>
-          <p class="text-sm text-gray-300">Run an action from the left panel</p>
-        </div>
+    <div class="flex gap-1 bg-gray-200/60 rounded-xl p-1 mb-4">
+      <button id="tab-pending-btn" onclick="switchMainTab('pending')" class="main-tab-btn active">Pending</button>
+      <button id="tab-reports-btn" onclick="switchMainTab('reports')" class="main-tab-btn relative">
+        Reports
+        <span id="reports-badge" class="hidden absolute -top-1 right-1 w-4 h-4 bg-red-500 text-white text-[0.55rem] font-bold rounded-full flex items-center justify-center"></span>
+      </button>
+      <button id="tab-sms-btn" onclick="switchMainTab('sms')" class="main-tab-btn">SMS</button>
+    </div>
 
-        <!-- Results container -->
-        <div id="dt-results" class="hidden w-full">
-          <div class="flex items-center justify-between mb-4">
-            <h2 id="dt-resultsTitle" class="font-bold text-gray-700 text-base">Results</h2>
-            <button onclick="clearResults()" class="text-xs text-gray-400 hover:text-gray-600 transition-colors">✕ Clear</button>
-          </div>
-          <div id="dt-resultsBody" class="space-y-3 text-sm"></div>
-        </div>
-
+    <!-- Pending tab -->
+    <div id="tab-pending">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">Pending Payments</p>
+        <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
       </div>
-    </div><!-- /desktopCenter -->
-
-    <!-- RIGHT: Pending Payments + SMS Detections -->
-    <div id="desktopRight">
-
-      <!-- Tab buttons -->
-      <div class="flex gap-1 bg-gray-100 rounded-xl p-1 mb-2">
-        <button id="tab-pending-btn" onclick="switchRightTab('pending')"
-          class="flex-1 text-xs font-semibold py-1.5 rounded-lg bg-white text-indigo-600 shadow-sm transition-all">
-          Pending
-        </button>
-        <button id="tab-reports-btn" onclick="switchRightTab('reports')"
-          class="flex-1 text-xs font-semibold py-1.5 rounded-lg text-gray-500 transition-all hover:text-gray-700 relative">
-          Reports
-          <span id="reports-badge" class="hidden absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[0.55rem] font-bold rounded-full flex items-center justify-center"></span>
-        </button>
-        <button id="tab-sms-btn" onclick="switchRightTab('sms')"
-          class="flex-1 text-xs font-semibold py-1.5 rounded-lg text-gray-500 transition-all hover:text-gray-700">
-          SMS
-        </button>
-      </div>
-
-      <!-- Pending Payments tab -->
-      <div id="tab-pending">
-        <div class="flex items-center justify-between mb-2">
-          <p class="right-section-title">Pending Payments</p>
-          <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
-        </div>
-        <div id="pendingList-dt" class="space-y-2">
-          <p class="text-sm text-gray-400 italic">Loading…</p>
-        </div>
-      </div>
-
-      <!-- Reports tab -->
-      <div id="tab-reports" class="hidden">
-        <div class="flex items-center justify-between mb-2">
-          <p class="right-section-title">Payment Reports <span class="text-red-400">(oldest first)</span></p>
-          <button onclick="loadReports()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
-        </div>
-        <div id="reportsList-dt" class="space-y-2">
-          <p class="text-sm text-gray-400 italic">Loading…</p>
-        </div>
-      </div>
-
-      <!-- SMS Detections tab -->
-      <div id="tab-sms" class="hidden">
-        <div class="flex items-center justify-between mb-2">
-          <p class="right-section-title">SMS Detections</p>
-          <button onclick="loadSmsDetections()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
-        </div>
-        <div id="smsList-dt" class="space-y-2">
-          <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
-        </div>
-      </div>
-
-    </div><!-- /desktopRight -->
-
-  </div><!-- /desktopLayout -->
-
-  <!-- ── Mobile card (hidden on desktop) ──────────────────────────── -->
-  <div id="mobileCard" class="p-4">
-    <div class="bg-white rounded-2xl shadow-lg p-6">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-xl font-bold text-indigo-600">Admin Dashboard</h1>
-        <button onclick="doLogout()" class="text-sm text-gray-500 hover:text-red-500 transition-colors">Logout</button>
-      </div>
-
-      <!-- Pending payments list -->
-      <div class="mb-8">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold text-gray-700">Pending Payments</h2>
-          <button onclick="loadPending()" class="text-sm text-indigo-600 hover:underline">↻ Refresh</button>
-        </div>
-        <div id="pendingList" class="space-y-2 max-h-72 overflow-y-auto">
-          <p class="text-sm text-gray-400 italic">Loading…</p>
-        </div>
-      </div>
-
-      <!-- Manual verification -->
-      <div class="border-t border-gray-200 pt-6">
-        <h2 class="font-semibold text-gray-700 mb-2">Verify Payments</h2>
-        <p class="text-xs text-gray-500 mb-3">
-          Paste one payment per line: <code class="bg-gray-100 px-1 rounded">PAYMENT_ID AMOUNT</code> — enter the exact amount from your bank statement.
-          Plan is resolved automatically: &lt;49 rejected · 49–78 Basic · ≥79 Pro.
-        </p>
-        <textarea id="verifyInputMobile" rows="6" placeholder="FT1234567890 250&#10;FT0987654321,420"
-          class="w-full p-3 rounded-lg border border-gray-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none mb-3"></textarea>
-        <button onclick="doVerifyMobile()"
-          class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">
-          Verify &amp; Activate Plan
-        </button>
-      </div>
-
-      <!-- Results -->
-      <div id="verifyResults" class="hidden mt-6 border-t border-gray-200 pt-4">
-        <h3 class="font-semibold text-gray-700 mb-2">Results</h3>
-        <div id="verifyResultsBody" class="space-y-2 text-sm"></div>
-      </div>
-
-      <!-- Manual Plan Override (mobile) -->
-      <div class="border-t border-gray-200 pt-6 mt-6">
-        <h2 class="font-semibold text-gray-700 mb-1 flex items-center gap-2">
-          <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
-          Manual Plan Override
-        </h2>
-        <p class="text-xs text-gray-500 mb-3">Force-set a plan on any user (comps, corrections).</p>
-        <div class="space-y-2 mb-3">
-          <input type="text" id="overrideUserIdMob" placeholder="User phone number"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-          <select id="overridePlanMob"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-            <option value="free">Free (0 ETB)</option>
-            <option value="basic" selected>Basic (49 ETB/mo)</option>
-            <option value="pro">Pro (79 ETB/mo)</option>
-          </select>
-        </div>
-        <button onclick="doManualPlanOverrideMobile()"
-          class="w-full bg-purple-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-purple-600 transition-colors shadow-md">
-          Set Plan Now
-        </button>
-      </div>
-
-      <!-- SMS Detections (mobile) -->
-      <div class="border-t border-gray-200 pt-6 mt-6">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold text-gray-700">SMS Detections</h2>
-          <button onclick="loadSmsDetections()" class="text-sm text-indigo-600 hover:underline">↻ Refresh</button>
-        </div>
-        <div id="smsList-mob" class="space-y-2 max-h-96 overflow-y-auto">
-          <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
-        </div>
-      </div>
-
-      <!-- Announcement (mobile) -->
-      <div class="border-t border-gray-200 pt-6 mt-6">
-        <h2 class="font-semibold text-gray-700 mb-1 flex items-center gap-2">
-          <svg class="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
-          Official Announcement
-        </h2>
-        <p class="text-xs text-gray-400 mb-3">Sends to all users as a verified notification.</p>
-        <div class="space-y-2 mb-3">
-          <input type="text" id="announceTitleMob" placeholder="Title"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
-          <textarea id="announceBodyMob" rows="4" placeholder="Write your announcement…"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"></textarea>
-        </div>
-        <button onclick="doAnnounceMobile()"
-          class="w-full bg-violet-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-violet-600 transition-colors shadow-md">
-          Announce to All Users
-        </button>
-      </div>
-
-      <!-- Job Postings (mobile) -->
-      <div class="border-t border-gray-200 pt-6 mt-6">
-        <h2 class="font-semibold text-gray-700 mb-1 flex items-center gap-2">
-          <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m-6 4v8a2 2 0 002 2h16a2 2 0 002-2v-8a2 2 0 00-2-2H4a2 2 0 00-2 2z"/></svg>
-          Job Postings
-        </h2>
-        <p class="text-xs text-gray-400 mb-3">Paste a job URL or upload a description — AI structures it before you post.</p>
-        <button onclick="openJobPostModal()"
-          class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
-          + Post a Job
-        </button>
-      </div>
-
-      <!-- Refunds (mobile) -->
-      <div class="border-t border-gray-200 pt-6 mt-6">
-        <h2 class="font-semibold text-gray-700 mb-1 flex items-center gap-2">
-          <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l-4-4m0 0l4-4m-4 4h11a4 4 0 010 8h-1"/></svg>
-          Refunds
-          <span id="refundPendingBadgeMob" class="hidden ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5"></span>
-        </h2>
-        <p class="text-xs text-gray-400 mb-3">Review refund requests from rejected or overpaid transactions.</p>
-        <button onclick="openRefundsModal()"
-          class="w-full bg-red-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-red-600 transition-colors shadow-md">
-          View Refund Requests
-        </button>
+      <div id="pendingList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Loading…</p>
       </div>
     </div>
-  </div><!-- /mobileCard -->
+
+    <!-- Reports tab -->
+    <div id="tab-reports" class="hidden">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">Payment Reports <span class="text-red-400 normal-case font-medium">(oldest first)</span></p>
+        <button onclick="loadReports()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+      </div>
+      <div id="reportsList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Loading…</p>
+      </div>
+    </div>
+
+    <!-- SMS tab -->
+    <div id="tab-sms" class="hidden">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">SMS Detections</p>
+        <button onclick="loadSmsDetections()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+      </div>
+      <div id="smsList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
+      </div>
+    </div>
+
+  </div><!-- /mainContent -->
 
 </div><!-- /adminApp -->
+
+<!-- ══════════════════ Results Modal (Verify / Lookup / Balance results) ══════════════════ -->
+<div id="resultsModal">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+      <h2 id="resultsModalTitle" class="font-bold text-gray-700 text-base">Results</h2>
+      <button onclick="closeResultsModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+    <div id="resultsModalBody" class="px-5 py-4 space-y-3 text-sm"></div>
+  </div>
+</div>
 
 <!-- ══════════════════ Job Posting Modal ══════════════════ -->
 <div id="jobPostModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-3 overflow-y-auto">
@@ -727,6 +528,38 @@
     return { ok: res.ok, status: res.status, data: await res.json() };
   }
 
+  // ── Sidebar toggle ───────────────────────────────────────────────────────
+
+  function toggleSidebar() {
+    const sidebar  = document.getElementById('adminSidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const nowOpen  = !sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', nowOpen);
+    backdrop.classList.toggle('open', nowOpen);
+  }
+
+  // ── Main tab switching (Pending / Reports / SMS) ────────────────────────
+
+  function switchMainTab(tab) {
+    ['pending', 'reports', 'sms'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
+      document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === tab);
+    });
+    if (tab === 'reports') loadReports();
+    if (tab === 'sms')     loadSmsDetections();
+  }
+
+  // ── Results modal ────────────────────────────────────────────────────────
+
+  function showResultsModal(title, html) {
+    document.getElementById('resultsModalTitle').textContent = title;
+    document.getElementById('resultsModalBody').innerHTML = html;
+    document.getElementById('resultsModal').classList.add('open');
+  }
+  function closeResultsModal() {
+    document.getElementById('resultsModal').classList.remove('open');
+  }
+
   // ── Startup ──────────────────────────────────────────────────────────────
 
   async function init() {
@@ -806,7 +639,7 @@
   function showAdminApp() {
     document.getElementById('authWrapper').classList.add('hidden');
     document.getElementById('adminApp').classList.remove('hidden');
-    setBatchPlan('basic'); // initialise plan button highlight state
+    setBatchPlan('basic'); // initialise plan button highlight state (if present)
     loadPending();
     loadRefunds(); // populates the pending-refunds badge
   }
@@ -820,7 +653,7 @@
       ? `<span class="inline-block ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${storedPlan === 'pro' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'}">${storedPlan}</span>`
       : '';
     return `
-      <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+      <div class="bg-white rounded-lg p-3 border border-gray-200">
         <p class="font-mono text-xs text-indigo-700 font-semibold truncate">${p.paymentId}</p>
         <p class="text-xs text-gray-600 mt-0.5">
           User: ${p.userId} · <span class="font-semibold">${p.amount} ETB</span> · ${p.paymentMethod || '–'}
@@ -857,53 +690,37 @@
   }
 
   async function loadPending() {
-    const dtContainer = document.getElementById('pendingList-dt');
-    const mobContainer = document.getElementById('pendingList');
-    const loadHtml = '<p class="text-sm text-gray-400 italic">Loading…</p>';
-    if (dtContainer)  dtContainer.innerHTML  = loadHtml;
-    if (mobContainer) mobContainer.innerHTML = loadHtml;
+    const container = document.getElementById('pendingList');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
 
     try {
       const { ok, data } = await api('admin-verify', { token: adminToken, action: 'list' });
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        const errHtml = `<p class="text-sm text-red-500">${data.error}</p>`;
-        if (dtContainer)  dtContainer.innerHTML  = errHtml;
-        if (mobContainer) mobContainer.innerHTML = errHtml;
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error}</p>`;
         return;
       }
       const list = data.pending || [];
       if (list.length === 0) {
-        const emptyHtml = '<p class="text-sm text-gray-400 italic">No pending payments.</p>';
-        if (dtContainer)  dtContainer.innerHTML  = emptyHtml;
-        if (mobContainer) mobContainer.innerHTML = emptyHtml;
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No pending payments.</p>';
         return;
       }
-      const html = list.map(renderPendingItem).join('');
-      if (dtContainer)  dtContainer.innerHTML  = html;
-      if (mobContainer) mobContainer.innerHTML = html;
+      if (container) container.innerHTML = list.map(renderPendingItem).join('');
     } catch {
-      const errHtml = '<p class="text-sm text-red-500">Failed to load pending payments.</p>';
-      if (dtContainer)  dtContainer.innerHTML  = errHtml;
-      if (mobContainer) mobContainer.innerHTML = errHtml;
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load pending payments.</p>';
     }
   }
 
   // ── Plan selection state ──────────────────────────────────────────────────
-  // batchPlan: used for the batch textarea verify (desktop + mobile)
+  // batchPlan: used for the batch textarea verify
   // pendingPlans: map of paymentId → plan for individual card verifications
   let _batchPlan   = 'basic';
   const _pendingPlans = {};
 
   function setBatchPlan(plan) {
     _batchPlan = plan;
-    // Desktop labels
     const labelEl = document.getElementById('batchPlanLabel');
     if (labelEl) labelEl.textContent = plan;
-    // Mobile labels
-    const labelMob = document.getElementById('batchPlanLabelMob');
-    if (labelMob) labelMob.textContent = plan;
-    // Highlight selected button (desktop)
     ['basic','pro'].forEach(p => {
       const btn = document.getElementById(`batchPlan-${p}`);
       if (btn) {
@@ -913,8 +730,6 @@
         btn.classList.toggle('ring-orange-400', p === plan && plan === 'pro');
         btn.classList.toggle('opacity-40', p !== plan);
       }
-      const btnMob = document.getElementById(`batchPlan-${p}-mob`);
-      if (btnMob) btnMob.classList.toggle('opacity-40', p !== plan);
     });
   }
 
@@ -922,7 +737,6 @@
     _pendingPlans[paymentId] = plan;
     const labelEl = document.getElementById(`pp-selected-${paymentId}`);
     if (labelEl) labelEl.textContent = `Plan selected: ${plan}`;
-    // Highlight
     ['basic','pro'].forEach(p => {
       const btn = document.getElementById(`pp-${p}-${paymentId}`);
       if (btn) btn.classList.toggle('opacity-40', p !== plan);
@@ -964,7 +778,7 @@
     `).join('');
   }
 
-  // ── Desktop verify ───────────────────────────────────────────────────────
+  // ── Verify (batch textarea in sidebar) ───────────────────────────────────
 
   async function doVerify() {
     const raw = document.getElementById('verifyInput').value.trim();
@@ -981,41 +795,10 @@
         return;
       }
       const results = data.results || [];
-      showDesktopResults('Payment Verification Results', renderResultItems(results));
+      showResultsModal('Payment Verification Results', renderResultItems(results));
       const v = data.verifiedCount || 0;
       showToast(`${v} payment${v !== 1 ? 's' : ''} verified & plan activated.`, v > 0 ? 'success' : 'error');
       if (v > 0) { document.getElementById('verifyInput').value = ''; loadPending(); }
-    } catch {
-      showToast('Verification request failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ── Mobile verify ────────────────────────────────────────────────────────
-
-  async function doVerifyMobile() {
-    const raw = document.getElementById('verifyInputMobile').value.trim();
-    if (!raw) { showToast('Please paste at least one payment entry', 'error'); return; }
-    const entries = parseVerifyInput(raw);
-    if (!entries || entries.length === 0) { showToast('No valid entries found', 'error'); return; }
-
-    setLoading(true);
-    try {
-      const { ok, data } = await api('admin-verify', { token: adminToken, action: 'verify', entries });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Verification failed', 'error');
-        return;
-      }
-      const results = data.results || [];
-      const resultsDiv = document.getElementById('verifyResults');
-      const body       = document.getElementById('verifyResultsBody');
-      body.innerHTML   = renderResultItems(results);
-      resultsDiv.classList.remove('hidden');
-      const v = data.verifiedCount || 0;
-      showToast(`${v} payment${v !== 1 ? 's' : ''} verified & plan activated.`, v > 0 ? 'success' : 'error');
-      if (v > 0) { document.getElementById('verifyInputMobile').value = ''; loadPending(); }
     } catch {
       showToast('Verification request failed. Please try again.', 'error');
     } finally {
@@ -1038,7 +821,7 @@
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
         showToast(data.error || 'Balance update failed', 'error');
-        showDesktopResults('Balance Adjustment', `
+        showResultsModal('Balance Adjustment', `
           <div class="rounded-lg border p-3 bg-red-50 border-red-200 text-red-800">
             <p class="font-semibold">Failed</p>
             <p class="text-xs mt-1">${data.error || 'Balance update failed'}</p>
@@ -1047,7 +830,7 @@
         return;
       }
       showToast(`Balance ${type === 'add' ? 'added' : 'subtracted'} successfully.`, 'success');
-      showDesktopResults('Balance Adjustment', `
+      showResultsModal('Balance Adjustment', `
         <div class="rounded-lg border p-3 bg-emerald-50 border-emerald-200 text-emerald-800">
           <p class="font-semibold">✓ ${type === 'add' ? 'Added' : 'Subtracted'} ${amount} ETB</p>
           <p class="text-xs mt-1">User: ${userId}</p>
@@ -1074,7 +857,7 @@
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
         showToast(data.error || 'Lookup failed', 'error');
-        showDesktopResults('User Lookup', `
+        showResultsModal('User Lookup', `
           <div class="rounded-lg border p-3 bg-red-50 border-red-200 text-red-800">
             <p class="font-semibold">User not found</p>
             <p class="text-xs mt-1">${data.error || 'No user found with that phone number'}</p>
@@ -1089,7 +872,7 @@
       const planColors = { free: 'bg-gray-100 text-gray-600', basic: 'bg-indigo-100 text-indigo-700', pro: 'bg-orange-100 text-orange-700' };
       const planBadge = (p) => `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase ${planColors[p] || planColors.free}">${p || 'free'}</span>`;
 
-      showDesktopResults('User Lookup', `
+      showResultsModal('User Lookup', `
         <div class="rounded-xl border border-gray-200 bg-white p-4 space-y-2">
           <div class="flex items-center gap-3 mb-3">
             <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
@@ -1171,7 +954,7 @@
     }
   }
 
-  // ── Verify / Reject from Lookup ──────────────────────────────────────────
+  // ── Verify / Reject from Lookup / Pending card ──────────────────────────
 
   async function doVerifyFromLookup(paymentId, amount) {
     // Use per-card plan selection; fall back to batch plan
@@ -1199,7 +982,6 @@
         const expiry = result.planExpiry ? ` (until ${new Date(result.planExpiry).toLocaleDateString()})` : '';
         showToast(`✓ Payment verified. ${plan.toUpperCase()} plan activated${expiry}.`, 'success');
         loadPending();
-        // Re-run lookup to refresh the card
         const userId = document.getElementById('lookupUserId').value.trim();
         if (userId) doLookupUser();
       } else {
@@ -1271,47 +1053,6 @@
     }
   }
 
-  async function doManualPlanOverrideMobile() {
-    const userId = (document.getElementById('overrideUserIdMob').value || '').trim();
-    const plan   = (document.getElementById('overridePlanMob').value   || '').trim();
-    if (!userId) { showToast('Please enter a user phone number', 'error'); return; }
-    if (!['free','basic','pro'].includes(plan)) { showToast('Invalid plan selected', 'error'); return; }
-    if (!confirm(`Force-set ${plan.toUpperCase()} plan on ${userId}? This takes effect immediately.`)) return;
-
-    setLoading(true);
-    try {
-      const { ok, data } = await api('subscribe-plan', {
-        token: adminToken,
-        userId,
-        plan,
-        adminOverride: true
-      });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Plan override failed', 'error');
-        return;
-      }
-      const expiry = data.planExpiry ? ` (until ${new Date(data.planExpiry).toLocaleDateString()})` : '';
-      showToast(`✓ ${plan.toUpperCase()} plan set on ${userId}${expiry}.`, 'success');
-      document.getElementById('overrideUserIdMob').value = '';
-    } catch {
-      showToast('Plan override failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ── Right panel tab switching ─────────────────────────────────────────────
-
-  function switchRightTab(tab) {
-    const isPending = tab === 'pending';
-    document.getElementById('tab-pending').classList.toggle('hidden', !isPending);
-    document.getElementById('tab-sms').classList.toggle('hidden',     isPending);
-    document.getElementById('tab-pending-btn').className = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all ${isPending  ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
-    document.getElementById('tab-sms-btn').className     = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all ${!isPending ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
-    if (!isPending) loadSmsDetections();
-  }
-
   // ── SMS Detections ────────────────────────────────────────────────────────
 
   function renderSmsItem(s) {
@@ -1375,35 +1116,24 @@
   }
 
   async function loadSmsDetections() {
-    const dtContainer  = document.getElementById('smsList-dt');
-    const mobContainer = document.getElementById('smsList-mob');
-    const loadHtml = '<p class="text-sm text-gray-400 italic">Loading…</p>';
-    if (dtContainer)  dtContainer.innerHTML  = loadHtml;
-    if (mobContainer) mobContainer.innerHTML = loadHtml;
+    const container = document.getElementById('smsList');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
 
     try {
       const { ok, data } = await api('check-sms-detections', { token: adminToken, action: 'list' });
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        const errHtml = `<p class="text-sm text-red-500">${data.error || 'Failed to load'}</p>`;
-        if (dtContainer)  dtContainer.innerHTML  = errHtml;
-        if (mobContainer) mobContainer.innerHTML = errHtml;
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error || 'Failed to load'}</p>`;
         return;
       }
       const records = data.records || [];
       if (records.length === 0) {
-        const emptyHtml = '<p class="text-sm text-gray-400 italic">No SMS detections yet.</p>';
-        if (dtContainer)  dtContainer.innerHTML  = emptyHtml;
-        if (mobContainer) mobContainer.innerHTML = emptyHtml;
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No SMS detections yet.</p>';
         return;
       }
-      const html = records.map(renderSmsItem).join('');
-      if (dtContainer)  dtContainer.innerHTML  = html;
-      if (mobContainer) mobContainer.innerHTML = html;
+      if (container) container.innerHTML = records.map(renderSmsItem).join('');
     } catch {
-      const errHtml = '<p class="text-sm text-red-500">Failed to load SMS detections.</p>';
-      if (dtContainer)  dtContainer.innerHTML  = errHtml;
-      if (mobContainer) mobContainer.innerHTML = errHtml;
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load SMS detections.</p>';
     }
   }
 
@@ -1460,22 +1190,6 @@
       setLoading(false);
     }
   }
-
-  // ── Desktop results panel ─────────────────────────────────────────────────
-
-  function showDesktopResults(title, html) {
-    document.getElementById('dt-idle').classList.add('hidden');
-    document.getElementById('dt-results').classList.remove('hidden');
-    document.getElementById('dt-resultsTitle').textContent = title;
-    document.getElementById('dt-resultsBody').innerHTML = html;
-  }
-
-  function clearResults() {
-    document.getElementById('dt-results').classList.add('hidden');
-    document.getElementById('dt-idle').classList.remove('hidden');
-  }
-
-  // ── Init ─────────────────────────────────────────────────────────────────
 
   // ══════════════════ Job Posting ══════════════════
 
@@ -1829,12 +1543,11 @@
       if (!ok) throw new Error(data.error || 'Failed to load refunds.');
       _allRefunds = data.refunds || [];
       const pendingCount = _allRefunds.filter(r => r.status === 'pending').length;
-      ['refundPendingBadge', 'refundPendingBadgeMob'].forEach(id => {
-        const badge = document.getElementById(id);
-        if (!badge) return;
+      const badge = document.getElementById('refundPendingBadge');
+      if (badge) {
         if (pendingCount > 0) { badge.textContent = pendingCount; badge.classList.remove('hidden'); }
         else { badge.classList.add('hidden'); }
-      });
+      }
       renderRefundsList();
     } catch (err) {
       listEl.innerHTML = `<p class="text-xs text-red-500">${escapeHtml(err.message)}</p>`;
@@ -1943,7 +1656,6 @@
     loadAnnouncements();
   };
 
-
   // ── Official Announcement ─────────────────────────────────────────────────
   async function doAnnounce() {
     const title = ((document.getElementById('announceTitle') && document.getElementById('announceTitle').value) || '').trim();
@@ -1964,21 +1676,6 @@
       loadAnnouncements();
     } catch { showToast('Network error. Please try again.', 'error'); }
     finally { setLoading(false); }
-  }
-
-  async function doAnnounceMobile() {
-    const title = ((document.getElementById('announceTitleMob') && document.getElementById('announceTitleMob').value) || '').trim();
-    const body  = ((document.getElementById('announceBodyMob') && document.getElementById('announceBodyMob').value)  || '').trim();
-    if (!title) { alert('Please enter a title.'); return; }
-    if (!body)  { alert('Please enter a message body.'); return; }
-    if (!confirm(`Send this announcement to ALL users?\n\n"${title}"`)) return;
-    try {
-      const { ok, data } = await api('send-announcement', { token: adminToken, title, body });
-      if (!ok) { alert(data.error || 'Failed.'); return; }
-      alert(data.message || 'Announcement sent!');
-      document.getElementById('announceTitleMob').value = '';
-      document.getElementById('announceBodyMob').value  = '';
-    } catch { alert('Network error.'); }
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────
@@ -2019,7 +1716,7 @@
   }
 
   async function loadReports() {
-    const container = document.getElementById('reportsList-dt');
+    const container = document.getElementById('reportsList');
     if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
     try {
       const { ok, data } = await api('payment-report', { token: adminToken, action: 'list' });
@@ -2103,23 +1800,6 @@
     } catch { showToast('Error. Try again.', 'error'); }
     finally { setLoading(false); }
   }
-
-  // ── Extend switchRightTab to handle reports ───────────────────────────────
-  const _origSwitchRightTab = switchRightTab;
-  switchRightTab = function(tab) {
-    document.getElementById('tab-reports').classList.toggle('hidden', tab !== 'reports');
-    document.getElementById('tab-reports-btn').className = `flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all relative ${tab === 'reports' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
-    if (tab === 'reports') {
-      // Hide other tabs
-      document.getElementById('tab-pending').classList.add('hidden');
-      document.getElementById('tab-sms').classList.add('hidden');
-      document.getElementById('tab-pending-btn').className = 'flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all text-gray-500 hover:text-gray-700';
-      document.getElementById('tab-sms-btn').className     = 'flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all text-gray-500 hover:text-gray-700';
-      loadReports();
-    } else {
-      _origSwitchRightTab(tab);
-    }
-  };
 
   // Auto-load report count on dashboard load
   const _origShowAdminApp = showAdminApp;
