@@ -28,133 +28,22 @@
             color: var(--text);
         }
 
-        /* ── Split layout ── */
+        /* ── Single centered layout (same on mobile & desktop, proportionally
+             sized) — no split side panel. ── */
         .page {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            min-height: 100vh;
-        }
-
-        @media (max-width: 768px) {
-            .page { grid-template-columns: 1fr; }
-            .side-panel { display: none !important; }
-        }
-
-        /* ── Left decorative panel ── */
-        .side-panel {
-            background: linear-gradient(160deg, #064e3b 0%, #065f46 45%, #1e293b 100%);
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 48px;
-            position: relative;
-            overflow: hidden;
+            min-height: 100vh;
+            padding: 40px 24px;
         }
 
-        .side-panel::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
-            background-size: 24px 24px;
-        }
-
-        .side-glow {
-            position: absolute;
-            width: 360px; height: 280px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(34,197,94,0.25) 0%, transparent 70%);
-            top: -80px; left: 50%;
-            transform: translateX(-50%);
-            pointer-events: none;
-        }
-
-        .side-inner {
-            position: relative;
-            z-index: 2;
-            text-align: center;
-            max-width: 340px;
-        }
-
-        .side-logo {
-            width: 110px; height: 65px;
-            margin: 0 auto 20px;
-        }
-
-        .side-title {
-            font-family: 'Sora', sans-serif;
-            font-size: 2rem;
-            font-weight: 800;
-            color: white;
-            letter-spacing: -0.03em;
-            line-height: 1.15;
-            margin-bottom: 14px;
-        }
-
-        .side-desc {
-            font-size: 0.92rem;
-            color: rgba(255,255,255,0.55);
-            line-height: 1.7;
-            margin-bottom: 36px;
-        }
-
-        /* Plan preview cards on the side panel */
-        .plan-cards {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            text-align: left;
-            width: 100%;
-        }
-
-        .plan-card-mini {
-            background: rgba(255,255,255,0.07);
-            border: 1px solid rgba(255,255,255,0.12);
-            border-radius: 12px;
-            padding: 12px 14px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-        }
-
-        .plan-card-mini-left {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .plan-card-mini-name {
-            font-family: 'Sora', sans-serif;
-            font-size: 0.78rem;
-            font-weight: 700;
-            color: white;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-
-        .plan-card-mini-features {
-            font-size: 0.72rem;
-            color: rgba(255,255,255,0.5);
-            margin-top: 2px;
-        }
-
-        .plan-card-mini-price {
-            font-family: 'Sora', sans-serif;
-            font-size: 0.88rem;
-            font-weight: 700;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
-        /* ── Right form panel ── */
         .form-panel {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 40px 24px;
-            overflow-y: auto;
+            width: 100%;
         }
 
         .form-box {
@@ -162,17 +51,23 @@
             max-width: 400px;
         }
 
-        /* ── Mobile logo ── */
+        @media (min-width: 768px) {
+            .form-box { max-width: 440px; }
+        }
+
+        /* ── Logo ── */
         .mobile-logo {
-            display: none;
+            display: flex;
             align-items: center;
             gap: 4px;
             justify-content: center;
             margin-bottom: 32px;
         }
 
-        @media (max-width: 768px) {
-            .mobile-logo { display: flex; }
+        @media (min-width: 768px) {
+            .mobile-logo { margin-bottom: 40px; }
+            .mobile-logo svg { width: 56px; height: 33px; }
+            .mobile-logo-text { font-size: 1.65rem !important; }
         }
 
         .mobile-logo-text {
@@ -200,6 +95,11 @@
             line-height: 1.5;
         }
 
+        @media (min-width: 768px) {
+            .form-title { font-size: 1.85rem; }
+            .form-subtitle { font-size: 0.95rem; margin-bottom: 32px; }
+        }
+
         /* ── Fields ── */
         .field-group { margin-bottom: 16px; }
 
@@ -222,6 +122,10 @@
             background: white;
             transition: border-color 0.15s, box-shadow 0.15s;
             outline: none;
+        }
+
+        @media (min-width: 768px) {
+            .field-input { padding: 13px 16px; font-size: 0.95rem; }
         }
 
         .field-input:focus {
@@ -301,6 +205,10 @@
             border: none;
             transition: all 0.18s;
             text-decoration: none;
+        }
+
+        @media (min-width: 768px) {
+            .btn { padding: 14px 20px; font-size: 0.95rem; }
         }
 
         .btn-green {
@@ -541,47 +449,11 @@
 
 <div class="page">
 
-    <!-- ── Left Decorative Panel ── -->
-    <div class="side-panel">
-        <div class="side-glow"></div>
-        <div class="side-inner">
-            <!-- Logo: white fill on dark background, viewBox cropped to shape bounds -->
-            <svg class="side-logo" xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#1f2124"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#4f46e5"/></svg>
-
-            <h1 class="side-title">Start your career<br>journey free</h1>
-            <p class="side-desc">Pick the plan that fits. Upgrade any time, all from within your account.</p>
-
-            <div class="plan-cards">
-                <div class="plan-card-mini">
-                    <div class="plan-card-mini-left">
-                        <span class="plan-card-mini-name">Free</span>
-                        <span class="plan-card-mini-features">8 letters · unlimited PDF merges</span>
-                    </div>
-                    <span class="plan-card-mini-price" style="color:#22c55e;">0 ETB</span>
-                </div>
-                <div class="plan-card-mini" style="border-color:rgba(99,102,241,0.4);background:rgba(99,102,241,0.1);">
-                    <div class="plan-card-mini-left">
-                        <span class="plan-card-mini-name">Basic</span>
-                        <span class="plan-card-mini-features">35 letters · Smart job finding</span>
-                    </div>
-                    <span class="plan-card-mini-price" style="color:#a5b4fc;">199 ETB</span>
-                </div>
-                <div class="plan-card-mini">
-                    <div class="plan-card-mini-left">
-                        <span class="plan-card-mini-name">Pro</span>
-                        <span class="plan-card-mini-features">110 letters · 100 Fit/Not fit tests</span>
-                    </div>
-                    <span class="plan-card-mini-price" style="color:#fdba74;">399 ETB</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Right Form Panel ── -->
+    <!-- ── Form Panel (single, centered — same layout mobile & desktop) ── -->
     <div class="form-panel">
         <div class="form-box">
 
-            <!-- Mobile logo -->
+            <!-- Logo -->
             <div class="mobile-logo">
                 <svg width="48" height="28" xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#1f2124"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#4f46e5"/></svg>
                 <span class="mobile-logo-text">CV<span>case</span></span>
