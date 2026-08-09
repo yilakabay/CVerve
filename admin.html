@@ -295,11 +295,24 @@
       <!-- Verify Payments -->
       <div id="page-verify" class="action-page-section">
         <p class="text-sm text-gray-500 mb-3">
-          Paste one per line: <code class="bg-gray-100 px-1 rounded">PAYMENT_ID AMOUNT</code> — enter the exact amount from your bank statement.
-          The plan is resolved automatically: <strong>&lt;49</strong> rejected · <strong>49–78</strong> Basic · <strong>≥79</strong> Pro. Any excess above the tier price becomes refund-eligible for the user.
+          Paste one per line: <code class="bg-gray-100 px-1 rounded">Name, Amount</code> — read the sender's name and amount off your bank SMS or app statement (use a comma between name and amount, since names contain spaces).
+          Matching is by name + amount only — no transaction ID is used. The plan is resolved automatically: <strong>&lt;49</strong> rejected · <strong>49–78</strong> Basic · <strong>≥79</strong> Pro. Any excess above the tier price becomes refund-eligible for the user.
         </p>
-        <textarea id="verifyInput" rows="6" placeholder="FT1234567890 250&#10;FT0987654321,420"
+        <textarea id="verifyInput" rows="6" placeholder="Abebe Kebede, 250&#10;Kebede Alemu, 420"
           class="w-full p-3 rounded-lg border border-gray-200 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none mb-3 bg-white"></textarea>
+        <div class="mb-3">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Plan to activate for all lines above</p>
+          <div class="flex gap-2">
+            <button onclick="setBatchPlan('basic')" id="batchPlan-basic"
+              class="flex-1 py-2 rounded-full text-xs font-bold border border-indigo-300 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors">
+              Basic
+            </button>
+            <button onclick="setBatchPlan('pro')" id="batchPlan-pro"
+              class="flex-1 py-2 rounded-full text-xs font-bold border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors">
+              Pro
+            </button>
+          </div>
+        </div>
         <button onclick="doVerify()"
           class="w-full bg-indigo-500 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors shadow-sm">
           Verify &amp; Activate Plan
@@ -664,33 +677,34 @@
       : '';
     return `
       <div class="bg-white rounded-lg p-3 border border-gray-200">
-        <p class="font-mono text-xs text-indigo-700 font-semibold truncate">${p.paymentId}</p>
+        <p class="text-sm font-bold text-gray-800">${escapeHtml(p.senderName || 'Unknown sender')}</p>
         <p class="text-xs text-gray-600 mt-0.5">
           User: ${p.userId} · <span class="font-semibold">${p.amount} ETB</span> · ${p.paymentMethod || '–'}
           ${planBadge}
         </p>
+        ${p.transactionId ? `<p class="text-[10px] text-gray-400 font-mono mt-0.5">Txn: ${escapeHtml(p.transactionId)}</p>` : ''}
         <p class="text-xs text-gray-400">${new Date(p.submittedAt).toLocaleString()}</p>
         <!-- Inline plan selector for this payment -->
         <div class="mt-2 mb-1">
           <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Activate plan</label>
           <div class="flex gap-1 mt-0.5">
-            <button onclick="setPendingPlan('${p.paymentId}', 'basic')" id="pp-basic-${p.paymentId}"
+            <button onclick="setPendingPlan('${p.pendingId}', 'basic')" id="pp-basic-${p.pendingId}"
               class="flex-1 py-1 rounded-full text-[10px] font-bold border border-indigo-300 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors pending-plan-btn"
-              data-pid="${p.paymentId}">Basic</button>
-            <button onclick="setPendingPlan('${p.paymentId}', 'pro')" id="pp-pro-${p.paymentId}"
+              data-pid="${p.pendingId}">Basic</button>
+            <button onclick="setPendingPlan('${p.pendingId}', 'pro')" id="pp-pro-${p.pendingId}"
               class="flex-1 py-1 rounded-full text-[10px] font-bold border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors pending-plan-btn"
-              data-pid="${p.paymentId}">Pro</button>
+              data-pid="${p.pendingId}">Pro</button>
           </div>
-          <p id="pp-selected-${p.paymentId}" class="text-[10px] text-indigo-500 font-semibold mt-0.5 text-center">
+          <p id="pp-selected-${p.pendingId}" class="text-[10px] text-indigo-500 font-semibold mt-0.5 text-center">
             ${storedPlan ? 'Requested: ' + storedPlan : 'Select plan before verifying'}
           </p>
         </div>
         <div class="flex gap-2 mt-1">
-          <button onclick="doVerifyFromLookup('${p.paymentId}', ${p.amount})"
+          <button onclick="doVerifyFromLookup('${p.pendingId}')"
             class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
             ✓ Verify
           </button>
-          <button onclick="doRejectFromLookup('${p.paymentId}')"
+          <button onclick="doRejectFromLookup('${p.pendingId}')"
             class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
             ✕ Reject
           </button>
@@ -760,27 +774,31 @@
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      const parts = trimmed.includes(',') ? trimmed.split(',') : trimmed.split(/\s+/);
-      if (parts.length < 2) { showToast(`Could not parse line: "${trimmed}"`, 'error'); return null; }
-      entries.push({ paymentId: parts[0].trim(), amount: parts[1].trim(), plan: _batchPlan });
+      // Names contain spaces, so split on the LAST comma only: "Name, Amount"
+      const commaIdx = trimmed.lastIndexOf(',');
+      if (commaIdx === -1) { showToast(`Could not parse line: "${trimmed}" — use "Name, Amount"`, 'error'); return null; }
+      const name   = trimmed.substring(0, commaIdx).trim();
+      const amount = trimmed.substring(commaIdx + 1).trim();
+      if (!name || !amount) { showToast(`Could not parse line: "${trimmed}" — use "Name, Amount"`, 'error'); return null; }
+      entries.push({ name, amount, plan: _batchPlan });
     }
     return entries;
   }
 
   const statusStyles = {
-    verified:        'bg-emerald-50 border-emerald-200 text-emerald-800',
-    not_found:       'bg-red-50 border-red-200 text-red-800',
-    amount_mismatch: 'bg-amber-50 border-amber-200 text-amber-800',
-    skipped:         'bg-gray-50 border-gray-200 text-gray-600',
+    verified:  'bg-emerald-50 border-emerald-200 text-emerald-800',
+    not_found: 'bg-red-50 border-red-200 text-red-800',
+    ambiguous: 'bg-amber-50 border-amber-200 text-amber-800',
+    skipped:   'bg-gray-50 border-gray-200 text-gray-600',
   };
 
   function renderResultItems(results) {
     return results.map(r => `
       <div class="rounded-lg border p-3 ${statusStyles[r.status] || statusStyles.skipped}">
-        <span class="font-mono font-semibold">${r.paymentId || '–'}</span>
+        <span class="font-semibold">${r.name || '–'}</span>
         <span class="ml-2 font-semibold capitalize">${r.status.replace('_', ' ')}</span>
         ${r.plan   ? `<span class="ml-1 text-xs font-bold uppercase">[${r.plan}]</span>` : ''}
-        ${r.amount ? `<span class="ml-1 text-xs">(${r.amount} ETB → ${r.userId})</span>` : ''}
+        ${r.amount ? `<span class="ml-1 text-xs">(${r.amount} ETB${r.userId ? ' → ' + r.userId : ''})</span>` : ''}
         ${r.planExpiry ? `<p class="text-xs mt-0.5 opacity-70">Valid until: ${new Date(r.planExpiry).toLocaleDateString()}</p>` : ''}
         ${r.warning ? `<p class="text-xs mt-1 opacity-80 font-semibold">⚠ ${r.warning}</p>` : ''}
         ${r.reason  ? `<p class="text-xs mt-1 opacity-80">${r.reason}</p>` : ''}
@@ -877,9 +895,8 @@
           ${pp
             ? `<div class="mt-3 pt-3 border-t border-amber-200 bg-amber-50 rounded-lg p-3 space-y-1">
                 <p class="text-xs font-bold text-amber-700 uppercase tracking-wide">⏳ Pending Payment</p>
-                <div class="flex justify-between text-xs"><span class="text-amber-600">Transaction ID</span><span class="font-mono font-semibold text-amber-800">${pp.paymentId}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Sender Name</span><span class="font-semibold text-amber-800">${escapeHtml(pp.senderName || '–')}</span></div>
                 <div class="flex justify-between text-xs"><span class="text-amber-600">Amount</span><span class="font-semibold text-amber-800">${pp.amount} ETB</span></div>
-                ${pp.plan ? `<div class="flex justify-between text-xs"><span class="text-amber-600">Requested Plan</span><span class="font-bold text-amber-800 uppercase">${pp.plan}</span></div>` : ''}
                 <div class="flex justify-between text-xs"><span class="text-amber-600">Method</span><span class="font-medium text-amber-800">${pp.paymentMethod || '–'}</span></div>
                 <div class="flex justify-between text-xs"><span class="text-amber-600">Submitted</span><span class="font-medium text-amber-800">${new Date(pp.submittedAt).toLocaleString()}</span></div>
 
@@ -887,26 +904,26 @@
                 <div class="pt-2">
                   <p class="text-[10px] font-bold text-amber-700 uppercase mb-1">Activate plan on verify</p>
                   <div class="flex gap-2">
-                    <button onclick="setPendingPlan('${pp.paymentId}', 'basic')" id="pp-basic-${pp.paymentId}"
+                    <button onclick="setPendingPlan('${pp.pendingId}', 'basic')" id="pp-basic-${pp.pendingId}"
                       class="flex-1 py-1 rounded-full text-xs font-bold border border-indigo-400 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors">
                       Basic
                     </button>
-                    <button onclick="setPendingPlan('${pp.paymentId}', 'pro')" id="pp-pro-${pp.paymentId}"
+                    <button onclick="setPendingPlan('${pp.pendingId}', 'pro')" id="pp-pro-${pp.pendingId}"
                       class="flex-1 py-1 rounded-full text-xs font-bold border border-orange-400 text-orange-700 bg-orange-50 hover:bg-orange-100 transition-colors">
                       Pro
                     </button>
                   </div>
-                  <p id="pp-selected-${pp.paymentId}" class="text-xs text-indigo-600 font-semibold mt-1 text-center">
-                    ${pp.plan ? 'Requested: ' + pp.plan + ' — click to override' : 'Select plan before verifying'}
+                  <p id="pp-selected-${pp.pendingId}" class="text-xs text-indigo-600 font-semibold mt-1 text-center">
+                    Select plan before verifying
                   </p>
                 </div>
 
                 <div class="flex gap-2 mt-2">
-                  <button onclick="doVerifyFromLookup('${pp.paymentId}', ${pp.amount})"
+                  <button onclick="doVerifyFromLookup('${pp.pendingId}')"
                     class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
                     ✓ Verify &amp; Activate
                   </button>
-                  <button onclick="doRejectFromLookup('${pp.paymentId}')"
+                  <button onclick="doRejectFromLookup('${pp.pendingId}')"
                     class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
                     ✕ Reject
                   </button>
@@ -925,37 +942,33 @@
 
   // ── Verify / Reject from Lookup / Pending card ──────────────────────────
 
-  async function doVerifyFromLookup(paymentId, amount) {
+  async function doVerifyFromLookup(pendingId) {
     // Use per-card plan selection; fall back to batch plan
-    const plan = _pendingPlans[paymentId] || _batchPlan;
+    const plan = _pendingPlans[pendingId] || _batchPlan;
     if (!plan) {
       showToast('Please select a plan (Basic or Pro) before verifying.', 'error');
       return;
     }
-    if (!confirm(`Activate ${plan.toUpperCase()} plan for this payment (${amount} ETB)? This cannot be undone.`)) return;
+    if (!confirm(`Activate ${plan.toUpperCase()} plan for this payment? This cannot be undone.`)) return;
 
     setLoading(true);
     try {
       const { ok, data } = await api('admin-verify', {
         token: adminToken,
-        action: 'verify',
-        entries: [{ paymentId, amount, plan }]
+        action: 'verify-one',
+        pendingId,
+        plan
       });
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
         showToast(data.error || 'Verification failed', 'error');
         return;
       }
-      const result = (data.results || [])[0];
-      if (result && result.status === 'verified') {
-        const expiry = result.planExpiry ? ` (until ${new Date(result.planExpiry).toLocaleDateString()})` : '';
-        showToast(`✓ Payment verified. ${plan.toUpperCase()} plan activated${expiry}.`, 'success');
-        loadPending();
-        const userId = document.getElementById('lookupUserId').value.trim();
-        if (userId) doLookupUser();
-      } else {
-        showToast((result && result.reason) || 'Verification failed', 'error');
-      }
+      const expiry = data.planExpiry ? ` (until ${new Date(data.planExpiry).toLocaleDateString()})` : '';
+      showToast(`✓ Payment verified. ${plan.toUpperCase()} plan activated${expiry}.`, 'success');
+      loadPending();
+      const userId = document.getElementById('lookupUserId').value.trim();
+      if (userId) doLookupUser();
     } catch {
       showToast('Verification failed. Please try again.', 'error');
     } finally {
@@ -963,21 +976,21 @@
     }
   }
 
-  async function doRejectFromLookup(paymentId) {
-    if (!confirm(`Reject payment ${paymentId}? This will delete it and the user will need to resubmit.`)) return;
+  async function doRejectFromLookup(pendingId) {
+    if (!confirm(`Reject this payment? This will delete it and the user will need to resubmit.`)) return;
     setLoading(true);
     try {
       const { ok, data } = await api('admin-verify', {
         token: adminToken,
         action: 'reject',
-        paymentId
+        pendingId
       });
       if (!ok) {
         if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
         showToast(data.error || 'Rejection failed', 'error');
         return;
       }
-      showToast(`Payment ${paymentId} rejected.`, 'success');
+      showToast(`Payment rejected.`, 'success');
       loadPending();
       const userId = document.getElementById('lookupUserId').value.trim();
       if (userId) doLookupUser();
@@ -1026,44 +1039,17 @@
 
   function renderSmsItem(s) {
     const statusConfig = {
-      verified:        { bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: '✓ Verified' },
-      waiting:         { bg: 'bg-blue-50 border-blue-200',       badge: 'bg-blue-100 text-blue-700',       label: '⏳ Waiting' },
-      amount_mismatch: { bg: 'bg-amber-50 border-amber-200',     badge: 'bg-amber-100 text-amber-700',     label: '⚠ Mismatch' },
-      unreadable:      { bg: 'bg-gray-50 border-gray-200',       badge: 'bg-gray-100 text-gray-500',       label: '✗ Unreadable' },
-      extracted:       { bg: 'bg-indigo-50 border-indigo-200',   badge: 'bg-indigo-100 text-indigo-700',   label: '🔍 Extracted' },
+      verified:            { bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: '✓ Verified' },
+      rejected_low_amount: { bg: 'bg-red-50 border-red-200',         badge: 'bg-red-100 text-red-700',         label: '✕ Rejected (low amount)' },
+      waiting:             { bg: 'bg-blue-50 border-blue-200',       badge: 'bg-blue-100 text-blue-700',       label: '⏳ Waiting for matching payment' },
+      ambiguous:           { bg: 'bg-amber-50 border-amber-200',     badge: 'bg-amber-100 text-amber-700',     label: '⚠ Multiple possible matches' },
+      unreadable:          { bg: 'bg-gray-50 border-gray-200',       badge: 'bg-gray-100 text-gray-500',       label: '✗ Unreadable' },
+      extracted:           { bg: 'bg-indigo-50 border-indigo-200',   badge: 'bg-indigo-100 text-indigo-700',   label: '🔍 Extracted' },
     };
     const cfg = statusConfig[s.status] || statusConfig.unreadable;
     const date = new Date(s.createdAt || s.receivedAt).toLocaleString();
 
-    const mismatchButtons = s.status === 'amount_mismatch' ? `
-      <div class="mt-2 p-2 bg-white rounded-lg border border-amber-200">
-        <p class="text-xs text-amber-700 font-semibold mb-1">Amount mismatch — manual review needed</p>
-        <p class="text-xs text-amber-600 mb-2">SMS amount: <strong>${s.smsAmount || s.amount} ETB</strong> · User submitted: <strong>${s.userAmount} ETB</strong></p>
-        <div class="mb-2">
-          <p class="text-[10px] font-bold text-amber-700 uppercase mb-1">Plan to activate on verify</p>
-          <div class="flex gap-1">
-            <button onclick="setPendingPlan('${s.paymentId}', 'basic')" id="pp-basic-${s.paymentId}"
-              class="flex-1 py-1 rounded-full text-[10px] font-bold border border-indigo-300 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors">
-              Basic
-            </button>
-            <button onclick="setPendingPlan('${s.paymentId}', 'pro')" id="pp-pro-${s.paymentId}"
-              class="flex-1 py-1 rounded-full text-[10px] font-bold border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors">
-              Pro
-            </button>
-          </div>
-          <p id="pp-selected-${s.paymentId}" class="text-[10px] text-indigo-500 font-semibold mt-0.5 text-center">Select plan before verifying</p>
-        </div>
-        <div class="flex gap-2">
-          <button onclick="smsManualVerify('${s.paymentId}', ${s.userAmount}, '${s._id}')"
-            class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
-            ✓ Verify Anyway
-          </button>
-          <button onclick="smsManualReject('${s.paymentId}', '${s._id}')"
-            class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
-            ✕ Reject
-          </button>
-        </div>
-      </div>` : '';
+    const needsReview = s.status === 'waiting' || s.status === 'ambiguous';
 
     return `
       <div class="rounded-lg border p-3 ${cfg.bg}">
@@ -1072,14 +1058,14 @@
           <span class="text-xs text-gray-400">${date}</span>
         </div>
         <p class="text-xs text-gray-500 mb-1">From: <strong>${s.sender || '–'}</strong></p>
-        ${s.paymentId ? `<p class="font-mono text-xs font-semibold text-gray-700 truncate">ID: ${s.paymentId}</p>` : ''}
+        ${s.senderName ? `<p class="text-xs text-gray-700 font-semibold">${escapeHtml(s.senderName)}</p>` : ''}
         ${s.amount    ? `<p class="text-xs text-gray-600">Amount: <strong>${s.amount} ETB</strong></p>` : ''}
         ${s.matchedUserId ? `<p class="text-xs text-gray-500">User: ${s.matchedUserId}</p>` : ''}
         <details class="mt-1">
           <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">View SMS text</summary>
           <p class="text-xs text-gray-500 mt-1 bg-white rounded p-2 border border-gray-200 break-words">${s.smsBody || '–'}</p>
         </details>
-        ${mismatchButtons}
+        ${needsReview ? `<p class="text-xs text-amber-600 mt-2 font-medium">No confident single match yet — resolve from the Verify Payments page using this name and amount.</p>` : ''}
       </div>
     `;
   }
@@ -1103,60 +1089,6 @@
       if (container) container.innerHTML = records.map(renderSmsItem).join('');
     } catch {
       if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load SMS detections.</p>';
-    }
-  }
-
-  async function smsManualVerify(paymentId, amount, smsId) {
-    const plan = _pendingPlans[paymentId] || _batchPlan;
-    if (!plan) {
-      showToast('Please select a plan (Basic or Pro) before verifying.', 'error');
-      return;
-    }
-    if (!confirm(`Verify payment ${paymentId} for ${amount} ETB despite amount mismatch? Will activate ${plan.toUpperCase()} plan.`)) return;
-    setLoading(true);
-    try {
-      const { ok, data } = await api('admin-verify', {
-        token: adminToken, action: 'verify',
-        entries: [{ paymentId, amount, plan }]
-      });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Verification failed', 'error'); return;
-      }
-      const result = (data.results || [])[0];
-      if (result && result.status === 'verified') {
-        const expiry = result.planExpiry ? ` (until ${new Date(result.planExpiry).toLocaleDateString()})` : '';
-        showToast(`✓ Payment verified. ${plan.toUpperCase()} plan activated${expiry}.`, 'success');
-        loadPending();
-        loadSmsDetections();
-      } else {
-        showToast((result && result.reason) || 'Verification failed', 'error');
-      }
-    } catch {
-      showToast('Verification failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function smsManualReject(paymentId, smsId) {
-    if (!confirm(`Reject payment ${paymentId}?`)) return;
-    setLoading(true);
-    try {
-      const { ok, data } = await api('admin-verify', {
-        token: adminToken, action: 'reject', paymentId
-      });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Rejection failed', 'error'); return;
-      }
-      showToast(`Payment ${paymentId} rejected.`, 'success');
-      loadPending();
-      loadSmsDetections();
-    } catch {
-      showToast('Rejection failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
     }
   }
 
