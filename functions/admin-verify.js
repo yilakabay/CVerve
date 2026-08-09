@@ -1,20 +1,20 @@
 // functions/admin-verify.js
-// POST body: { token, action: 'list' | 'verify' | 'reject', entries?, paymentId? }
+// POST body: { token, action: 'list' | 'verify' | 'reject', entries?, pendingId? }
 //
 // Manual review path — used when a payment wasn't auto-resolved by SMS detection
 // within 30 minutes and the user clicked "Report" on it.
 //
-// 'verify' entries now only need { paymentId, amount } — the admin checks their
-// own bank statement/app for the real amount and enters it; the plan tier is
-// then resolved automatically using the exact same rules as receive-sms.js:
-//   < 49 ETB           → rejected, nothing activated, full refund-eligible
-//   49 ETB – 78.99 ETB → Basic activated, excess above 49 refund-eligible
-//   >= 79 ETB          → Pro activated,   excess above 79 refund-eligible
+// 'verify' entries are { name, amount } — the admin reads the sender's name and
+// amount off their own bank SMS/app and types them in; the matching pending
+// payment is found by exact amount + fuzzy name match (same rule as the
+// automatic SMS path in receive-sms.js). No transaction ID is used anywhere
+// in this matching — it never exists as a fallback.
 //
-// 'reject' is for when the transaction ID itself is invalid/fake — no payment
-// was actually made, so there's nothing to refund.
+// 'reject' takes a pendingId (the pending record's Mongo _id) rather than a
+// transaction ID, since a screenshot may not have shown one.
 
 const { MongoClient } = require('mongodb');
+const { ObjectId } = require('mongodb');
 const crypto = require('crypto');
 
 const uri    = process.env.MONGODB_URI;
@@ -22,12 +22,26 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 
 // ── Plan tier resolution — kept identical to receive-sms.js ──────────────────
 const PLAN_PRICES = { basic: 49, pro: 79 };
-function resolvePlanTier(amount) {
-  if (amount < 49) return null;
-  if (amount < 79) return 'basic';
-  return 'pro';
-}
 const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// ── Name matching — identical rule to receive-sms.js ──────────────────────────
+function normalizeNameTokens(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+function nameSimilarity(a, b) {
+  const tokensA = normalizeNameTokens(a);
+  const tokensB = normalizeNameTokens(b);
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+  const setB = new Set(tokensB);
+  const overlap = tokensA.filter(t => setB.has(t)).length;
+  const smaller = Math.min(tokensA.length, tokensB.length);
+  return overlap / smaller;
+}
+const NAME_MATCH_THRESHOLD = 0.5;
 
 function verifyToken(token) {
   if (!token) return false;
@@ -97,16 +111,28 @@ exports.handler = async (event, context) => {
     // ── list ──────────────────────────────────────────────────────────────────
     // Reported (30+ min, user clicked Report) entries surface first.
     if (action === 'list') {
-      const pending = await pendingCol
+      const pendingDocs = await pendingCol
         .find({ status: 'pending' })
         .sort({ reported: -1, submittedAt: 1 })
         .limit(100)
         .toArray();
+      const pending = pendingDocs.map(p => ({
+        pendingId:     p._id.toString(),
+        userId:        p.userId,
+        amount:        p.claimedAmount,
+        senderName:    p.claimedSenderName,
+        transactionId: p.transactionId || null,
+        paymentMethod: p.paymentMethod,
+        reported:      p.reported,
+        submittedAt:   p.submittedAt,
+        plan:          p.plan || null
+      }));
       return { statusCode: 200, body: JSON.stringify({ success: true, pending }) };
     }
 
     // ── verify ────────────────────────────────────────────────────────────────
-    // entry shape: { paymentId, amount } — plan is resolved automatically from amount.
+    // entry shape: { name, amount, plan } — matched by exact amount + fuzzy name,
+    // exactly like the automatic SMS path. No transaction ID involved anywhere.
     if (action === 'verify') {
       const { entries } = body;
       if (!Array.isArray(entries) || entries.length === 0) {
@@ -116,75 +142,113 @@ exports.handler = async (event, context) => {
       const results = [];
 
       for (const entry of entries) {
-        const entryId  = String(entry.paymentId || '').trim().toLowerCase();
-        const entryAmt = parseFloat(String(entry.amount || '').replace(/[^\d.]/g, ''));
+        const entryName = String(entry.name || '').trim();
+        const entryAmt  = parseFloat(String(entry.amount || '').replace(/[^\d.]/g, ''));
+        const entryPlan = entry.plan;
 
-        if (!entryId) { results.push({ paymentId: entryId, status: 'skipped', reason: 'Empty payment ID' }); continue; }
-        if (isNaN(entryAmt) || entryAmt <= 0) { results.push({ paymentId: entryId, status: 'skipped', reason: 'Invalid amount' }); continue; }
+        if (!entryName) { results.push({ name: entryName, status: 'skipped', reason: 'Empty name' }); continue; }
+        if (isNaN(entryAmt) || entryAmt <= 0) { results.push({ name: entryName, status: 'skipped', reason: 'Invalid amount' }); continue; }
+        if (!entryPlan || !PLAN_PRICES[entryPlan]) { results.push({ name: entryName, status: 'skipped', reason: 'No plan selected' }); continue; }
 
-        const pending = await pendingCol.findOne({ paymentId: entryId, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
-        if (!pending) { results.push({ paymentId: entryId, status: 'not_found', reason: 'No pending payment found with this ID' }); continue; }
+        const candidates = await pendingCol.find({ status: 'pending', claimedAmount: entryAmt }).toArray();
+        const scored = candidates
+          .map(c => ({ c, score: nameSimilarity(entryName, c.claimedSenderName) }))
+          .filter(x => x.score >= NAME_MATCH_THRESHOLD)
+          .sort((a, b) => b.score - a.score);
 
-        const plan = resolvePlanTier(entryAmt);
-
-        if (!plan) {
-          // Amount too low — reject, nothing activated, full refund-eligible
-          await verifiedCol.insertOne({
-            paymentId: pending.paymentId, userId: pending.userId, amount: entryAmt, plan: null,
-            status: 'rejected_low_amount', paymentMethod: pending.paymentMethod || 'unknown',
-            resolvedAt: new Date(), submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
-          });
-          await pendingCol.deleteOne({ _id: pending._id });
-          await writeNotification(usersCol, pending.userId, {
-            type: 'payment_rejected', amount: entryAmt, paymentId: pending.paymentId,
-            refundEligible: true, refundAmount: entryAmt
-          });
-          results.push({ paymentId: entryId, status: 'rejected_low_amount', userId: pending.userId, amount: entryAmt });
+        if (scored.length === 0) {
+          results.push({ name: entryName, status: 'not_found', amount: entryAmt, reason: 'No pending payment matches this name and amount' });
+          continue;
+        }
+        if (scored.length > 1 && scored[0].score === scored[1].score) {
+          results.push({ name: entryName, status: 'ambiguous', amount: entryAmt, reason: 'Multiple pending payments match this name and amount — resolve individually from the Pending tab' });
           continue;
         }
 
-        const tierPrice = PLAN_PRICES[plan];
+        const pending   = scored[0].c;
+        const tierPrice = PLAN_PRICES[entryPlan];
         const excess     = Math.round((entryAmt - tierPrice) * 100) / 100;
 
         await verifiedCol.insertOne({
-          paymentId: pending.paymentId, userId: pending.userId, amount: entryAmt, plan, tierPrice, excess,
-          paymentMethod: pending.paymentMethod || 'unknown', verifiedAt: new Date(),
-          submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
+          userId: pending.userId, amount: entryAmt, senderName: pending.claimedSenderName,
+          plan: entryPlan, tierPrice, excess,
+          paymentMethod: pending.paymentMethod || 'unknown',
+          transactionId: pending.transactionId || null,
+          verifiedAt: new Date(), submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
         });
         await pendingCol.deleteOne({ _id: pending._id });
 
-        const planExpiry = await activatePlan(usersCol, pending.userId, plan);
+        const planExpiry = await activatePlan(usersCol, pending.userId, entryPlan);
 
         await writeNotification(usersCol, pending.userId, {
-          type: 'plan_activated', plan, amount: entryAmt, paymentId: pending.paymentId, expiry: planExpiry,
+          type: 'plan_activated', plan: entryPlan, amount: entryAmt, expiry: planExpiry,
           refundEligible: excess > 0, refundAmount: excess > 0 ? excess : 0
         });
 
-        results.push({ paymentId: entryId, status: 'verified', userId: pending.userId, amount: entryAmt, plan, planExpiry, excess });
+        results.push({ name: entryName, status: 'verified', userId: pending.userId, amount: entryAmt, plan: entryPlan, planExpiry, excess });
       }
 
       const verifiedCount = results.filter(r => r.status === 'verified').length;
       return { statusCode: 200, body: JSON.stringify({ success: true, results, verifiedCount }) };
     }
 
-    // ── reject ────────────────────────────────────────────────────────────────
-    // For invalid/fake transaction IDs — no payment actually occurred, no refund.
-    if (action === 'reject') {
-      const { paymentId } = body;
-      if (!paymentId) return { statusCode: 400, body: JSON.stringify({ error: 'paymentId is required' }) };
+    // ── verify-one ────────────────────────────────────────────────────────────
+    // Used by the individual "✓ Verify" button on a specific pending card,
+    // which already knows exactly which pending record it's acting on.
+    if (action === 'verify-one') {
+      const { pendingId, plan } = body;
+      if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
+      if (!plan || !PLAN_PRICES[plan]) return { statusCode: 400, body: JSON.stringify({ error: 'A valid plan (basic or pro) is required' }) };
 
-      const pid     = String(paymentId).trim().toLowerCase();
-      const pending = await pendingCol.findOne({ paymentId: pid, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
-      if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'No pending payment found with that ID' }) };
+      let pending;
+      try { pending = await pendingCol.findOne({ _id: new ObjectId(pendingId) }); }
+      catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid pendingId' }) }; }
+      if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'Pending payment not found. It may already have been resolved.' }) };
+
+      const tierPrice = PLAN_PRICES[plan];
+      const excess     = Math.round((pending.claimedAmount - tierPrice) * 100) / 100;
+
+      await verifiedCol.insertOne({
+        userId: pending.userId, amount: pending.claimedAmount, senderName: pending.claimedSenderName,
+        plan, tierPrice, excess,
+        paymentMethod: pending.paymentMethod || 'unknown',
+        transactionId: pending.transactionId || null,
+        verifiedAt: new Date(), submittedAt: pending.submittedAt, resolvedBy: 'admin_manual'
+      });
+      await pendingCol.deleteOne({ _id: pending._id });
+
+      const planExpiry = await activatePlan(usersCol, pending.userId, plan);
+
+      await writeNotification(usersCol, pending.userId, {
+        type: 'plan_activated', plan, amount: pending.claimedAmount, expiry: planExpiry,
+        refundEligible: excess > 0, refundAmount: excess > 0 ? excess : 0
+      });
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true, userId: pending.userId, amount: pending.claimedAmount, plan, planExpiry, excess })
+      };
+    }
+
+    // ── reject ────────────────────────────────────────────────────────────────
+    // For invalid/fake payments — no payment actually occurred, no refund.
+    if (action === 'reject') {
+      const { pendingId } = body;
+      if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
+
+      let pending;
+      try { pending = await pendingCol.findOne({ _id: new ObjectId(pendingId) }); }
+      catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid pendingId' }) }; }
+      if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'Pending payment not found' }) };
 
       await pendingCol.deleteOne({ _id: pending._id });
 
       await writeNotification(usersCol, pending.userId, {
-        type: 'payment_rejected', paymentId: pending.paymentId, invalidTransaction: true,
+        type: 'payment_rejected', invalidTransaction: true,
         refundEligible: false
       });
 
-      return { statusCode: 200, body: JSON.stringify({ success: true, message: `Payment ${paymentId} has been rejected and removed.` }) };
+      return { statusCode: 200, body: JSON.stringify({ success: true, message: 'Payment has been rejected and removed.' }) };
     }
 
     return { statusCode: 400, body: JSON.stringify({ error: 'Unknown action' }) };
