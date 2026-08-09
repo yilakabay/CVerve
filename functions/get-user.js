@@ -2,13 +2,15 @@
 // POST body (normal login):  { phoneNumber, password }
 // POST body (admin lookup):  { token, userId }
 //
-// Login response now includes:
+// Login response includes:
 //   balance, plan, usageCounts, planExpiry, notifications, hasTelegram, tgUsername
 //
-// SESSION 3 CHANGES:
-//   - plan, usageCounts, planExpiry are returned alongside balance
-//   - Defaults are applied for legacy users who have no plan fields yet
-//   - No other logic changed
+// Pending payment shape (both paths) now reflects the screenshot-based flow:
+//   pendingId, amount, senderName, paymentMethod, submittedAt
+// There is no transaction ID field here — matching throughout the payment
+// system is by sender name + amount only. A transaction ID, when a screenshot
+// happened to show one, is stored purely as an anti-resubmission guard and
+// isn't surfaced in this lookup.
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -51,6 +53,18 @@ function buildPlanData(user) {
   }
 
   return { plan, planExpiry, usageCounts };
+}
+
+// Shapes a pending_payments doc into the fields callers actually need
+function shapePendingPayment(p) {
+  if (!p) return null;
+  return {
+    pendingId:     p._id.toString(),
+    amount:        p.claimedAmount,
+    senderName:    p.claimedSenderName,
+    paymentMethod: p.paymentMethod,
+    submittedAt:   p.submittedAt
+  };
 }
 
 // ── Admin token verification ──────────────────────────────────────────────────
@@ -101,7 +115,7 @@ exports.handler = async (event, context) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
       }
 
-      const pendingCol    = db.collection('pending_payments');
+      const pendingCol     = db.collection('pending_payments');
       const pendingPayment = await pendingCol.findOne({ userId, status: 'pending' });
 
       const tgCol    = db.collection('telegram_chats');
@@ -122,13 +136,7 @@ exports.handler = async (event, context) => {
             email:          user.email      || null,
             tgUsername:     tgRecord?.username || null,
             hasTelegram:    !!tgRecord,
-            pendingPayment: pendingPayment ? {
-              paymentId:     pendingPayment.paymentId,
-              amount:        pendingPayment.amount,
-              planRequested: pendingPayment.planRequested || null,
-              paymentMethod: pendingPayment.paymentMethod,
-              submittedAt:   pendingPayment.submittedAt
-            } : null
+            pendingPayment: shapePendingPayment(pendingPayment)
           }
         })
       };
@@ -175,7 +183,6 @@ exports.handler = async (event, context) => {
       title:     n.title     || '',
       body:      n.body      || '',
       amount:    n.amount    || 0,
-      paymentId: n.paymentId || '',
       reason:    n.reason    || '',
       createdAt: n.createdAt || null,
       read:      n.read === true
@@ -201,13 +208,7 @@ exports.handler = async (event, context) => {
         hasTelegram:    !!tgRecord,
         notifications,
         unreadCount,
-        pendingPayment: pendingPayment ? {
-          paymentId:     pendingPayment.paymentId,
-          amount:        pendingPayment.amount,
-          planRequested: pendingPayment.planRequested || null,
-          paymentMethod: pendingPayment.paymentMethod,
-          submittedAt:   pendingPayment.submittedAt
-        } : null
+        pendingPayment: shapePendingPayment(pendingPayment)
       })
     };
 
