@@ -206,10 +206,6 @@
     </div>
 
     <div class="sidebar-body">
-      <button class="sidebar-nav-item" onclick="openActionPage('verify')">
-        <svg class="w-4 h-4 text-indigo-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span>Verify Payments</span>
-      </button>
       <button class="sidebar-nav-item" onclick="openActionPage('override')">
         <svg class="w-4 h-4 text-purple-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
         <span>Manual Plan Override</span>
@@ -291,33 +287,6 @@
     </div>
 
     <div id="actionPageBody">
-
-      <!-- Verify Payments -->
-      <div id="page-verify" class="action-page-section">
-        <p class="text-sm text-gray-500 mb-3">
-          Paste one per line: <code class="bg-gray-100 px-1 rounded">Name, Amount</code> — read the sender's name and amount off your bank SMS or app statement (use a comma between name and amount, since names contain spaces).
-          Matching is by name + amount only — no transaction ID is used. The plan is resolved automatically: <strong>&lt;49</strong> rejected · <strong>49–78</strong> Basic · <strong>≥79</strong> Pro. Any excess above the tier price becomes refund-eligible for the user.
-        </p>
-        <textarea id="verifyInput" rows="6" placeholder="Abebe Kebede, 250&#10;Kebede Alemu, 420"
-          class="w-full p-3 rounded-lg border border-gray-200 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none mb-3 bg-white"></textarea>
-        <div class="mb-3">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Plan to activate for all lines above</p>
-          <div class="flex gap-2">
-            <button onclick="setBatchPlan('basic')" id="batchPlan-basic"
-              class="flex-1 py-2 rounded-full text-xs font-bold border border-indigo-300 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors">
-              Basic
-            </button>
-            <button onclick="setBatchPlan('pro')" id="batchPlan-pro"
-              class="flex-1 py-2 rounded-full text-xs font-bold border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors">
-              Pro
-            </button>
-          </div>
-        </div>
-        <button onclick="doVerify()"
-          class="w-full bg-indigo-500 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors shadow-sm">
-          Verify &amp; Activate Plan
-        </button>
-      </div>
 
       <!-- Manual Plan Override -->
       <div id="page-override" class="action-page-section">
@@ -533,7 +502,6 @@
   // ── Action pages (Verify / Override / Lookup / Announce / Jobs / Refunds) ──
 
   const ACTION_PAGE_TITLES = {
-    verify:   'Verify Payments',
     override: 'Manual Plan Override',
     lookup:   'Lookup User',
     announce: 'Official Announcement',
@@ -662,7 +630,6 @@
   function showAdminApp() {
     document.getElementById('authWrapper').classList.add('hidden');
     document.getElementById('adminApp').classList.remove('hidden');
-    setBatchPlan('basic'); // initialise plan button highlight state (if present)
     loadPending();
     loadRefunds(); // populates the pending-refunds badge
   }
@@ -736,26 +703,8 @@
   }
 
   // ── Plan selection state ──────────────────────────────────────────────────
-  // batchPlan: used for the batch textarea verify
-  // pendingPlans: map of paymentId → plan for individual card verifications
-  let _batchPlan   = 'basic';
+  // pendingPlans: map of pendingId → plan for individual card verifications
   const _pendingPlans = {};
-
-  function setBatchPlan(plan) {
-    _batchPlan = plan;
-    const labelEl = document.getElementById('batchPlanLabel');
-    if (labelEl) labelEl.textContent = plan;
-    ['basic','pro'].forEach(p => {
-      const btn = document.getElementById(`batchPlan-${p}`);
-      if (btn) {
-        btn.classList.toggle('ring-2', p === plan);
-        btn.classList.toggle('ring-offset-1', p === plan);
-        btn.classList.toggle('ring-indigo-400', p === plan && plan === 'basic');
-        btn.classList.toggle('ring-orange-400', p === plan && plan === 'pro');
-        btn.classList.toggle('opacity-40', p !== plan);
-      }
-    });
-  }
 
   function setPendingPlan(paymentId, plan) {
     _pendingPlans[paymentId] = plan;
@@ -765,73 +714,6 @@
       const btn = document.getElementById(`pp-${p}-${paymentId}`);
       if (btn) btn.classList.toggle('opacity-40', p !== plan);
     });
-  }
-
-  // ── Parse & verify helpers ────────────────────────────────────────────────
-
-  function parseVerifyInput(raw) {
-    const entries = [];
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Names contain spaces, so split on the LAST comma only: "Name, Amount"
-      const commaIdx = trimmed.lastIndexOf(',');
-      if (commaIdx === -1) { showToast(`Could not parse line: "${trimmed}" — use "Name, Amount"`, 'error'); return null; }
-      const name   = trimmed.substring(0, commaIdx).trim();
-      const amount = trimmed.substring(commaIdx + 1).trim();
-      if (!name || !amount) { showToast(`Could not parse line: "${trimmed}" — use "Name, Amount"`, 'error'); return null; }
-      entries.push({ name, amount, plan: _batchPlan });
-    }
-    return entries;
-  }
-
-  const statusStyles = {
-    verified:  'bg-emerald-50 border-emerald-200 text-emerald-800',
-    not_found: 'bg-red-50 border-red-200 text-red-800',
-    ambiguous: 'bg-amber-50 border-amber-200 text-amber-800',
-    skipped:   'bg-gray-50 border-gray-200 text-gray-600',
-  };
-
-  function renderResultItems(results) {
-    return results.map(r => `
-      <div class="rounded-lg border p-3 ${statusStyles[r.status] || statusStyles.skipped}">
-        <span class="font-semibold">${r.name || '–'}</span>
-        <span class="ml-2 font-semibold capitalize">${r.status.replace('_', ' ')}</span>
-        ${r.plan   ? `<span class="ml-1 text-xs font-bold uppercase">[${r.plan}]</span>` : ''}
-        ${r.amount ? `<span class="ml-1 text-xs">(${r.amount} ETB${r.userId ? ' → ' + r.userId : ''})</span>` : ''}
-        ${r.planExpiry ? `<p class="text-xs mt-0.5 opacity-70">Valid until: ${new Date(r.planExpiry).toLocaleDateString()}</p>` : ''}
-        ${r.warning ? `<p class="text-xs mt-1 opacity-80 font-semibold">⚠ ${r.warning}</p>` : ''}
-        ${r.reason  ? `<p class="text-xs mt-1 opacity-80">${r.reason}</p>` : ''}
-      </div>
-    `).join('');
-  }
-
-  // ── Verify (batch textarea on its own page) ──────────────────────────────
-
-  async function doVerify() {
-    const raw = document.getElementById('verifyInput').value.trim();
-    if (!raw) { showToast('Please paste at least one payment entry', 'error'); return; }
-    const entries = parseVerifyInput(raw);
-    if (!entries || entries.length === 0) { showToast('No valid entries found', 'error'); return; }
-
-    setLoading(true);
-    try {
-      const { ok, data } = await api('admin-verify', { token: adminToken, action: 'verify', entries });
-      if (!ok) {
-        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
-        showToast(data.error || 'Verification failed', 'error');
-        return;
-      }
-      const results = data.results || [];
-      showResultsModal('Payment Verification Results', renderResultItems(results));
-      const v = data.verifiedCount || 0;
-      showToast(`${v} payment${v !== 1 ? 's' : ''} verified & plan activated.`, v > 0 ? 'success' : 'error');
-      if (v > 0) { document.getElementById('verifyInput').value = ''; loadPending(); }
-    } catch {
-      showToast('Verification request failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
   }
 
   // ── Lookup User ───────────────────────────────────────────────────────────
@@ -943,8 +825,7 @@
   // ── Verify / Reject from Lookup / Pending card ──────────────────────────
 
   async function doVerifyFromLookup(pendingId) {
-    // Use per-card plan selection; fall back to batch plan
-    const plan = _pendingPlans[pendingId] || _batchPlan;
+    const plan = _pendingPlans[pendingId];
     if (!plan) {
       showToast('Please select a plan (Basic or Pro) before verifying.', 'error');
       return;
