@@ -1,16 +1,30 @@
 // functions/process-payment.js
-// POST body: { userId, password, paymentId, paymentMethod?, checkOnly? }
+// POST body: { userId, password, amount, senderName, transactionId?, paymentMethod?, checkOnly? }
 //
-// The user only ever submits a transaction ID — never an amount or a chosen plan.
-// The actual amount is determined automatically by receive-sms.js (SMS detection)
-// or, if that fails within 30 minutes, by an admin during manual review
-// (admin-verify.js). The plan tier is then resolved from that amount:
+// Applies uniformly to every payment method (CBE, CBEBirr, Telebirr). The
+// user uploads a payment screenshot (see extract-payment-screenshot.js),
+// which the app then confirms and submits here.
+//
+// amount + senderName are REQUIRED — they are the only fields ever used for
+// matching against the real bank SMS in receive-sms.js / admin-verify.js.
+// Matching is name + amount only, for every method, with no fallback to any
+// transaction ID.
+//
+// transactionId is OPTIONAL. When the screenshot happens to show one, it's
+// stored purely to block the user from resubmitting the exact same payment
+// again (anti-duplicate / anti-scam-resubmission) — it plays no role in
+// matching or activation. If no transaction ID is present, that's fine; the
+// payment still proceeds on amount + senderName alone.
+//
+// The plan tier is only ever resolved from the amount confirmed via SMS
+// detection (receive-sms.js) or admin review (admin-verify.js):
 //   < 49 ETB           → no plan activated, rejected (full refund offered)
 //   49 ETB – 78.99 ETB → Basic activated (any excess above 49 refund-eligible)
 //   >= 79 ETB          → Pro activated   (any excess above 79 refund-eligible)
 //
 // This function's only job is to:
-//   1. Record the pending payment (paymentId + submittedAt, no amount yet).
+//   1. Record the pending payment (amount, senderName, optional transactionId,
+//      submittedAt).
 //   2. Immediately send a "System" notification acknowledging receipt.
 //   3. Support checkOnly to let the app poll pending/resolved status and decide
 //      when to show the "Report" button (30+ minutes with no resolution).
@@ -44,7 +58,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, paymentId, paymentMethod, checkOnly } = body;
+  const { userId, password, amount, senderName, transactionId, paymentMethod, checkOnly } = body;
 
   if (!userId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId is required.' }) };
@@ -75,7 +89,9 @@ exports.handler = async (event, context) => {
         statusCode: 200,
         body: JSON.stringify({
           hasPending:      true,
-          paymentId:       pending.paymentId,
+          pendingId:       pending._id.toString(),
+          amount:          pending.claimedAmount,
+          senderName:      pending.claimedSenderName,
           submittedAt:     pending.submittedAt,
           reported:        !!pending.reported,
           canReport:       ageMs >= THIRTY_MIN_MS && !pending.reported,
@@ -85,13 +101,15 @@ exports.handler = async (event, context) => {
     }
 
     // ── Normal payment submission ──────────────────────────────────────────────
-    if (!paymentId) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Transaction ID is required.' }) };
+    const parsedAmount = Number(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'A valid amount is required.' }) };
     }
-    const trimmedPaymentId = String(paymentId).trim().toLowerCase();
-    if (!trimmedPaymentId) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Transaction ID cannot be empty.' }) };
+    const trimmedSenderName = senderName ? String(senderName).trim() : '';
+    if (!trimmedSenderName) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Sender name is required.' }) };
     }
+    const trimmedTransactionId = transactionId ? String(transactionId).trim().toLowerCase() : null;
 
     const verifiedCol = db.collection('payments');
 
@@ -104,33 +122,41 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Check for duplicate transaction ID
-    const alreadyPending  = await pendingCol.findOne({ paymentId: trimmedPaymentId }, { collation: { locale: 'en', strength: 2 } });
-    const alreadyVerified = await verifiedCol.findOne({ paymentId: trimmedPaymentId }, { collation: { locale: 'en', strength: 2 } });
-    if (alreadyPending || alreadyVerified) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'This transaction ID has already been submitted. Please do not resubmit the same transaction.' })
-      };
+    // Duplicate check — ONLY when a transaction ID is present (anti-resubmission guard)
+    if (trimmedTransactionId) {
+      const alreadyPending  = await pendingCol.findOne({ transactionId: trimmedTransactionId }, { collation: { locale: 'en', strength: 2 } });
+      const alreadyVerified = await verifiedCol.findOne({ transactionId: trimmedTransactionId }, { collation: { locale: 'en', strength: 2 } });
+      if (alreadyPending || alreadyVerified) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'This payment has already been submitted. Please do not resubmit the same payment.' })
+        };
+      }
     }
 
-    // ── Store as pending — amount is unknown until SMS detection or admin review ──
-    await pendingCol.insertOne({
-      paymentId:     trimmedPaymentId,
+    // ── Store as pending — final amount is confirmed by SMS detection or admin review ──
+    const insertResult = await pendingCol.insertOne({
       userId,
-      paymentMethod: paymentMethod || 'unknown',
-      status:        'pending',
-      reported:      false,
-      submittedAt:   new Date()
+      paymentMethod:     paymentMethod || 'unknown',
+      status:            'pending',
+      reported:          false,
+      submittedAt:       new Date(),
+      claimedAmount:     parsedAmount,
+      claimedSenderName: trimmedSenderName,
+      // Optional — present only when the screenshot happened to show one.
+      // Used solely to block resubmission of this exact payment; never used
+      // for matching against the SMS.
+      transactionId:     trimmedTransactionId
     });
 
     // ── Immediate acknowledgement notification, from "System" ──────────────────
     await writeNotification(db, userId, {
-      type:      'payment_received',
-      paymentId: trimmedPaymentId
+      type:       'payment_received',
+      pendingId:  insertResult.insertedId.toString(),
+      amount:     parsedAmount
     });
 
-    console.log(`Payment pending: ${trimmedPaymentId}, user: ${userId}`);
+    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}`);
 
     return {
       statusCode: 200,
@@ -138,7 +164,7 @@ exports.handler = async (event, context) => {
         success:    true,
         pending:    true,
         message:    'We received your payment. Our system will review and activate your plan within a few minutes.',
-        paymentId:  trimmedPaymentId
+        pendingId:  insertResult.insertedId.toString()
       })
     };
 
