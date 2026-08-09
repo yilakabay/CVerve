@@ -1,7 +1,12 @@
 // functions/receive-sms.js
-// Receives bank SMS forwarded from the admin's Android device, extracts the
-// transaction ID and amount via Gemini, matches it to a pending payment by
-// paymentId, then resolves which plan tier that amount qualifies for:
+// Receives bank/wallet SMS forwarded from the admin's Android device (CBE,
+// CBE Birr, Telebirr) and matches it against a pending payment PURELY by
+// sender name + exact amount — the same matching rule for every payment
+// method. Transaction IDs are never extracted from or matched against SMS
+// here; they play no role in this flow at all.
+//
+// Once a match is found, the plan tier is resolved from the SMS's own amount
+// (the trusted source — never the user's screenshot claim):
 //   < 49 ETB           → rejected, no plan activated. Full amount is refund-eligible.
 //   49 ETB – 78.99 ETB → Basic activated. Any amount above 49 is refund-eligible.
 //   >= 79 ETB          → Pro activated.   Any amount above 79 is refund-eligible.
@@ -40,22 +45,46 @@ function isBankSender(sender) {
     return ALLOWED_SENDERS.some(s => lower.includes(s));
 }
 
-// ── Gemini extraction ─────────────────────────────────────────────────────────
+// ── Name matching ──────────────────────────────────────────────────────────────
+// Names on SMS vs. a user's screenshot are rarely byte-identical (different
+// casing, middle names, extra spaces), so match on token overlap rather than
+// exact equality.
+function normalizeNameTokens(name) {
+    return (name || '')
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, '')
+        .split(/\s+/)
+        .filter(Boolean);
+}
+
+// Returns a 0–1 score: fraction of the shorter name's tokens found in the longer.
+function nameSimilarity(a, b) {
+    const tokensA = normalizeNameTokens(a);
+    const tokensB = normalizeNameTokens(b);
+    if (tokensA.length === 0 || tokensB.length === 0) return 0;
+    const setB = new Set(tokensB);
+    const overlap = tokensA.filter(t => setB.has(t)).length;
+    const smaller = Math.min(tokensA.length, tokensB.length);
+    return overlap / smaller;
+}
+
+const NAME_MATCH_THRESHOLD = 0.5; // at least half the shorter name's tokens must match
+
+// ── Gemini extraction — amount + sender name only, no transaction ID ─────────
 async function extractWithGemini(smsText) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel(
         { model: 'gemini-2.5-flash' },
         { apiVersion: 'v1beta' }
     );
-    const prompt = `You are a payment SMS parser for Ethiopian banks (CBE, CBEBirr, Telebirr).
-Extract the transaction/reference ID and the transferred amount from this SMS.
+    const prompt = `You are a payment SMS parser for Ethiopian banks/wallets (CBE, CBE Birr, Telebirr).
+Extract the following from this SMS:
+- amount: the money transferred in ETB (Birr), as a plain number.
+- senderName: the full name of the person who sent/transferred the money, if the SMS mentions it.
 
-Rules:
-- Transaction ID is usually labeled: Ref, Reference, Transaction ID, TxnID, FT number
-- Amount is the money transferred in ETB (Birr)
-- Reply ONLY with valid JSON, no explanation, no markdown
-- Format: {"paymentId": "FT1234567890", "amount": 500}
-- If you cannot find a value use null
+Reply ONLY with valid JSON, no explanation, no markdown.
+Format: {"amount": 500, "senderName": "Abebe Kebede"}
+Use null for any field you cannot find.
 
 SMS:
 ${smsText}`;
@@ -104,16 +133,18 @@ async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
     const pendingCol  = db.collection('pending_payments');
 
     const plan = resolvePlanTier(smsAmount);
+    const pendingIdStr = pending._id.toString();
 
     if (!plan) {
         // ── Amount too low — reject, nothing activated, full refund-eligible ───
         await verifiedCol.insertOne({
-            paymentId:     pending.paymentId,
             userId:        pending.userId,
             amount:        smsAmount,
+            senderName:    pending.claimedSenderName,
             plan:          null,
             status:        'rejected_low_amount',
             paymentMethod: pending.paymentMethod || 'unknown',
+            transactionId: pending.transactionId || null,
             resolvedAt:    new Date(),
             submittedAt:   pending.submittedAt,
             ...extra
@@ -123,7 +154,6 @@ async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
         await writeNotification(usersCol, pending.userId, {
             type:           'payment_rejected',
             amount:         smsAmount,
-            paymentId:      pending.paymentId,
             refundEligible: true,
             refundAmount:   smsAmount
         });
@@ -136,13 +166,14 @@ async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
     const excess     = Math.round((smsAmount - tierPrice) * 100) / 100;
 
     await verifiedCol.insertOne({
-        paymentId:     pending.paymentId,
         userId:        pending.userId,
         amount:        smsAmount,
+        senderName:    pending.claimedSenderName,
         plan,
         tierPrice,
         excess,
         paymentMethod: pending.paymentMethod || 'unknown',
+        transactionId: pending.transactionId || null,
         verifiedAt:    new Date(),
         submittedAt:   pending.submittedAt,
         autoVerified:  true,
@@ -157,39 +188,48 @@ async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
         type:           'plan_activated',
         plan,
         amount:         smsAmount,
-        paymentId:      pending.paymentId,
         expiry:         planExpiry,
         refundEligible: excess > 0,
         refundAmount:   excess > 0 ? excess : 0
     });
 
-    return { status: 'verified', userId: pending.userId, amount: smsAmount, plan, excess };
+    return { status: 'verified', userId: pending.userId, amount: smsAmount, plan, excess, pendingId: pendingIdStr };
 }
 
-// ── Auto verify logic ─────────────────────────────────────────────────────────
-async function tryAutoVerify(db, paymentId, smsAmount, smsBody, smsDocId) {
-    const pendingCol  = db.collection('pending_payments');
-    const smsCol      = db.collection('sms_detections');
+// ── Auto verify — name + exact amount match only, for every payment method ──
+async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
+    const pendingCol = db.collection('pending_payments');
+    const smsCol     = db.collection('sms_detections');
 
-    const pending = await pendingCol.findOne({ paymentId, status: 'pending' }, { collation: { locale: 'en', strength: 2 } });
+    const candidates = await pendingCol.find({
+        status:        'pending',
+        claimedAmount: amount
+    }).toArray();
 
-    if (!pending) {
-        // No user submitted yet — keep waiting (TTL removes after 3 days)
+    const scored = candidates
+        .map(c => ({ c, score: nameSimilarity(senderName, c.claimedSenderName) }))
+        .filter(x => x.score >= NAME_MATCH_THRESHOLD)
+        .sort((a, b) => b.score - a.score);
+
+    // Only auto-resolve when there's a single clear best match — avoid
+    // guessing between two similarly-named pending payments for the same amount.
+    if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+        const pending = scored[0].c;
+        const result  = await resolvePendingPayment(db, pending, amount, smsBody, {});
         await smsCol.updateOne(
             { _id: smsDocId },
-            { $set: { status: 'waiting', paymentId, amount: smsAmount } }
+            { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
         );
-        return { status: 'waiting' };
+        return result;
     }
 
-    const result = await resolvePendingPayment(db, pending, smsAmount, smsBody, {});
-
+    // No confident single match — leave visible for admin review (name +
+    // amount are already stored on the SMS record for that).
     await smsCol.updateOne(
         { _id: smsDocId },
-        { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
+        { $set: { status: scored.length > 1 ? 'ambiguous' : 'waiting' } }
     );
-
-    return result;
+    return { status: scored.length > 1 ? 'ambiguous' : 'waiting' };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -237,12 +277,15 @@ exports.handler = async (event, context) => {
         } catch (_) {}
 
         // Extract with Gemini
-        let extracted = { paymentId: null, amount: null };
+        let extracted = { amount: null, senderName: null };
         try {
             extracted = await extractWithGemini(smsBody);
         } catch (err) {
             console.error('Gemini extraction failed:', err.message);
         }
+
+        const normalizedAmount = extracted.amount != null ? Number(extracted.amount) : null;
+        const normalizedName   = extracted.senderName ? String(extracted.senderName).trim() : null;
 
         // Store SMS detection record
         const insertResult = await col.insertOne({
@@ -250,29 +293,22 @@ exports.handler = async (event, context) => {
             sender:     sender || 'unknown',
             receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
             createdAt:  new Date(),
-            paymentId:  extracted.paymentId ? extracted.paymentId.trim().toLowerCase() : null,
-            amount:     extracted.amount    || null,
-            status:     extracted.paymentId ? 'extracted' : 'unreadable'
+            amount:     normalizedAmount,
+            senderName: normalizedName,
+            status:     (normalizedAmount && normalizedName) ? 'extracted' : 'unreadable'
         });
 
-        if (!extracted.paymentId || !extracted.amount) {
+        if (!normalizedAmount || !normalizedName) {
             return {
                 statusCode: 200,
                 body: JSON.stringify({
                     status:  'unreadable',
-                    message: 'Could not extract payment details from SMS'
+                    message: 'Could not extract amount and sender name from SMS'
                 })
             };
         }
 
-        const normalizedPaymentId = extracted.paymentId ? extracted.paymentId.trim().toLowerCase() : null;
-        const result = await tryAutoVerify(
-            db,
-            normalizedPaymentId,
-            extracted.amount,
-            smsBody,
-            insertResult.insertedId
-        );
+        const result = await tryAutoVerify(db, normalizedAmount, normalizedName, smsBody, insertResult.insertedId);
 
         return { statusCode: 200, body: JSON.stringify(result) };
 
