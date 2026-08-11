@@ -62,6 +62,7 @@ function shapePendingPayment(p) {
     pendingId:     p._id.toString(),
     amount:        p.claimedAmount,
     senderName:    p.claimedSenderName,
+    chosenPlan:    p.chosenPlan,
     paymentMethod: p.paymentMethod,
     submittedAt:   p.submittedAt
   };
