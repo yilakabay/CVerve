@@ -5,16 +5,24 @@
 // method. Transaction IDs are never extracted from or matched against SMS
 // here; they play no role in this flow at all.
 //
-// Once a match is found, the plan tier is resolved from the SMS's own amount
-// (the trusted source — never the user's screenshot claim):
-//   < 49 ETB           → rejected, no plan activated. Full amount is refund-eligible.
-//   49 ETB – 78.99 ETB → Basic activated. Any amount above 49 is refund-eligible.
-//   >= 79 ETB          → Pro activated.   Any amount above 79 is refund-eligible.
+// Once matched, the amount is checked against the CHOSEN plan on that
+// pending record (the user picks Basic or Pro before paying):
+//   - If the amount covers the chosen plan's price, it's activated for
+//     THAT plan — never silently upgraded/downgraded to whatever tier the
+//     amount happens to fit. Any excess above the tier price is flagged as
+//     refund-eligible, and if the user chose Basic with excess that itself
+//     covers Pro's price, a "upgrade to Pro" offer is included.
+//   - If the amount does NOT cover the chosen plan (including anything
+//     under 49 ETB, which can't fund either plan), this function does
+//     NOTHING further — it leaves the payment pending. The automatic system
+//     never rejects a payment; only an admin can do that, since "amount too
+//     low" and "this looks like a scam" are indistinguishable from amount
+//     alone (a genuinely low real payment vs. a fabricated screenshot with
+//     no matching SMS look identical from the SMS side).
 //
-// The user is notified either way. If there's a refund-eligible excess (or the
-// payment was rejected outright), the notification carries enough info for the
-// app to show a "Refund" button, which lets the user submit their bank details
-// via request-refund.js for the admin to process from the Refunds tab.
+// The user is notified on activation. If there's a refund-eligible excess,
+// the notification carries enough info for the app to show Refund/Tip (and,
+// for Basic-with-large-excess, an "Activate Pro") buttons.
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
@@ -23,14 +31,19 @@ const crypto = require('crypto');
 const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ── Plan tier resolution ──────────────────────────────────────────────────────
+// ── Plan prices — kept identical across process-payment.js / admin-verify.js ──
 const PLAN_PRICES = { basic: 49, pro: 79 };
-function resolvePlanTier(amount) {
-  if (amount < 49) return null;      // too low — reject, nothing activated
-  if (amount < 79) return 'basic';
-  return 'pro';
-}
 const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Decides whether a chosen plan can be verified at a given amount, and what
+// follow-up offers apply. Never suggests a different plan than was chosen.
+function computeVerifyOutcome(chosenPlan, amount) {
+  const tierPrice = PLAN_PRICES[chosenPlan];
+  if (amount < tierPrice) return { canVerify: false };
+  const excess = Math.round((amount - tierPrice) * 100) / 100;
+  const canUpgradeToPro = chosenPlan === 'basic' && excess >= PLAN_PRICES.pro;
+  return { canVerify: true, tierPrice, excess, canUpgradeToPro };
+}
 
 // ── Allowed bank senders ──────────────────────────────────────────────────────
 const ALLOWED_SENDERS = [
@@ -126,77 +139,54 @@ async function activatePlan(usersCol, userId, plan) {
     return expiry;
 }
 
-// ── Core resolution logic — shared shape with admin-verify.js's manual path ──
-async function resolvePendingPayment(db, pending, smsAmount, smsBody, extra) {
+// ── Verify a pending payment for exactly the plan it was submitted for ───────
+async function verifyPendingPayment(db, pending) {
     const usersCol    = db.collection('users');
     const verifiedCol = db.collection('payments');
     const pendingCol  = db.collection('pending_payments');
 
-    const plan = resolvePlanTier(smsAmount);
-    const pendingIdStr = pending._id.toString();
+    const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
+    if (!outcome.canVerify) return { status: 'insufficient' };
 
-    if (!plan) {
-        // ── Amount too low — reject, nothing activated, full refund-eligible ───
-        await verifiedCol.insertOne({
-            userId:        pending.userId,
-            amount:        smsAmount,
-            senderName:    pending.claimedSenderName,
-            plan:          null,
-            status:        'rejected_low_amount',
-            paymentMethod: pending.paymentMethod || 'unknown',
-            transactionId: pending.transactionId || null,
-            resolvedAt:    new Date(),
-            submittedAt:   pending.submittedAt,
-            ...extra
-        });
-        await pendingCol.deleteOne({ _id: pending._id });
+    const plan       = pending.chosenPlan;
+    const planExpiry = await activatePlan(usersCol, pending.userId, plan);
 
-        await writeNotification(usersCol, pending.userId, {
-            type:           'payment_rejected',
-            amount:         smsAmount,
-            refundEligible: true,
-            refundAmount:   smsAmount
-        });
-
-        return { status: 'rejected_low_amount', userId: pending.userId, amount: smsAmount };
-    }
-
-    // ── Plan qualifies — activate, and flag any excess above the tier price ───
-    const tierPrice = PLAN_PRICES[plan];
-    const excess     = Math.round((smsAmount - tierPrice) * 100) / 100;
-
-    await verifiedCol.insertOne({
+    const insertResult = await verifiedCol.insertOne({
         userId:        pending.userId,
-        amount:        smsAmount,
+        amount:        pending.claimedAmount,
         senderName:    pending.claimedSenderName,
         plan,
-        tierPrice,
-        excess,
+        tierPrice:     outcome.tierPrice,
+        excess:        outcome.excess,
         paymentMethod: pending.paymentMethod || 'unknown',
         transactionId: pending.transactionId || null,
         verifiedAt:    new Date(),
         submittedAt:   pending.submittedAt,
-        autoVerified:  true,
-        smsBody,
-        ...extra
+        resolvedBy:    'system_auto',
+        upgradeUsed:   false
     });
     await pendingCol.deleteOne({ _id: pending._id });
 
-    const planExpiry = await activatePlan(usersCol, pending.userId, plan);
-
     await writeNotification(usersCol, pending.userId, {
-        type:           'plan_activated',
+        type:               'plan_activated',
         plan,
-        amount:         smsAmount,
-        expiry:         planExpiry,
-        refundEligible: excess > 0,
-        refundAmount:   excess > 0 ? excess : 0
+        amount:             pending.claimedAmount,
+        excess:             outcome.excess,
+        refundEligible:     outcome.excess > 0,
+        refundAmount:       outcome.excess,
+        canUpgradeToPro:    outcome.canUpgradeToPro,
+        verifiedPaymentId:  insertResult.insertedId.toString(),
+        expiry:             planExpiry,
+        resolvedBy:         'system_auto'
     });
 
-    return { status: 'verified', userId: pending.userId, amount: smsAmount, plan, excess, pendingId: pendingIdStr };
+    return { status: 'verified', userId: pending.userId, amount: pending.claimedAmount, plan, excess: outcome.excess };
 }
 
 // ── Auto verify — name + exact amount match only, for every payment method ──
+// Never rejects. If the matched pending payment's amount doesn't cover its
+// chosen plan, it's simply left pending (status stays 'pending' in
+// pending_payments) for an admin to resolve.
 async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
     const pendingCol = db.collection('pending_payments');
     const smsCol     = db.collection('sms_detections');
@@ -215,7 +205,19 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
     // guessing between two similarly-named pending payments for the same amount.
     if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
         const pending = scored[0].c;
-        const result  = await resolvePendingPayment(db, pending, amount, smsBody, {});
+        const result  = await verifyPendingPayment(db, pending);
+
+        if (result.status === 'insufficient') {
+            // Amount matched a pending payment by name, but doesn't cover the
+            // plan they chose — leave it pending, flag the SMS as matched-but-
+            // insufficient so admin has context in the SMS Detections tab.
+            await smsCol.updateOne(
+                { _id: smsDocId },
+                { $set: { status: 'insufficient_for_chosen_plan', matchedUserId: pending.userId, resolvedAt: new Date() } }
+            );
+            return { status: 'insufficient_for_chosen_plan' };
+        }
+
         await smsCol.updateOne(
             { _id: smsDocId },
             { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
