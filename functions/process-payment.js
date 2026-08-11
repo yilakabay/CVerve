@@ -1,30 +1,26 @@
 // functions/process-payment.js
-// POST body: { userId, password, amount, senderName, transactionId?, paymentMethod?, checkOnly? }
+// POST body: { userId, password, amount, senderName, chosenPlan, transactionId?, paymentMethod?, checkOnly? }
 //
-// Applies uniformly to every payment method (CBE, CBEBirr, Telebirr). The
-// user uploads a payment screenshot (see extract-payment-screenshot.js),
-// which the app then confirms and submits here.
+// The user picks a plan (Basic or Pro) BEFORE paying. That choice — chosenPlan
+// — is stored on the pending record and is the anchor for everything that
+// happens next: what shows on the admin's Pending tab, whether a payment can
+// be verified at all, and what a Verify/Reject notification says. The system
+// always respects what the user chose; it never silently activates a
+// different tier just because the amount happens to cover it (see
+// receive-sms.js / admin-verify.js for the full decision logic).
 //
 // amount + senderName are REQUIRED — they are the only fields ever used for
-// matching against the real bank SMS in receive-sms.js / admin-verify.js.
-// Matching is name + amount only, for every method, with no fallback to any
-// transaction ID.
+// matching against the real bank SMS. Matching is name + amount only, for
+// every payment method, with no fallback to any transaction ID.
 //
 // transactionId is OPTIONAL. When the screenshot happens to show one, it's
 // stored purely to block the user from resubmitting the exact same payment
 // again (anti-duplicate / anti-scam-resubmission) — it plays no role in
-// matching or activation. If no transaction ID is present, that's fine; the
-// payment still proceeds on amount + senderName alone.
-//
-// The plan tier is only ever resolved from the amount confirmed via SMS
-// detection (receive-sms.js) or admin review (admin-verify.js):
-//   < 49 ETB           → no plan activated, rejected (full refund offered)
-//   49 ETB – 78.99 ETB → Basic activated (any excess above 49 refund-eligible)
-//   >= 79 ETB          → Pro activated   (any excess above 79 refund-eligible)
+// matching or activation.
 //
 // This function's only job is to:
-//   1. Record the pending payment (amount, senderName, optional transactionId,
-//      submittedAt).
+//   1. Record the pending payment (amount, senderName, chosenPlan, optional
+//      transactionId, submittedAt).
 //   2. Immediately send a "System" notification acknowledging receipt.
 //   3. Support checkOnly to let the app poll pending/resolved status and decide
 //      when to show the "Report" button (30+ minutes with no resolution).
@@ -35,6 +31,8 @@ const crypto = require('crypto');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+const VALID_PLANS = ['basic', 'pro'];
 
 async function writeNotification(db, userId, notification) {
   try {
@@ -58,7 +56,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, amount, senderName, transactionId, paymentMethod, checkOnly } = body;
+  const { userId, password, amount, senderName, chosenPlan, transactionId, paymentMethod, checkOnly } = body;
 
   if (!userId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId is required.' }) };
@@ -92,6 +90,7 @@ exports.handler = async (event, context) => {
           pendingId:       pending._id.toString(),
           amount:          pending.claimedAmount,
           senderName:      pending.claimedSenderName,
+          chosenPlan:      pending.chosenPlan,
           submittedAt:     pending.submittedAt,
           reported:        !!pending.reported,
           canReport:       ageMs >= THIRTY_MIN_MS && !pending.reported,
@@ -108,6 +107,9 @@ exports.handler = async (event, context) => {
     const trimmedSenderName = senderName ? String(senderName).trim() : '';
     if (!trimmedSenderName) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Sender name is required.' }) };
+    }
+    if (!chosenPlan || !VALID_PLANS.includes(chosenPlan)) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'A plan (basic or pro) must be selected before paying.' }) };
     }
     const trimmedTransactionId = transactionId ? String(transactionId).trim().toLowerCase() : null;
 
@@ -134,7 +136,7 @@ exports.handler = async (event, context) => {
       }
     }
 
-    // ── Store as pending — final amount is confirmed by SMS detection or admin review ──
+    // ── Store as pending — final resolution happens via SMS detection or admin review ──
     const insertResult = await pendingCol.insertOne({
       userId,
       paymentMethod:     paymentMethod || 'unknown',
@@ -143,6 +145,7 @@ exports.handler = async (event, context) => {
       submittedAt:       new Date(),
       claimedAmount:     parsedAmount,
       claimedSenderName: trimmedSenderName,
+      chosenPlan,
       // Optional — present only when the screenshot happened to show one.
       // Used solely to block resubmission of this exact payment; never used
       // for matching against the SMS.
@@ -153,10 +156,11 @@ exports.handler = async (event, context) => {
     await writeNotification(db, userId, {
       type:       'payment_received',
       pendingId:  insertResult.insertedId.toString(),
-      amount:     parsedAmount
+      amount:     parsedAmount,
+      chosenPlan
     });
 
-    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}`);
+    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}, chosenPlan=${chosenPlan}`);
 
     return {
       statusCode: 200,
