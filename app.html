@@ -1319,7 +1319,7 @@
                 if (n.type === 'plan_activated') {
                     const lbl = planLabel(n.plan || 'free');
                     const exp = n.expiry ? ` until ${new Date(n.expiry).toLocaleDateString()}` : '';
-                    showMessage('success', `🎉 ${lbl} plan activated${exp}!`);
+                    showMessage('success', n.upgradeFromBasic ? `🎉 Upgraded to Pro${exp}!` : `🎉 ${lbl} plan activated${exp}!`);
                     if (n.plan && PLAN_LIMITS[n.plan]) {
                         userPlan = n.plan;
                         localStorage.setItem('cv_userPlan', userPlan);
@@ -1329,9 +1329,9 @@
                         renderPlanDisplays();
                     }
                 } else if (n.type === 'payment_rejected') {
-                    showMessage('error', n.invalidTransaction
-                        ? '❌ Your payment could not be verified.'
-                        : `❌ Payment (${Number(n.amount||0).toFixed(2)} ETB) didn't meet the minimum plan amount.`);
+                    showMessage('error', n.refundEligible
+                        ? `❌ Payment (${Number(n.amount||0).toFixed(2)} ETB) didn't meet the minimum plan amount.`
+                        : '❌ Your payment could not be verified.');
                 } else if (n.type === 'payment_received') {
                     showMessage('success', '✅ Payment received — reviewing now.');
                 } else if (n.type === 'refund_completed') {
@@ -2999,25 +2999,25 @@
 
         function notifSenderLabel(n) {
             if (n.type === 'announcement') return 'CVcase Official';
-            if (n.type === 'report_verified' || n.type === 'report_rejected' || n.type === 'refund_completed') return 'Payment Review Team';
+            if (n.resolvedBy === 'admin_manual' || n.type === 'refund_completed' || n.type === 'report_verified' || n.type === 'report_rejected') return 'Payment Review Team';
             return 'System';
         }
         function notifSenderColor(n) {
             if (n.type === 'announcement') return 'background:#7c3aed;color:#fff;';
-            if (n.type === 'report_verified' || n.type === 'report_rejected' || n.type === 'refund_completed') return 'background:#ede9fe;color:#6d28d9;';
+            if (n.resolvedBy === 'admin_manual' || n.type === 'refund_completed' || n.type === 'report_verified' || n.type === 'report_rejected') return 'background:#ede9fe;color:#6d28d9;';
             return 'background:#e0e7ff;color:#4338ca;';
         }
         function notifSenderInitial(n) {
             if (n.type === 'announcement') return '📢';
-            if (n.type === 'report_verified' || n.type === 'report_rejected' || n.type === 'refund_completed') return 'PR';
+            if (n.resolvedBy === 'admin_manual' || n.type === 'refund_completed' || n.type === 'report_verified' || n.type === 'report_rejected') return 'PR';
             return 'SY';
         }
         function notifPreviewText(n) {
             const a = `${Number(n.amount || 0).toFixed(2)} ETB`;
             if (n.type === 'payment_received')  return `We received your payment of ${a}. Reviewing now…`;
-            if (n.type === 'plan_activated')    return `Your ${planLabel(n.plan)} plan is now active!`;
+            if (n.type === 'plan_activated')    return n.upgradeFromBasic ? `Your plan has been upgraded to Pro!` : `Your ${planLabel(n.plan)} plan is now active!`;
             if (n.type === 'payment_verified')  return `Your payment of ${a} has been verified.`;
-            if (n.type === 'payment_rejected')  return n.invalidTransaction ? `Your payment could not be verified.` : `Your payment of ${a} did not meet the minimum plan amount.`;
+            if (n.type === 'payment_rejected')  return n.refundEligible ? `Your payment of ${a} did not meet the minimum plan amount.` : `Your payment could not be verified.`;
             if (n.type === 'refund_completed')  return `Your refund of ${a} has been processed.`;
             if (n.type === 'report_verified')   return `Your dispute for ${a} was verified by our team.`;
             if (n.type === 'report_rejected')   return `Your dispute for ${a} was reviewed.`;
@@ -3026,36 +3026,143 @@
         }
         function notifBodyText(n) {
             const amt = `<strong>${Number(n.amount || 0).toFixed(2)} ETB</strong>`;
+            const hasExcess = n.refundEligible && n.refundAmount > 0;
+            const excessLine = hasExcess ? `<br><br>You have <strong>${n.refundAmount.toFixed(2)} ETB</strong> excess — you can request a refund or leave it as a tip below.` : '';
+
             if (n.type === 'payment_received') return `We received your payment of ${amt}. Our system will review and activate your plan within a few minutes. If your plan isn't activated within 30 minutes, you'll be able to report it for manual review from your account page.`;
-            if (n.type === 'plan_activated')   return `Your <strong>${planLabel(n.plan)}</strong> plan has been activated${n.expiry ? ` and is valid until ${new Date(n.expiry).toLocaleDateString()}` : ''}. Payment received: ${amt}.` + (n.refundEligible && n.refundAmount > 0 ? `<br><br>You paid ${n.refundAmount.toFixed(2)} ETB more than the plan price — you're eligible for a refund of that extra amount.` : '');
+
+            if (n.type === 'plan_activated') {
+                if (n.upgradeFromBasic) {
+                    return `Great news — your plan has been upgraded to <strong>Pro</strong>${n.expiry ? `, valid until ${new Date(n.expiry).toLocaleDateString()}` : ''}.` + excessLine;
+                }
+                let body = `Your <strong>${planLabel(n.plan)}</strong> plan has been activated${n.expiry ? ` and is valid until ${new Date(n.expiry).toLocaleDateString()}` : ''}. Payment received: ${amt}.` + excessLine;
+                if (n.canUpgradeToPro) {
+                    body += `<br><br>Your excess is enough to upgrade to <strong>Pro</strong> right now — see the button below.`;
+                }
+                return body;
+            }
+
             if (n.type === 'payment_verified') return `Your payment of ${amt} has been verified and added to your account. Please sync your balance. Thank you for using CVcase!`;
-            if (n.type === 'payment_rejected') return n.invalidTransaction
-                ? `We could not verify this transaction. Please double-check your transaction ID and try again, or contact support if you believe this is an error.`
-                : `Your payment of ${amt} does not meet the minimum amount required to activate a plan (49 ETB for Basic). No plan was activated.` + (n.refundEligible ? ` You're eligible for a full refund of ${amt}.` : '');
+
+            if (n.type === 'payment_rejected') {
+                if (n.refundEligible) {
+                    return `Your payment of ${amt} does not meet the minimum amount required to activate a plan (49 ETB for Basic). No plan was activated. You're eligible for a full refund — or you can leave it as a tip below.`;
+                }
+                const r = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : '';
+                return `We were unable to verify this payment.${r}`;
+            }
+
             if (n.type === 'refund_completed') return `Your refund of ${amt} has been sent to your ${n.bankName || 'account'}. Thank you for your patience!`;
-            if (n.type === 'report_verified')  return `Your payment dispute for ${amt} has been carefully reviewed and verified by our team.` + (n.plan ? ` Your ${planLabel(n.plan)} plan has been activated.` : '') + (n.refundEligible && n.refundAmount > 0 ? `<br><br>You're eligible for a refund of ${n.refundAmount.toFixed(2)} ETB.` : '');
-            if (n.type === 'report_rejected')  { const r = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : ''; return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${r}` + (n.refundEligible ? ` You're eligible for a refund of ${amt}.` : ''); }
+            if (n.type === 'report_verified')  return `Your payment dispute for ${amt} has been carefully reviewed and verified by our team.` + (n.plan ? ` Your ${planLabel(n.plan)} plan has been activated.` : '') + excessLine;
+            if (n.type === 'report_rejected')  { const r = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : ''; return `After reviewing your payment dispute for ${amt}, our team was unable to verify this transaction.${r}`; }
             if (n.type === 'announcement')     return `<strong>${n.title || 'Announcement'}</strong><br><br>${(n.body || '').replace(/\n/g,'<br>')}`;
             return '';
         }
-        // Refund button shown under a notification when refundEligible is true and no
-        // refund request has been made yet for that payment.
-        function notifRefundButtonHtml(n) {
+
+        // ── Payment action buttons (Refund / Tip / Activate Pro) ────────────────
+        // These only ever appear when refundEligible is true — i.e. real money
+        // was actually verified as received (or, for a rejected <49 payment,
+        // the admin explicitly confirmed it was a genuine low-amount payment).
+        // Once the user picks one path (refund, tip, or upgrade), all three
+        // are replaced with a small status line — they're mutually exclusive
+        // uses of the same leftover amount.
+        function notifActionKey(n) { return 'cv_paymentAction_' + (n.id || ''); }
+        function notifActionTaken(n) { return localStorage.getItem(notifActionKey(n)); }
+
+        function notifActionButtonsHtml(n) {
+            if (n.type !== 'plan_activated' && n.type !== 'payment_rejected') return '';
+            const taken = notifActionTaken(n);
+            if (taken === 'refund')  return `<p class="text-xs text-gray-400 mt-2 italic">Refund requested — awaiting processing.</p>`;
+            if (taken === 'tip')     return `<p class="text-xs text-amber-500 mt-2 italic">Thank you for your tip! 🙏</p>`;
+            if (taken === 'upgrade') return `<p class="text-xs text-emerald-500 mt-2 italic">Upgraded to Pro.</p>`;
+
             if (!n.refundEligible || !(n.refundAmount > 0)) return '';
-            const key = 'cv_refundRequested_' + (n.id || '');
-            if (localStorage.getItem(key) === '1') {
-                return `<p class="text-xs text-gray-400 mt-2 italic">Refund requested — awaiting processing.</p>`;
+
+            let html = '<div class="flex flex-wrap gap-2 mt-2">';
+            if (n.canUpgradeToPro) {
+                html += `<button onclick="activateProFromNotif('${n.id || ''}', '${n.verifiedPaymentId || ''}')" class="bg-indigo-50 text-indigo-600 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors">Activate Pro</button>`;
             }
-            return `<button onclick="openRefundModal('${n.id || ''}', ${n.refundAmount})" class="mt-2 bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors">Refund ${n.refundAmount.toFixed(2)} ETB</button>`;
+            html += `<button onclick="openRefundModal('${n.id || ''}', ${n.refundAmount})" class="bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors">Refund ${n.refundAmount.toFixed(2)} ETB</button>`;
+            html += `<button onclick="openTipModal('${n.id || ''}', ${n.refundAmount})" class="bg-amber-50 text-amber-600 border border-amber-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-amber-100 transition-colors">Leave as Tip</button>`;
+            html += '</div>';
+            return html;
         }
 
-        let _refundPaymentId = null, _refundAmount = 0;
-        function openRefundModal(paymentId, amount) {
-            _refundPaymentId = paymentId;
-            _refundAmount    = amount;
+        // ── Activate Pro (upgrade from a verified Basic payment's excess) ───────
+        async function activateProFromNotif(notifId, verifiedPaymentId) {
+            if (!verifiedPaymentId) { showMessage('error', 'Could not find this payment record.'); return; }
+            showLoadingOverlay('Activating Pro…');
+            try {
+                const res = await fetch('/.netlify/functions/activate-pro-upgrade', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, password: localStorage.getItem('cv_userPassword') || '', verifiedPaymentId })
+                });
+                const data = await res.json();
+                hideLoadingOverlay();
+                if (res.ok && data.success) {
+                    localStorage.setItem('cv_paymentAction_' + notifId, 'upgrade');
+                    userPlan = 'pro';
+                    localStorage.setItem('cv_userPlan', userPlan);
+                    userPlanExpiry = data.planExpiry;
+                    userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+                    localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
+                    renderPlanDisplays();
+                    showMessage('success', data.leftover > 0
+                        ? `🎉 Pro activated! You still have ${data.leftover.toFixed(2)} ETB excess — check your notifications.`
+                        : '🎉 Pro activated!');
+                    renderNotificationsList();
+                } else if (data.expired) {
+                    showMessage('error', data.message || 'Your Basic plan has already expired — this can no longer be upgraded. Please use Refund or Tip instead.');
+                    renderNotificationsList();
+                } else {
+                    showMessage('error', data.error || 'Could not activate Pro. Please try again.');
+                }
+            } catch (e) {
+                hideLoadingOverlay();
+                showMessage('error', 'Network error. Please try again.');
+            }
+        }
+
+        // ── Tip confirmation dialog ──────────────────────────────────────────────
+        let _tipNotifId = null;
+        function openTipModal(notifId, amount) {
+            _tipNotifId = notifId;
+            document.getElementById('tipModalAmount').textContent = Number(amount).toFixed(2) + ' ETB';
+            document.getElementById('tipConfirmModal').classList.remove('hidden');
+        }
+        function closeTipModal() {
+            document.getElementById('tipConfirmModal').classList.add('hidden');
+        }
+        function confirmTip() {
+            if (_tipNotifId) {
+                localStorage.setItem('cv_paymentAction_' + _tipNotifId, 'tip');
+            }
+            closeTipModal();
+            showMessage('success', '🙏 Thank you so much for your tip!');
+            renderNotificationsList();
+        }
+
+        let _refundNotifId = null, _refundAmount = 0;
+        function updateRefundIdentifierLabel() {
+            const bankName = document.getElementById('refundBankName').value;
+            const label = document.getElementById('refundIdentifierLabel');
+            const input = document.getElementById('refundAccountIdentifier');
+            if (bankName === 'CBE') {
+                label.textContent = 'Account Number';
+                input.placeholder = 'e.g. 1000577617639';
+            } else {
+                label.textContent = 'Phone Number';
+                input.placeholder = 'e.g. 09xxxxxxxx';
+            }
+        }
+        function openRefundModal(notifId, amount) {
+            _refundNotifId = notifId;
+            _refundAmount  = amount;
             document.getElementById('refundModalAmount').textContent = amount.toFixed(2) + ' ETB';
             document.getElementById('refundAccountName').value = '';
+            document.getElementById('refundAccountIdentifier').value = '';
             document.getElementById('refundBankName').value = 'CBE';
+            updateRefundIdentifierLabel();
             document.getElementById('refundModalError').classList.add('hidden');
             document.getElementById('refundRequestModal').classList.remove('hidden');
         }
@@ -3066,8 +3173,14 @@
             const errEl = document.getElementById('refundModalError');
             const bankName = document.getElementById('refundBankName').value;
             const accountFullName = document.getElementById('refundAccountName').value.trim();
+            const accountIdentifier = document.getElementById('refundAccountIdentifier').value.trim();
             if (!accountFullName) {
                 errEl.textContent = 'Please enter the account full name.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            if (!accountIdentifier) {
+                errEl.textContent = bankName === 'CBE' ? 'Please enter the account number.' : 'Please enter the phone number.';
                 errEl.classList.remove('hidden');
                 return;
             }
@@ -3078,13 +3191,13 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         userId, password: localStorage.getItem('cv_userPassword') || '',
-                        paymentId: _refundPaymentId, amount: _refundAmount,
-                        bankName, accountFullName
+                        notificationId: _refundNotifId, amount: _refundAmount,
+                        bankName, accountFullName, accountIdentifier
                     })
                 });
                 const data = await res.json();
                 if (res.ok && data.success) {
-                    localStorage.setItem('cv_refundRequested_' + _refundPaymentId, '1');
+                    localStorage.setItem('cv_paymentAction_' + _refundNotifId, 'refund');
                     closeRefundModal();
                     showMessage('success', data.message || 'Refund request submitted.');
                     renderNotificationsList();
@@ -3168,7 +3281,7 @@
                     ${msgs.map(n => `
                         <div class="bg-white border border-gray-100 rounded-xl p-3 text-sm text-gray-700 leading-relaxed">
                             ${notifBodyText(n)}
-                            ${notifRefundButtonHtml(n)}
+                            ${notifActionButtonsHtml(n)}
                             <p class="text-[0.65rem] text-gray-300 mt-2 text-right">${notifListTime(n.createdAt)}</p>
                         </div>`).join('')}
                 </div>`;
@@ -5226,12 +5339,29 @@
             _applyPaymentMethod(method);
         }
 
+        function showPaymentMethodChoice() {
+            document.getElementById('payMethodChoice').classList.remove('hidden');
+            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr','payPendingNotice'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+        }
+
         function _applyPaymentMethod(method) {
             document.getElementById('payMethodChoice').classList.add('hidden');
             ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            const planLbl = _pendingPlanChoice ? (_pendingPlanChoice.charAt(0).toUpperCase() + _pendingPlanChoice.slice(1)) : '—';
             if (method === 'telebirr') document.getElementById('payMethodTelebirr').classList.remove('hidden');
-            else if (method === 'cbe') { document.getElementById('payMethodCBE').classList.remove('hidden'); resetScreenshotState('cbe'); }
-            else if (method === 'cbebirr') { document.getElementById('payMethodCBEBirr').classList.remove('hidden'); resetScreenshotState('cbebirr'); }
+            else if (method === 'cbe') {
+                document.getElementById('payMethodCBE').classList.remove('hidden');
+                document.getElementById('cbePlanChoiceLabel').textContent = planLbl;
+                resetScreenshotState('cbe');
+            }
+            else if (method === 'cbebirr') {
+                document.getElementById('payMethodCBEBirr').classList.remove('hidden');
+                document.getElementById('cbebirrPlanChoiceLabel').textContent = planLbl;
+                resetScreenshotState('cbebirr');
+            }
         }
 
         // ── Payment screenshot upload & extraction (CBE / CBEBirr) ──────────────
@@ -5374,6 +5504,10 @@
                 showMessage('error', 'Please upload your payment screenshot first.');
                 return;
             }
+            if (!_pendingPlanChoice) {
+                showMessage('error', 'Please choose a plan first.');
+                return;
+            }
 
             try { closePaymentPopup(); } catch(_) {}
             showLoadingOverlay('Submitting payment…');
@@ -5384,6 +5518,7 @@
                     body: JSON.stringify({
                         userId, password: localStorage.getItem('cv_userPassword') || '',
                         amount: extracted.amount, senderName: extracted.senderName,
+                        chosenPlan: _pendingPlanChoice,
                         transactionId: extracted.transactionId, paymentMethod: method
                     })
                 });
@@ -5739,18 +5874,35 @@
         <p class="text-sm text-gray-500 mb-4">Refunding <strong id="refundModalAmount"></strong>. Tell us where to send it.</p>
 
         <label class="text-xs font-semibold text-gray-500 mb-1 block">Bank / Wallet</label>
-        <select id="refundBankName" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        <select id="refundBankName" onchange="updateRefundIdentifierLabel()" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-300">
             <option value="CBE">CBE</option>
             <option value="Telebirr">Telebirr</option>
             <option value="CBEBirr">CBEBirr</option>
         </select>
 
         <label class="text-xs font-semibold text-gray-500 mb-1 block">Account Full Name</label>
-        <input type="text" id="refundAccountName" placeholder="Full name on the account" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        <input type="text" id="refundAccountName" placeholder="Full name on the account" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+
+        <label id="refundIdentifierLabel" class="text-xs font-semibold text-gray-500 mb-1 block">Account Number</label>
+        <input type="text" id="refundAccountIdentifier" placeholder="e.g. 1000577617639" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
 
         <p id="refundModalError" class="text-xs text-red-500 mb-2 hidden"></p>
 
         <button onclick="submitRefundRequest()" id="refundSubmitBtn" class="w-full bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-red-600 transition-colors">Submit Refund Request</button>
+    </div>
+</div>
+
+<div id="tipConfirmModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9992] px-4" onclick="if(event.target===this) closeTipModal()">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-5 text-center">
+        <div class="w-14 h-14 mx-auto mb-3 bg-amber-50 rounded-full flex items-center justify-center">
+            <svg class="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 class="text-base font-bold text-gray-800 mb-1">Give this as a tip?</h3>
+        <p class="text-sm text-gray-500 mb-5">Are you sure you want to leave <strong id="tipModalAmount"></strong> as a tip instead of requesting a refund? This can't be undone.</p>
+        <div class="flex gap-2">
+            <button onclick="closeTipModal()" class="flex-1 py-2.5 rounded-full border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">No, go back</button>
+            <button onclick="confirmTip()" class="flex-1 py-2.5 rounded-full bg-amber-400 text-white text-sm font-semibold hover:bg-amber-500 transition-colors">Yes, leave a tip</button>
+        </div>
     </div>
 </div>
 
@@ -5943,6 +6095,7 @@
         </div>
         <div id="payMethodCBE" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
+            <p class="text-xs text-gray-400 mb-2">Paying for: <span class="font-bold text-gray-600" id="cbePlanChoiceLabel">—</span></p>
             <div class="bg-blue-50 rounded-xl p-4 mb-4 text-sm text-blue-900 space-y-2"><p class="font-semibold text-blue-700 mb-1">CBE Bank Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Account:</span> 1000577617639</span><button onclick="copyText('1000577617639','Account number')" class="ml-2 p-1 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div><p><span class="font-medium">Name:</span> YILAK ABAY ABEBE</p></div>
             <p class="text-xs text-gray-500 mb-3">After transferring, upload a screenshot of your payment confirmation. We'll read the amount and sender name automatically.</p>
 
@@ -5967,6 +6120,7 @@
         </div>
         <div id="payMethodCBEBirr" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
+            <p class="text-xs text-gray-400 mb-2">Paying for: <span class="font-bold text-gray-600" id="cbebirrPlanChoiceLabel">—</span></p>
             <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2"><p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div></div>
             <p class="text-xs text-gray-500 mb-3">After sending, upload a screenshot of your payment confirmation. We'll read the amount and sender name automatically.</p>
 
