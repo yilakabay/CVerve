@@ -177,14 +177,17 @@ exports.handler = async (event, context) => {
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
     // ── Notifications ────────────────────────────────────────────────────────
+    // Pass every field through — notifications now carry many payment-specific
+    // fields (plan, resolvedBy, refundEligible, refundAmount, canUpgradeToPro,
+    // verifiedPaymentId, expiry, upgradeFromBasic, etc.) that the app's
+    // notification rendering and action buttons depend on. A narrow whitelist
+    // here would silently strip them.
     const rawNotifs     = user.notifications || [];
     const notifications = rawNotifs.map(n => ({
+      ...n,
+      id:        n.id        || null,
       type:      n.type      || '',
-      sender:    n.sender    || '',
-      title:     n.title     || '',
-      body:      n.body      || '',
       amount:    n.amount    || 0,
-      reason:    n.reason    || '',
       createdAt: n.createdAt || null,
       read:      n.read === true
     }));
