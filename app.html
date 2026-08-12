@@ -7944,8 +7944,9 @@ function selectUpgradePlan(plan) {
 
 function proceedToUpgradePayment() {
     if (!_selectedUpgradePlan) return;
+    var plan = _selectedUpgradePlan; // capture before closeUpgradeModal() clears it
     closeUpgradeModal();
-    openPaymentPopup(_selectedUpgradePlan);
+    openPaymentPopup(plan);
 }
 </script>
 
