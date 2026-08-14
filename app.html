@@ -3046,6 +3046,9 @@
 
             if (n.type === 'payment_rejected') {
                 if (n.refundEligible) {
+                    if (n.canActivateBasic) {
+                        return `Your payment of ${amt} was not enough to activate the ${planLabel(n.chosenPlan)} plan you selected — but it is enough for Basic. You can activate Basic now, request a refund, or leave it as a tip below.`;
+                    }
                     return `Your payment of ${amt} does not meet the minimum amount required to activate a plan (49 ETB for Basic). No plan was activated. You're eligible for a full refund — or you can leave it as a tip below.`;
                 }
                 const r = n.reason ? `<br><br><strong>Reason:</strong> ${n.reason}` : '';
@@ -3074,13 +3077,16 @@
             const taken = notifActionTaken(n);
             if (taken === 'refund')  return `<p class="text-xs text-gray-400 mt-2 italic">Refund requested — awaiting processing.</p>`;
             if (taken === 'tip')     return `<p class="text-xs text-amber-500 mt-2 italic">Thank you for your tip! 🙏</p>`;
-            if (taken === 'upgrade') return `<p class="text-xs text-emerald-500 mt-2 italic">Upgraded to Pro.</p>`;
+            if (taken === 'upgrade') return `<p class="text-xs text-emerald-500 mt-2 italic">Plan updated.</p>`;
 
             if (!n.refundEligible || !(n.refundAmount > 0)) return '';
 
             let html = '<div class="flex flex-wrap gap-2 mt-2">';
             if (n.canUpgradeToPro) {
                 html += `<button onclick="activateProFromNotif('${n.id || ''}', '${n.verifiedPaymentId || ''}')" class="bg-indigo-50 text-indigo-600 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors">Activate Pro</button>`;
+            }
+            if (n.canActivateBasic) {
+                html += `<button onclick="activateBasicFromNotif('${n.id || ''}')" class="bg-indigo-50 text-indigo-600 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors">Activate Basic</button>`;
             }
             html += `<button onclick="openRefundModal('${n.id || ''}', ${n.refundAmount})" class="bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors">Refund ${n.refundAmount.toFixed(2)} ETB</button>`;
             html += `<button onclick="openTipModal('${n.id || ''}', ${n.refundAmount})" class="bg-amber-50 text-amber-600 border border-amber-200 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-amber-100 transition-colors">Leave as Tip</button>`;
@@ -3097,7 +3103,13 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, password: localStorage.getItem('cv_userPassword') || '', verifiedPaymentId })
                 });
-                const data = await res.json();
+                let data;
+                try { data = await res.json(); }
+                catch {
+                    hideLoadingOverlay();
+                    showMessage('error', `Server returned an unexpected response (status ${res.status}). The activate-pro-upgrade function may not be deployed.`);
+                    return;
+                }
                 hideLoadingOverlay();
                 if (res.ok && data.success) {
                     localStorage.setItem('cv_paymentAction_' + notifId, 'upgrade');
@@ -3119,7 +3131,44 @@
                 }
             } catch (e) {
                 hideLoadingOverlay();
-                showMessage('error', 'Network error. Please try again.');
+                showMessage('error', 'Network error — could not reach the server. Please check your connection and try again.');
+            }
+        }
+
+        // ── Activate Basic (Pro chosen, paid enough for Basic but not Pro) ──────
+        async function activateBasicFromNotif(notifId) {
+            showLoadingOverlay('Activating Basic…');
+            try {
+                const res = await fetch('/.netlify/functions/activate-basic-after-rejection', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, password: localStorage.getItem('cv_userPassword') || '', notificationId: notifId })
+                });
+                let data;
+                try { data = await res.json(); }
+                catch {
+                    hideLoadingOverlay();
+                    showMessage('error', `Server returned an unexpected response (status ${res.status}). The activate-basic-after-rejection function may not be deployed.`);
+                    return;
+                }
+                hideLoadingOverlay();
+                if (res.ok && data.success) {
+                    localStorage.setItem('cv_paymentAction_' + notifId, 'upgrade');
+                    userPlan = 'basic';
+                    localStorage.setItem('cv_userPlan', userPlan);
+                    userPlanExpiry = data.planExpiry;
+                    userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+                    localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
+                    renderPlanDisplays();
+                    showMessage('success', data.excess > 0
+                        ? `🎉 Basic activated! You still have ${data.excess.toFixed(2)} ETB excess — check your notifications.`
+                        : '🎉 Basic activated!');
+                    renderNotificationsList();
+                } else {
+                    showMessage('error', data.error || 'Could not activate Basic. Please try again.');
+                }
+            } catch (e) {
+                hideLoadingOverlay();
+                showMessage('error', 'Network error — could not reach the server. Please check your connection and try again.');
             }
         }
 
