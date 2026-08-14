@@ -133,7 +133,8 @@ exports.handler = async (event, context) => {
           reported:              p.reported,
           submittedAt:           p.submittedAt,
           canVerify:             outcome.canVerify,
-          isUniversallyInsufficient: p.claimedAmount < PLAN_PRICES.basic
+          isUniversallyInsufficient: p.claimedAmount < PLAN_PRICES.basic,
+          amountIssueApplicable: !outcome.canVerify
         };
       });
       return { statusCode: 200, body: JSON.stringify({ success: true, pending }) };
@@ -185,6 +186,17 @@ exports.handler = async (event, context) => {
     }
 
     // ── reject ────────────────────────────────────────────────────────────────
+    // The "amount issue" toggle applies whenever the payment couldn't be
+    // verified for the chosen plan — i.e. amount < 49 (regardless of which
+    // plan was chosen), OR chosenPlan is Pro and amount is 49–78.99 (enough
+    // for Basic but not Pro). Same rule as computeVerifyOutcome.canVerify.
+    //
+    //   amountIssue: true  → standard "amount too low" message, full amount
+    //     refund-eligible, and — if the amount is enough to cover Basic while
+    //     Pro was chosen — an "Activate Basic" offer.
+    //   amountIssue: false → admin-typed reason only, no refund/tip/upgrade
+    //     buttons (covers suspected fraud / payment not on the bank statement
+    //     / any other non-amount reason).
     if (action === 'reject') {
       const { pendingId, amountIssue, reason } = body;
       if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
@@ -194,13 +206,18 @@ exports.handler = async (event, context) => {
       catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid pendingId' }) }; }
       if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'Pending payment not found' }) };
 
-      const isUniversallyInsufficient = pending.claimedAmount < PLAN_PRICES.basic;
+      const amountIssueApplicable = !computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount).canVerify;
 
-      let finalReason, refundEligible, refundAmount;
-      if (isUniversallyInsufficient && amountIssue === true) {
-        finalReason    = `Your payment of ${pending.claimedAmount} ETB is below the minimum amount required to activate a plan.`;
-        refundEligible = true;
-        refundAmount   = pending.claimedAmount;
+      let finalReason, refundEligible, refundAmount, canActivateBasic = false;
+      if (amountIssueApplicable && amountIssue === true) {
+        if (pending.claimedAmount < PLAN_PRICES.basic) {
+          finalReason = `Your payment of ${pending.claimedAmount} ETB is below the minimum amount required to activate a plan.`;
+        } else {
+          finalReason = `Your payment of ${pending.claimedAmount} ETB is not enough to activate the ${pending.chosenPlan} plan you selected.`;
+        }
+        refundEligible   = true;
+        refundAmount     = pending.claimedAmount;
+        canActivateBasic = pending.chosenPlan === 'pro' && pending.claimedAmount >= PLAN_PRICES.basic;
       } else {
         const trimmedReason = (reason || '').trim();
         if (!trimmedReason) {
@@ -220,6 +237,8 @@ exports.handler = async (event, context) => {
         reason: finalReason,
         refundEligible,
         refundAmount,
+        canActivateBasic,
+        basicActivationUsed: false,
         resolvedBy: 'admin_manual'
       });
 
