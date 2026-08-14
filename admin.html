@@ -654,7 +654,7 @@
             class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
             ✓ Verify ${p.chosenPlan}
           </button>` : ''}
-          <button onclick="openRejectDialog('${p.pendingId}', ${p.isUniversallyInsufficient ? 'true' : 'false'})"
+          <button onclick="openRejectDialog('${p.pendingId}', ${p.amountIssueApplicable ? 'true' : 'false'})"
             class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
             ✕ Reject
           </button>
@@ -666,9 +666,9 @@
   // ── Reject dialog — amount-issue toggle only shown when amount < 49 ETB ────
   let _rejectPendingId = null;
 
-  function openRejectDialog(pendingId, isUniversallyInsufficient) {
+  function openRejectDialog(pendingId, amountIssueApplicable) {
     _rejectPendingId = pendingId;
-    document.getElementById('rejectAmountIssueRow').classList.toggle('hidden', !isUniversallyInsufficient);
+    document.getElementById('rejectAmountIssueRow').classList.toggle('hidden', !amountIssueApplicable);
     document.getElementById('rejectAmountIssueToggle').checked = false;
     document.getElementById('rejectReasonBox').value = '';
     toggleRejectReasonVisibility();
@@ -797,7 +797,7 @@
                 const ADMIN_PLAN_PRICES = { basic: 49, pro: 79 };
                 const tierPrice = ADMIN_PLAN_PRICES[pp.chosenPlan] || 0;
                 const canVerify = pp.amount >= tierPrice;
-                const isUniversallyInsufficient = pp.amount < ADMIN_PLAN_PRICES.basic;
+                const amountIssueApplicable = !canVerify;
                 const planBadge = `<span class="font-bold uppercase">${pp.chosenPlan}</span>`;
                 return `<div class="mt-3 pt-3 border-t border-amber-200 bg-amber-50 rounded-lg p-3 space-y-1">
                 <p class="text-xs font-bold text-amber-700 uppercase tracking-wide">⏳ Pending Payment</p>
@@ -814,7 +814,7 @@
                     class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
                     ✓ Verify ${pp.chosenPlan}
                   </button>` : ''}
-                  <button onclick="openRejectDialog('${pp.pendingId}', ${isUniversallyInsufficient ? 'true' : 'false'})"
+                  <button onclick="openRejectDialog('${pp.pendingId}', ${amountIssueApplicable ? 'true' : 'false'})"
                     class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
                     ✕ Reject
                   </button>
@@ -1558,8 +1558,8 @@
 
     <div id="rejectAmountIssueRow" class="hidden mb-4 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg p-3">
       <div class="pr-3">
-        <p class="text-xs font-bold text-amber-800">Amount too low (below 49 ETB)</p>
-        <p class="text-[11px] text-amber-600 mt-0.5">If ON, sends the standard low-amount message and offers the user a full refund. Turn OFF if you suspect this isn't a real payment (e.g. not on your bank statement) — you'll type a reason and no refund will be offered.</p>
+        <p class="text-xs font-bold text-amber-800">Rejecting because the amount is insufficient</p>
+        <p class="text-[11px] text-amber-600 mt-0.5">If ON, sends the standard "amount not enough" message and offers the user a refund — plus a plan-activation option if the amount covers a lower tier. Turn OFF if the amount isn't the problem (e.g. you suspect this isn't real, or it's not on your bank statement) — you'll type a reason instead and no refund will be offered.</p>
       </div>
       <input type="checkbox" id="rejectAmountIssueToggle" onchange="toggleRejectReasonVisibility()" class="flex-shrink-0 w-5 h-5">
     </div>
