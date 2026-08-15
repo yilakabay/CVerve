@@ -17,7 +17,7 @@
 //      Pro for zero remaining time — so instead this returns `expired: true`
 //      and the app offers Refund/Tip for the excess instead of upgrading.
 //
-// Any leftover excess beyond Pro's own price (excess - 79) is reported back
+// Any leftover after Pro's own price (amount - 79) is reported back
 // so the app can offer Refund/Tip for the remainder.
 
 const { MongoClient, ObjectId } = require('mongodb');
@@ -80,8 +80,8 @@ exports.handler = async (event, context) => {
     if (verifiedDoc.upgradeUsed) {
       return { statusCode: 400, body: JSON.stringify({ error: 'This upgrade has already been used.' }) };
     }
-    if (!verifiedDoc.excess || verifiedDoc.excess < PRO_PRICE) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Not enough excess from this payment to cover Pro.' }) };
+    if (!verifiedDoc.amount || verifiedDoc.amount < PRO_PRICE) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'This payment is not enough to cover Pro.' }) };
     }
 
     // Must still be on the Basic plan from THIS payment, and it must not
@@ -113,7 +113,11 @@ exports.handler = async (event, context) => {
       }
     );
 
-    const leftover = Math.round((verifiedDoc.excess - PRO_PRICE) * 100) / 100;
+    // Leftover is computed from the ORIGINAL total amount paid, not from
+    // Basic's excess — upgrading just reallocates the whole payment toward
+    // Pro's price instead of Basic's, it doesn't need Basic's price AND
+    // Pro's price stacked on top of each other.
+    const leftover = Math.round((verifiedDoc.amount - PRO_PRICE) * 100) / 100;
 
     await verifiedCol.updateOne(
       { _id: verifiedDoc._id },
@@ -124,7 +128,7 @@ exports.handler = async (event, context) => {
       type:            'plan_activated',
       plan:            'pro',
       upgradeFromBasic: true,
-      amount:          verifiedDoc.excess,
+      amount:          verifiedDoc.amount,
       excess:          leftover,
       refundEligible:  leftover > 0,
       refundAmount:    leftover,
