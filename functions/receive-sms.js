@@ -41,7 +41,7 @@ function computeVerifyOutcome(chosenPlan, amount) {
   const tierPrice = PLAN_PRICES[chosenPlan];
   if (amount < tierPrice) return { canVerify: false };
   const excess = Math.round((amount - tierPrice) * 100) / 100;
-  const canUpgradeToPro = chosenPlan === 'basic' && excess >= PLAN_PRICES.pro;
+  const canUpgradeToPro = chosenPlan === 'basic' && amount >= PLAN_PRICES.pro;
   return { canVerify: true, tierPrice, excess, canUpgradeToPro };
 }
 
