@@ -1285,15 +1285,24 @@
         }
 
         // ── Notification stubs — full UI is in chat.html ────────────────────────
-        // These keep the red dot working on index.html without the full notification system
+        // These keep the badge working on index.html without the full notification system
         let _unreadCount = 0;
 
-        function updateNotifDot(count) {
-            _unreadCount = count || 0;
+        // Counts CHATS (senders) that have at least one unread message — not
+        // total unread messages. E.g. 3 unread from Payment Review Team + 1
+        // unread from System = 2 (two chats have something unread), not 4.
+        function countUnreadChats(notifs) {
+            const groups = notifGroupBySender(notifs || []);
+            return Object.values(groups).filter(msgs => msgs.some(n => !n.read)).length;
+        }
+
+        function updateNotifDot(chatsWithUnread) {
+            _unreadCount = chatsWithUnread || 0;
             const hidden = _unreadCount === 0;
+            const label  = _unreadCount > 9 ? '9+' : String(_unreadCount);
             ['notifRedDot','bnavRedDot','sidebarNotifRedDot'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.classList.toggle('hidden', hidden);
+                if (el) { el.classList.toggle('hidden', hidden); el.textContent = label; }
             });
         }
 
@@ -1305,16 +1314,14 @@
                 body: JSON.stringify({ phoneNumber: userId, password: storedPw })
             }).then(r => r.json()).then(data => {
                 if (data && data.notifications) {
-                    const unread = data.notifications.filter(n => !n.read).length;
-                    updateNotifDot(unread);
+                    updateNotifDot(countUnreadChats(data.notifications));
                 }
             }).catch(() => {});
         };
 
         window.handleNotifications = function(notifications) {
             if (!notifications) return;
-            const unread = notifications.filter(n => !n.read).length;
-            updateNotifDot(unread);
+            updateNotifDot(countUnreadChats(notifications));
             notifications.filter(n => !n.read).forEach(n => {
                 if (n.type === 'plan_activated') {
                     const lbl = planLabel(n.plan || 'free');
@@ -1341,7 +1348,9 @@
         };
 
         window.showPaymentNotification = function(notification) {
-            updateNotifDot(_unreadCount + 1);
+            // A new notification just arrived — refetch to get an accurate
+            // per-chat unread count rather than guessing at an increment.
+            window.loadNotifications();
         };
 
         function openFullAccount() {
@@ -3281,6 +3290,7 @@
         }
 
         function renderNotificationsList() {
+            teardownNotifScrollToBottom();
             const body = document.getElementById('notificationFullPageBody');
             if (!body) return;
             if (_appNotifs.length === 0) {
@@ -3289,12 +3299,21 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
                         <p class="text-sm">No notifications yet.<br>Updates from CVcase will appear here.</p>
                     </div>`;
+                updateNotifDot(0);
                 return;
             }
             const groups = notifGroupBySender(_appNotifs);
-            body.innerHTML = Object.entries(groups).map(([name, msgs]) => {
-                const hasUnread = msgs.some(n => !n.read);
-                const latest = msgs[msgs.length - 1];
+            // Latest activity first — whichever chat has the newest message sorts to the top.
+            const sortedEntries = Object.entries(groups).sort((a, b) => {
+                const aTime = new Date(a[1][a[1].length - 1].createdAt || 0).getTime();
+                const bTime = new Date(b[1][b[1].length - 1].createdAt || 0).getTime();
+                return bTime - aTime;
+            });
+            body.innerHTML = sortedEntries.map(([name, msgs]) => {
+                const unreadCount = msgs.filter(n => !n.read).length;
+                const hasUnread   = unreadCount > 0;
+                const latest      = msgs[msgs.length - 1];
+                const badgeLabel  = unreadCount > 99 ? '99+' : String(unreadCount);
                 return `
                 <div onclick="openNotifThread('${encodeURIComponent(name)}')" class="flex items-center gap-3 bg-white border border-gray-100 rounded-xl p-3 cursor-pointer hover:border-indigo-200 transition-colors">
                     <div style="${notifSenderColor(latest)}" class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">${notifSenderInitial(latest)}</div>
@@ -3305,14 +3324,18 @@
                         <p class="text-xs ${hasUnread ? 'text-gray-800 font-semibold' : 'text-gray-400'} truncate">${notifPreviewText(latest)}</p>
                         <p class="text-[0.65rem] text-gray-300 mt-0.5">${notifListTime(latest.createdAt)}</p>
                     </div>
-                    ${hasUnread ? '<span class="w-2.5 h-2.5 bg-indigo-500 rounded-full flex-shrink-0"></span>' : ''}
+                    ${hasUnread ? `<span class="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-indigo-500 text-white text-[0.65rem] font-bold rounded-full flex-shrink-0 leading-none">${badgeLabel}</span>` : ''}
                 </div>`;
             }).join('');
+            updateNotifDot(countUnreadChats(_appNotifs));
         }
 
         function openNotifThread(enc, fromPopstate) {
             const name = decodeURIComponent(enc);
             const msgs = _appNotifs.filter(n => notifSenderLabel(n) === name);
+            // Capture the first unread message's index BEFORE marking everything
+            // read, so we know where to scroll to once the thread renders.
+            const firstUnreadIdx = msgs.findIndex(n => !n.read);
             msgs.forEach(n => { n.read = true; });
             if (!fromPopstate) AppNav.openThread(name);
             const body = document.getElementById('notificationFullPageBody');
@@ -3326,9 +3349,9 @@
                     <div style="${notifSenderColor(sample)}" class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0">${notifSenderInitial(sample)}</div>
                     <span class="text-sm font-bold text-gray-800">${name}</span>${NOTIF_VBADGE}
                 </div>
-                <div class="space-y-3">
-                    ${msgs.map(n => `
-                        <div class="bg-white border border-gray-100 rounded-xl p-3 text-sm text-gray-700 leading-relaxed">
+                <div class="space-y-3" id="notifThreadMsgList">
+                    ${msgs.map((n, idx) => `
+                        <div id="notif-msg-${idx}" class="bg-white border border-gray-100 rounded-xl p-3 text-sm text-gray-700 leading-relaxed">
                             ${notifBodyText(n)}
                             ${notifActionButtonsHtml(n)}
                             <p class="text-[0.65rem] text-gray-300 mt-2 text-right">${notifListTime(n.createdAt)}</p>
@@ -3338,7 +3361,46 @@
             if (userId && storedPw) {
                 fetch('/.netlify/functions/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark_read', phoneNumber: userId, password: storedPw }) }).catch(() => {});
             }
-            updateNotifDot(_appNotifs.filter(n => !n.read).length);
+            updateNotifDot(countUnreadChats(_appNotifs));
+
+            // ── Scroll position: like Telegram — jump to the oldest unread
+            // message so the user reads forward from there. If nothing was
+            // unread, land on the latest (bottom) message instead. ──────────
+            const scrollTargetIdx = firstUnreadIdx >= 0 ? firstUnreadIdx : msgs.length - 1;
+            requestAnimationFrame(() => {
+                const targetEl = document.getElementById('notif-msg-' + scrollTargetIdx);
+                if (targetEl) targetEl.scrollIntoView({ block: firstUnreadIdx >= 0 ? 'start' : 'end' });
+                setupNotifScrollToBottom();
+            });
+        }
+
+        // ── Floating "scroll to latest" arrow — visible whenever the user
+        // isn't at the bottom of the open thread, hidden once they are. ────
+        let _notifScrollContainer = null, _notifScrollHandler = null;
+        function setupNotifScrollToBottom() {
+            teardownNotifScrollToBottom();
+            const container = document.getElementById('notificationFullPage');
+            const btn = document.getElementById('notifScrollBottomBtn');
+            if (!container || !btn) return;
+            _notifScrollContainer = container;
+            _notifScrollHandler = () => {
+                const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+                btn.classList.toggle('hidden', nearBottom);
+            };
+            container.addEventListener('scroll', _notifScrollHandler);
+            _notifScrollHandler();
+        }
+        function teardownNotifScrollToBottom() {
+            if (_notifScrollContainer && _notifScrollHandler) {
+                _notifScrollContainer.removeEventListener('scroll', _notifScrollHandler);
+            }
+            _notifScrollContainer = null; _notifScrollHandler = null;
+            const btn = document.getElementById('notifScrollBottomBtn');
+            if (btn) btn.classList.add('hidden');
+        }
+        function scrollNotifThreadToBottom() {
+            const list = document.getElementById('notifThreadMsgList');
+            if (list && list.lastElementChild) list.lastElementChild.scrollIntoView({ block: 'end' });
         }
 
         function openNotifications() {
@@ -3373,7 +3435,6 @@
                 clearTimeout(timeoutId);
                 if (data && data.notifications) {
                     _appNotifs = data.notifications;
-                    updateNotifDot(_appNotifs.filter(n => !n.read).length);
                 }
                 renderNotificationsList();
             }).catch(() => {
@@ -6491,7 +6552,7 @@
         <button onclick="openNotifications()" id="sidebar-chat" class="sidebar-nav-item" title="Notifications">
             <div class="relative">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
-                <span id="sidebarNotifRedDot" class="hidden absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                <span id="sidebarNotifRedDot" class="hidden absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[0.6rem] font-bold rounded-full border border-white leading-none"></span>
             </div>
             <span>Notifications</span>
         </button>
@@ -6537,7 +6598,7 @@
                 <button onclick="openNotifications()" title="Notifications" class="relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:bg-gray-100 transition-colors">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                     Notifications
-                    <span id="notifRedDot" class="hidden absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                    <span id="notifRedDot" class="hidden absolute top-0 right-0 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[0.6rem] font-bold rounded-full border border-white leading-none"></span>
                 </button>
                 <button onclick="openAccountDrawer()" title="Account" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:bg-gray-100 transition-colors">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -6836,7 +6897,7 @@
                 <button onclick="openNotifications()" id="bnav-chat" class="flex flex-col items-center justify-center gap-0.5 px-2.5 py-1 rounded-lg text-gray-400 relative" title="Notifications">
                     <div class="relative">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
-                        <span id="bnavRedDot" class="hidden absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white"></span>
+                        <span id="bnavRedDot" class="hidden absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 flex items-center justify-center bg-red-500 text-white text-[0.55rem] font-bold rounded-full border border-white leading-none"></span>
                     </div>
                     <span class="text-[0.55rem] font-medium">Notifications</span>
                 </button>
@@ -7216,6 +7277,12 @@
     <div id="notificationFullPageBody" class="px-4 py-4 space-y-3" style="padding-bottom:80px;">
         <p class="text-sm text-gray-400 italic text-center py-8">Loading notifications…</p>
     </div>
+    <!-- Floating "jump to latest" arrow — shown only while inside an open
+         thread and scrolled away from the newest message. -->
+    <button id="notifScrollBottomBtn" onclick="scrollNotifThreadToBottom()" title="Jump to latest"
+        class="hidden fixed bottom-24 right-5 w-11 h-11 rounded-full bg-indigo-500 text-white shadow-lg flex items-center justify-center hover:bg-indigo-600 transition-colors z-50">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+    </button>
 </div>
 
 <!-- Account Drawer (desktop) -->
