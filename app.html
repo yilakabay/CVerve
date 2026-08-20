@@ -3366,7 +3366,8 @@
             if (userId && storedPw && unreadIds.length > 0) {
                 fetch('/.netlify/functions/mark-notifications-read', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, password: storedPw, notificationIds: unreadIds })
+                    body: JSON.stringify({ userId, password: storedPw, notificationIds: unreadIds }),
+                    keepalive: true
                 }).catch(() => {});
             }
             updateNotifDot(countUnreadChats(_appNotifs));
