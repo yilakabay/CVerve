@@ -3369,11 +3369,18 @@
                     body: JSON.stringify({ userId, password: storedPw, notificationIds: unreadIds }),
                     keepalive: true
                 }).then(async (res) => {
+                    let data = null;
+                    try { data = await res.json(); } catch (_) {}
                     if (!res.ok) {
-                        let errBody = null;
-                        try { errBody = await res.json(); } catch (_) {}
-                        console.error('mark-notifications-read failed:', res.status, errBody);
-                        showMessage('error', 'Mark-read failed (' + res.status + '): ' + (errBody && errBody.error ? errBody.error : 'unknown error'));
+                        console.error('mark-notifications-read failed:', res.status, data);
+                        showMessage('error', 'Mark-read failed (' + res.status + '): ' + (data && data.error ? data.error : 'unknown error'));
+                        return;
+                    }
+                    console.log('mark-notifications-read result:', data);
+                    if (data && data.modifiedCount === 0) {
+                        showMessage('error', 'Mark-read matched nothing! requested=' + data.requestedCount + ' foundOnUser=' + data.requestedFoundCount + ' totalWithId=' + data.totalNotificationsWithId + '/' + data.totalNotificationsOnUser);
+                    } else if (data) {
+                        showMessage('success', 'Mark-read OK: modified=' + data.modifiedCount + '/' + data.requestedCount);
                     }
                 }).catch((err) => {
                     console.error('mark-notifications-read network error:', err);
