@@ -11,6 +11,13 @@
 // system is by sender name + amount only. A transaction ID, when a screenshot
 // happened to show one, is stored purely as an anti-resubmission guard and
 // isn't surfaced in this lookup.
+//
+// usageCounts field names MUST match increment-usage.js and admin-verify.js
+// exactly: lettersInternal, lettersExternal, pdfMerges, cvBuilds, fitTests.
+// A previous version of this file read a field called "letters" that nothing
+// ever wrote, which made usage always display as 0 after every sync and
+// silently reset the client's local counter — letting users exceed their
+// plan limit. Do not reintroduce a mismatched field name here.
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -23,24 +30,17 @@ const client = new MongoClient(uri, {
   maxIdleTimeMS: 30000
 });
 
-// ── Plan defaults (applied when a user has no plan yet) ──────────────────────
-const PLAN_DEFAULTS = {
-  free: {
-    plan:        'free',
-    planExpiry:  null,
-    usageCounts: { letters: 0, pdfMerges: 0, cvBuilds: 0 }
-  }
-};
-
 function buildPlanData(user) {
   const plan       = user.plan       || 'free';
   const planExpiry = user.planExpiry || null;
 
-  // Default usage counters — missing keys default to 0
+  const raw = user.usageCounts || {};
   const usageCounts = {
-    letters:   (user.usageCounts && user.usageCounts.letters   != null) ? user.usageCounts.letters   : 0,
-    pdfMerges: (user.usageCounts && user.usageCounts.pdfMerges != null) ? user.usageCounts.pdfMerges : 0,
-    cvBuilds:  (user.usageCounts && user.usageCounts.cvBuilds  != null) ? user.usageCounts.cvBuilds  : 0
+    lettersInternal: raw.lettersInternal != null ? raw.lettersInternal : 0,
+    lettersExternal: raw.lettersExternal != null ? raw.lettersExternal : 0,
+    pdfMerges:       raw.pdfMerges       != null ? raw.pdfMerges       : 0,
+    cvBuilds:        raw.cvBuilds        != null ? raw.cvBuilds        : 0,
+    fitTests:        raw.fitTests        != null ? raw.fitTests        : 0
   };
 
   // If planExpiry is in the past, fall back to free
@@ -48,7 +48,7 @@ function buildPlanData(user) {
     return {
       plan:        'free',
       planExpiry:  null,
-      usageCounts: { letters: 0, pdfMerges: 0, cvBuilds: 0 }
+      usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
     };
   }
 
