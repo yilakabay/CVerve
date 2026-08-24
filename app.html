@@ -309,17 +309,31 @@
         /* ── Plan state (replaces balance-based access control) ── */
         let userPlan        = 'free';
         let userPlanExpiry  = null;
-        let userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+        let userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
         // Letters are a single combined monthly total across all plans — it doesn't
         // matter whether the job was posted on CVcase or externally.
         const PLAN_LIMITS   = {
-            free:  { letters: 8,   merges: -1, cvBuilds: 0, findJob: true, smartFinder: false, fitTests: 0   },
-            basic: { letters: 35,  merges: -1, cvBuilds: 0, findJob: true, smartFinder: true,  fitTests: 20  },
-            pro:   { letters: 100, merges: -1, cvBuilds: 0, findJob: true, smartFinder: true,  fitTests: 100 },
+            free:  { lettersTotal: 8,   pdfMerges: -1, cvBuilds: 0, findJob: true, smartFinder: false, fitTests: 0   },
+            basic: { lettersTotal: 35,  pdfMerges: -1, cvBuilds: 0, findJob: true, smartFinder: true,  fitTests: 20  },
+            pro:   { lettersTotal: 100, pdfMerges: -1, cvBuilds: 0, findJob: true, smartFinder: true,  fitTests: 100 },
         };
         const PLAN_PRICES = { free: 0, basic: 49, pro: 79 };
-        function planLimit(f)    { return (PLAN_LIMITS[userPlan] || PLAN_LIMITS.free)[f]; }
-        function usageOf(f)      { return userUsageCounts[f] || 0; }
+        // NOTE: these are DISPLAY-ONLY helpers now (showing "X/Y used" in the UI).
+        // Actual enforcement happens server-side in checkAndConsumeUsage(), which
+        // blocks the action synchronously before it runs — these local numbers can
+        // never be trusted to gate anything, since localStorage is trivially
+        // resettable/editable by the user.
+        function planLimit(f)    {
+            const plan = PLAN_LIMITS[userPlan] || PLAN_LIMITS.free;
+            if (f === 'letters') return plan.lettersTotal;
+            if (f === 'merges')  return plan.pdfMerges;
+            return plan[f];
+        }
+        function usageOf(f) {
+            if (f === 'letters') return (userUsageCounts.lettersInternal || 0) + (userUsageCounts.lettersExternal || 0);
+            if (f === 'merges')  return userUsageCounts.pdfMerges || 0;
+            return userUsageCounts[f] || 0;
+        }
         function hasUsageLeft(f) { const l = planLimit(f); return l === -1 ? true : l > 0 && usageOf(f) < l; }
         function planLabel(p)    { return { pro:'Pro', basic:'Basic', free:'Free' }[p] || 'Free'; }
         function planColor(p)    { return { pro:'#f97316', basic:'#4f46e5', free:'#64748b' }[p] || '#64748b'; }
@@ -1331,7 +1345,7 @@
                         userPlan = n.plan;
                         localStorage.setItem('cv_userPlan', userPlan);
                         if (n.expiry) userPlanExpiry = n.expiry;
-                        userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+                        userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
                         localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
                         renderPlanDisplays();
                     }
@@ -1391,7 +1405,7 @@
             closeAccountDrawer();
             userId = null; userBalance = 0;
             userPlan = 'free'; userPlanExpiry = null;
-            userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+            userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
             storedProfile = null;
             ['cv_userId','cv_userBalance','cv_userPlan','cv_usageCounts',
              'cv_activeTab','cv_activeOverlay','cv_lastActivity','cv_popupOpen','cv_userPassword'].forEach(k => localStorage.removeItem(k));
@@ -2042,16 +2056,13 @@
             const key = fitCacheKey(jobId, posIdx);
             if (fitChecksInFlight[key]) return;
 
-            if (!planLimit('fitTests')) {
-                showUpgradePrompt('Fit/Not fit test requires Pro', 'Upgrade to Pro to check whether your CV fits a job at a glance.');
-                return;
-            }
-
             const cvForCheck = storedCvText;
             if (!cvForCheck || cvForCheck.trim().length < 20) {
                 openFitCvUploadModal(jobId, posIdx);
                 return;
             }
+
+            if (!(await checkAndConsumeUsage('fitTest', 'Fit/Not fit tests'))) return;
 
             const job = (allJobsCache || []).find(j => j._id === jobId);
             if (!job) return;
@@ -2081,7 +2092,6 @@
                 if (!res.ok || !data.success) throw new Error(data.error || 'Fit check failed.');
 
                 fitResultsCache[key] = { fit: data.fit, reason: data.reason, tip: data.tip };
-                await incrementUsage('fitTests');
 
             } catch (err) {
                 fitResultsCache[key] = { error: err.message || 'Could not run the Fit/Not fit test. Please try again.' };
@@ -2409,6 +2419,8 @@
             const appDate = new Date(appDateRaw + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
             const targetPosition = currentJobDetail.title + ' at ' + currentJobDetail.company;
 
+            if (!(await checkAndConsumeUsage('letterInternal', 'Application Letters'))) return;
+
             document.getElementById('jobLetterDateStep').classList.add('hidden');
             document.getElementById('jobLetterLoadingStep').classList.remove('hidden');
 
@@ -2459,8 +2471,6 @@
                 const emailField = document.getElementById('email');
                 if (phoneField) phoneField.value = phone;
                 if (emailField) emailField.value = email;
-
-                await incrementUsage('letters');
 
                 document.getElementById('jobLetterResultText').textContent = letterText;
                 document.getElementById('jobLetterLoadingStep').classList.add('hidden');
@@ -2776,7 +2786,7 @@
             listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${shown} match${shown !== 1 ? 'es' : ''} shown</p></div>` + html;
         }
 
-        window.switchFindJobSubtab = (which) => {
+        window.switchFindJobSubtab = async (which) => {
             document.querySelectorAll('.findjob-subpanel').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.findjob-subtab-button').forEach(b => {
                 b.classList.remove('text-indigo-600');
@@ -2788,8 +2798,11 @@
                 document.getElementById('fj-smartfinder-btn').classList.remove('text-gray-400');
                 document.getElementById('fj-smartfinder-btn').classList.add('text-indigo-600');
 
-                // Smart Finder itself is gated by plan — All Jobs stays free for everyone
-                if (!planLimit('smartFinder')) {
+                // Smart Finder itself is gated by plan — All Jobs stays free for everyone.
+                // Verified server-side (not just via local userPlan, which can be edited
+                // in localStorage) so a Free-plan user can't unlock it by tampering.
+                const smartFinderAllowed = await checkSmartFinderAccess();
+                if (!smartFinderAllowed) {
                     document.getElementById('findjob-smartfinder-locked').classList.remove('hidden');
                     document.getElementById('findjob-smartfinder-unlocked').classList.add('hidden');
                 } else {
@@ -3125,7 +3138,7 @@
                     userPlan = 'pro';
                     localStorage.setItem('cv_userPlan', userPlan);
                     userPlanExpiry = data.planExpiry;
-                    userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+                    userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
                     localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
                     renderPlanDisplays();
                     showMessage('success', data.leftover > 0
@@ -3165,7 +3178,7 @@
                     userPlan = 'basic';
                     localStorage.setItem('cv_userPlan', userPlan);
                     userPlanExpiry = data.planExpiry;
-                    userUsageCounts = { letters: 0, merges: 0, cvBuilds: 0, fitTests: 0 };
+                    userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
                     localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
                     renderPlanDisplays();
                     showMessage('success', data.excess > 0
@@ -3667,7 +3680,7 @@
                 return;
             }
             clearUploadError('pdfError', 'pdfUploadBtn');
-            if (!requirePlanFeature('merges', 'PDF Merges')) return;
+            if (!(await checkAndConsumeUsage('pdfMerge', 'PDF Merges'))) return;
 
             // Switch to progress view
             mergeAborted = false;
@@ -3692,7 +3705,6 @@
                 }
                 if (mergeAborted) throw new DOMException('Aborted', 'AbortError');
                 mergedPdf = await mergedDoc.save();
-                await incrementUsage('merges');
 
                 setMergeDone();
                 await new Promise(r => setTimeout(r, 350));
@@ -4347,37 +4359,81 @@
             });
         }
 
-        /* ── Increment usage counter (optimistic + server sync) ── */
-        async function incrementUsage(feature) {
-            userUsageCounts[feature] = (userUsageCounts[feature] || 0) + 1;
-            localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
-            renderPlanDisplays();
+        /* ── Server-side plan gate — the ONLY real enforcement in the app ──
+           Calls increment-usage.js BEFORE the gated action runs. The server
+           atomically checks the plan limit and increments the counter only if
+           allowed, so this can't be bypassed by clearing localStorage or by a
+           stale client-side count. Returns true/false; shows the upgrade
+           prompt itself when blocked. `action` must be one of:
+           'letterInternal' | 'letterExternal' | 'pdfMerge' | 'cvBuild' | 'fitTest' */
+        async function checkAndConsumeUsage(action, featureName) {
+            const storedPw = localStorage.getItem('cv_userPassword') || '';
+            if (!userId || !storedPw) {
+                // No credentials to authenticate the server check — fail CLOSED
+                // (block the action) rather than silently allowing unlimited use.
+                showMessage('error', 'Your session needs a quick refresh before continuing. Please log in again.');
+                return false;
+            }
             try {
                 const res  = await fetch('/.netlify/functions/increment-usage', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, feature })
+                    body: JSON.stringify({ userId, password: storedPw, action })
                 });
-                const data = await res.json();
-                if (res.ok && data.usageCounts) {
-                    userUsageCounts = data.usageCounts;
+                let data = null;
+                try { data = await res.json(); } catch (_) {}
+
+                if (!res.ok || !data) {
+                    console.error('increment-usage failed:', res.status, data);
+                    showMessage('error', 'Could not verify your plan limit. Please try again.');
+                    return false; // fail CLOSED — never silently allow on a broken check
+                }
+
+                if (!data.allowed) {
+                    showUpgradePrompt(
+                        `${featureName} limit reached`,
+                        data.reason || `You've used all your ${featureName} for this month on the ${data.plan || userPlan} plan. Upgrade for more.`
+                    );
+                    return false;
+                }
+
+                // Allowed — sync the authoritative counts back from the server
+                if (data.usageCounts) {
+                    userUsageCounts = { ...userUsageCounts, ...data.usageCounts };
                     localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts));
                     renderPlanDisplays();
                 }
-            } catch(_) {}
+                return true;
+
+            } catch (err) {
+                console.error('increment-usage network error:', err);
+                showMessage('error', 'Network error while checking your plan limit. Please try again.');
+                return false; // fail CLOSED on network errors too
+            }
         }
 
-        /* ── Plan gate — show upgrade prompt if blocked ── */
-        function requirePlanFeature(feature, name) {
-            const limit = planLimit(feature);
-            if (limit === 0) {
-                showUpgradePrompt(`${name} requires a paid plan`, `Upgrade to Basic or Pro to unlock ${name}.`);
-                return false;
+        /* ── Legacy name kept as a thin wrapper so nothing calling the old
+           name breaks — but it now does the real server check. ── */
+        async function requirePlanFeature(action, name) {
+            return checkAndConsumeUsage(action, name);
+        }
+
+        /* ── Smart Finder access — boolean plan gate, no usage counter.
+           Verified server-side via increment-usage.js's smartFinder branch so
+           a Free-plan user can't unlock it by editing localStorage. ── */
+        async function checkSmartFinderAccess() {
+            const storedPw = localStorage.getItem('cv_userPassword') || '';
+            if (!userId || !storedPw) return false; // fail closed
+            try {
+                const res  = await fetch('/.netlify/functions/increment-usage', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, password: storedPw, action: 'smartFinder' })
+                });
+                const data = await res.json().catch(() => null);
+                return !!(res.ok && data && data.allowed);
+            } catch (err) {
+                console.error('checkSmartFinderAccess error:', err);
+                return false; // fail closed on network errors too
             }
-            if (!hasUsageLeft(feature)) {
-                showUpgradePrompt(`${name} limit reached`, `You've used ${usageOf(feature)}/${planLimit(feature)} this month. Upgrade for more.`);
-                return false;
-            }
-            return true;
         }
 
         function showUpgradePrompt(title, message) {
@@ -5177,7 +5233,7 @@
             }
 
             if (hasError) return;
-            if (!requirePlanFeature('letters', 'Application Letters')) return;
+            if (!(await checkAndConsumeUsage('letterExternal', 'Application Letters'))) return;
 
             lastGeneratedFirstName = fullName.split(' ')[0] || 'Letter';
             generationStopped = false;
@@ -5336,7 +5392,6 @@
                 if (generationStopped) return;
                 lastGeneratedLetterText = letterText;
                 lastGeneratedLetterHtml = null;
-                await incrementUsage('letters');
 
                 advanceStep(3);
                 await new Promise(r => setTimeout(r, 300));
