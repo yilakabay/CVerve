@@ -1,6 +1,7 @@
 // functions/subscribe-plan.js
 // Internal helper called by admin-verify.js when approving a plan payment.
-// Also callable directly by future automated payment gateways.
+// Also callable directly by future automated payment gateways, and by
+// admin.html's "Manual Plan Override" action.
 //
 // POST body: { token, userId, plan, paymentId, amount }
 //   token     — admin JWT (same as admin-verify)
@@ -14,6 +15,14 @@
 //   - Resets user.usageCounts to { lettersInternal:0, lettersExternal:0, pdfMerges:0, cvBuilds:0, fitTests:0 }
 //   - Writes a plan_activated notification to the user
 //   - Returns { success, plan, planExpiry }
+//
+// usageCounts field names MUST match increment-usage.js / get-user.js exactly:
+// lettersInternal, lettersExternal, pdfMerges, cvBuilds, fitTests. $set REPLACES
+// the whole usageCounts object rather than merging, so leaving any of these
+// keys out here doesn't just fail to reset them — it deletes them from the
+// document, which previously caused plan limits to misbehave right after an
+// admin override (e.g. Fit/Not fit reporting "limit reached" on the very
+// first try on a freshly-overridden plan).
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -109,11 +118,14 @@ exports.handler = async (event, context) => {
           plan:            plan,
           planExpiry:      planExpiry,
           planActivatedAt: new Date(),
-          // Reset usage counters fresh each subscription period
+          // Reset usage counters fresh each subscription period — field names
+          // MUST match increment-usage.js / get-user.js exactly.
           usageCounts: {
-            letters:   0,
-            pdfMerges: 0,
-            cvBuilds:  0
+            lettersInternal: 0,
+            lettersExternal: 0,
+            pdfMerges:       0,
+            cvBuilds:        0,
+            fitTests:        0
           }
         }
       }
@@ -133,6 +145,8 @@ exports.handler = async (event, context) => {
     // ── Notify the user ────────────────────────────────────────────────────
     const planLabels = { basic: 'Basic', pro: 'Pro' };
     await writeNotification(usersCol, userId, {
+      id:        crypto.randomUUID(),
+      read:      false,
       type:      'plan_activated',
       plan:      plan,
       planLabel: planLabels[plan] || plan,
