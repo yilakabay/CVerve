@@ -1403,6 +1403,7 @@
 
         function doLogout() {
             closeAccountDrawer();
+            stopBackgroundSync();
             userId = null; userBalance = 0;
             userPlan = 'free'; userPlanExpiry = null;
             userUsageCounts = { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 };
@@ -1640,6 +1641,7 @@
 
             setTimeout(() => { syncBalance(); loadNotifications(); }, 300);
             setTimeout(updateTopBarHeightVar, 0);
+            startBackgroundSync();
         };
 
         // ── Job Feed (All Jobs) ────────────────────────────────────────────────────
@@ -7756,6 +7758,81 @@
             // Poll every 60 seconds — much lighter than 30s, only for pending users
             _pollTimer = setInterval(checkPendingStatus, 30 * 1000);
         }
+
+        // ── Always-on background sync — independent of pending payments ────────
+        // checkPendingStatus() above only ever runs while hasPendingPayment is
+        // true, so it never catches server-side changes that don't come from a
+        // real payment — most notably an admin's "Manual Plan Override" from
+        // admin.html, which sets the plan directly and never creates a pending
+        // record at all. Without this, the ONLY way that override reaches the
+        // user's device is a manual page reload.
+        //
+        // This is a lightweight periodic fetch of get-user (same call already
+        // used elsewhere), applied regardless of pending-payment state. It's
+        // NOT true real-time push — this app runs on Netlify Functions, which
+        // don't support persistent WebSocket connections — but it means any
+        // server-side change (plan override, new notification, balance change)
+        // reaches an open app within ~45 seconds instead of requiring a reload.
+        // Polling pauses whenever the tab isn't visible, so it costs nothing
+        // while the app is in the background.
+        let _bgSyncTimer = null;
+        let _bgSyncInFlight = false;
+
+        async function backgroundSync() {
+            if (_bgSyncInFlight) return; // don't overlap requests if one is slow
+            if (!userId || document.visibilityState !== 'visible') return;
+            const storedPw = localStorage.getItem('cv_userPassword') || '';
+            if (!storedPw) return;
+
+            _bgSyncInFlight = true;
+            try {
+                const res = await fetch('/.netlify/functions/get-user', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: userId, password: storedPw })
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data) return;
+
+                const planChanged = data.plan && data.plan !== userPlan;
+
+                if (data.plan)        { userPlan = data.plan; localStorage.setItem('cv_userPlan', userPlan); }
+                if (data.planExpiry !== undefined) { userPlanExpiry = data.planExpiry; }
+                if (data.usageCounts) { userUsageCounts = data.usageCounts; localStorage.setItem('cv_usageCounts', JSON.stringify(userUsageCounts)); }
+                if (typeof data.balance === 'number' && data.balance !== userBalance) {
+                    userBalance = data.balance;
+                    localStorage.setItem('cv_userBalance', userBalance);
+                    renderBalanceDisplays();
+                }
+                renderPlanDisplays();
+
+                // handleNotifications() already de-dupes by only acting on unread
+                // ones and shows the relevant toast (plan activated, rejected, etc.)
+                if (data.notifications && data.notifications.length > 0) {
+                    handleNotifications(data.notifications);
+                }
+
+                if (planChanged) {
+                    showMessage('success', `Your plan is now ${planLabel(userPlan)}.`);
+                }
+            } catch (_) { /* silent — will retry on next tick */ }
+            finally { _bgSyncInFlight = false; }
+        }
+
+        function startBackgroundSync() {
+            if (_bgSyncTimer) return; // already running
+            _bgSyncTimer = setInterval(backgroundSync, 45 * 1000);
+        }
+        function stopBackgroundSync() {
+            if (_bgSyncTimer) { clearInterval(_bgSyncTimer); _bgSyncTimer = null; }
+        }
+
+        // Sync immediately when the tab becomes visible again (e.g. user
+        // switches back after the admin verified something), not just on the
+        // next scheduled tick.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && userId) backgroundSync();
+        });
 
         // ── Restore session from localStorage ────────────────────────────────
 
