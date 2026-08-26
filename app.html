@@ -1723,7 +1723,7 @@
                 // Roll back the optimistic update on failure
                 if (wasSaved) savedJobsSet.add(key); else savedJobsSet.delete(key);
                 refreshSaveButtonsForKey(jobId, posIdx);
-                showMessage('error', err.message || 'Could not update saved jobs.');
+                showMessage('error', userFacingError(err));
             }
         }
 
@@ -1925,7 +1925,7 @@
                 allJobsCache = data.jobs || [];
                 renderAllJobs(allJobsCache);
             } catch (err) {
-                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(err.message)}</p>`;
+                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(userFacingError(err))}</p>`;
             }
         }
 
@@ -2054,6 +2054,21 @@
             }
         }
 
+        // ── Safe error messaging — NEVER show raw backend/provider error text to
+        // users (API quota messages, stack traces, provider names, JSON blobs,
+        // etc). Distinguishes "you're offline" from "something went wrong on
+        // our end" since those need different guidance, but nothing more
+        // specific than that ever reaches the UI.
+        function userFacingError(err) {
+            const isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+            const isNetworkError = err instanceof TypeError &&
+                /network|fetch/i.test(err.message || '');
+            if (isOffline || isNetworkError) {
+                return 'Unable to complete — please check your internet connection and try again.';
+            }
+            return 'We are unable to complete your request right now. Please try again in a moment.';
+        }
+
         async function checkJobFit(jobId, posIdx) {
             const key = fitCacheKey(jobId, posIdx);
             if (fitChecksInFlight[key]) return;
@@ -2096,7 +2111,7 @@
                 fitResultsCache[key] = { fit: data.fit, reason: data.reason, tip: data.tip };
 
             } catch (err) {
-                fitResultsCache[key] = { error: err.message || 'Could not run the Fit/Not fit test. Please try again.' };
+                fitResultsCache[key] = { error: userFacingError(err) };
             } finally {
                 delete fitChecksInFlight[key];
                 document.querySelectorAll(`[id="fitBtn-${jobId}-${posIdx}"]`).forEach(btnWrap => {
@@ -2719,7 +2734,7 @@
                 renderSmartFinderResults(data.matches, allJobsCache);
 
             } catch (err) {
-                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(err.message)}</p>`;
+                listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(userFacingError(err))}</p>`;
             }
         }
 
@@ -5315,7 +5330,7 @@
                     if (userId && cvFilesArray.length > 0 && !generationStopped) {
                         try { const { buffer, filename } = await buildCvPdfBuffer(cvFilesArray, cvTextForLetter); const result = prepareCvPdfForServer(buffer, filename); if (!result.tooLarge) window._stagedCvPdf = { base64: result.base64, filename: result.filename }; } catch(e) { /* silent */ }
                     }
-                } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message); resetToForm(); return; }
+                } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', userFacingError(err)); resetToForm(); return; }
             }
 
             if (generationStopped) return;
@@ -5350,7 +5365,7 @@
                     }
                     if (jdExtractionError) throw new Error('JD extraction failed: ' + jdExtractionError.message);
                 }
-            } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', err.message); resetToForm(); return; }
+            } catch(err) { if (err.name === 'AbortError' || generationStopped) return; showMessage('error', userFacingError(err)); resetToForm(); return; }
 
             if (generationStopped) return;
 
