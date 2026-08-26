@@ -22,6 +22,16 @@
 // validate step. If a transactionId IS found and already used, it's rejected
 // here, before any pending_payments record is written, so a reused screenshot
 // never reaches the backend as a new "pending" entry.
+//
+// IMPORTANT — error message accuracy: a failure calling Gemini (quota limit,
+// network issue, service outage) is NOT the same thing as "the screenshot is
+// unreadable", and must never be presented to the user as if it were. Telling
+// a user their perfectly clear screenshot is bad when the real cause is our
+// own API quota is misleading and erodes trust. This function distinguishes:
+//   - Gemini/service/network failure  → generic "unable to complete" message
+//   - Gemini succeeded but the image genuinely doesn't show amount/sender,
+//     or returned unparseable output → the "could not read the screenshot"
+//     message, which is accurate in that case.
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
@@ -29,6 +39,17 @@ const bcrypt = require('bcryptjs');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+// Classifies a Gemini/network failure as a service-side issue (quota, rate
+// limit, outage, connectivity) rather than an image-content problem. These
+// should NEVER be shown to the user as "your screenshot is unreadable".
+function isServiceFailure(err) {
+  const msg = (err && err.message ? err.message : '').toLowerCase();
+  return msg.includes('429') || msg.includes('quota') || msg.includes('503') ||
+         msg.includes('high demand') || msg.includes('rate limit') ||
+         msg.includes('network') || msg.includes('fetch') || msg.includes('timeout') ||
+         msg.includes('econnreset') || msg.includes('enotfound');
+}
 
 async function extractWithGemini(base64, mime) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -74,7 +95,8 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'A payment screenshot is required.' }) };
   }
   if (!process.env.GEMINI_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing Gemini API key.' }) };
+    console.error('extract-payment-screenshot: Missing Gemini API key');
+    return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
   try {
@@ -106,6 +128,13 @@ exports.handler = async (event, context) => {
       extracted = await extractWithGemini(imageBase64, imageMime);
     } catch (err) {
       console.error('extract-payment-screenshot Gemini error:', err.message);
+      if (isServiceFailure(err)) {
+        // Our own API quota/rate-limit/outage/connectivity issue — NOT the
+        // user's screenshot. Never blame their photo for our own service problem.
+        return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
+      }
+      // Genuine parse/read failure (e.g. Gemini returned non-JSON for this
+      // specific image) — accurate to describe as a screenshot-reading issue.
       return { statusCode: 500, body: JSON.stringify({ error: 'Could not read the screenshot. Please upload a clear, uncropped screenshot of your payment confirmation.' }) };
     }
 
