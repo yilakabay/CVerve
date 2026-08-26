@@ -7,6 +7,12 @@
 // Sends the user's CV plus a compact list of open positions to Gemini and asks it
 // to return only the positions that are a reasonable fit, each with a 0-100 match
 // score and a short reason — so the user doesn't have to read every posting.
+//
+// IMPORTANT: never return raw provider/AI error text (error.message from the
+// Gemini SDK) in the HTTP response — it can include quota details, internal
+// URLs, and JSON error blobs that shouldn't be shown to end users. Full errors
+// are logged server-side via console.error for our own debugging; the client
+// only ever receives a short, generic, safe message.
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
@@ -30,7 +36,8 @@ exports.handler = async (event, context) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing Gemini API key' }) };
+    console.error('smart-finder: Missing Gemini API key');
+    return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
   if (!cvText || cvText.trim().length < 20) {
@@ -122,7 +129,7 @@ exports.handler = async (event, context) => {
         return { statusCode: 200, body: JSON.stringify({ success: true, matches }) };
       } catch (err) {
         lastError = err;
-        console.error(`Gemini attempt ${attempt} failed:`, err.message);
+        console.error(`smart-finder Gemini attempt ${attempt} failed:`, err.message);
         const isRetryable = err.message.includes('503') || err.message.includes('high demand') ||
                              err.message.includes('429') || err.message.includes('quota');
         if (!isRetryable || attempt === MAX_ATTEMPTS) break;
@@ -133,13 +140,12 @@ exports.handler = async (event, context) => {
     throw lastError;
 
   } catch (error) {
+    // Full detail (provider error, quota info, stack, etc) goes to server
+    // logs ONLY — the client always gets a short, generic, safe message.
     console.error('smart-finder error:', error);
-    let errorMessage = 'Smart Finder could not process your CV right now. ';
-    if (error.message.includes('503') || error.message.includes('high demand')) {
-      errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
-    } else {
-      errorMessage += error.message || 'An unexpected error occurred.';
-    }
-    return { statusCode: 500, body: JSON.stringify({ error: errorMessage }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' })
+    };
   }
 };
