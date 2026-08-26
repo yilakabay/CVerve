@@ -1651,10 +1651,17 @@
         let smartFinderSearchTerm = '';
         let smartFinderDateFilter = 'all';
 
+        // Pagination — show 15 jobs at a time with a "Load more jobs" button at
+        // the bottom, revealing 15 more per click until everything is shown.
+        const ALL_JOBS_PAGE_SIZE = 15;
+        let allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
+
         // ── Saved Jobs (favorites) ───────────────────────────────────────────────
         let savedJobsSet = new Set();      // keys: "jobId:posIdx" — for quick lookup/render
         let savedJobsLoaded = false;
         let savedJobsLoadingPromise = null;
+        const SAVED_JOBS_PAGE_SIZE = 15;
+        let savedJobsRenderLimit = SAVED_JOBS_PAGE_SIZE;
 
         function savedJobKey(jobId, posIdx) { return jobId + ':' + posIdx; }
 
@@ -1756,18 +1763,26 @@
                 return;
             }
 
-            let html = '';
-            let shown = 0;
-
+            // Build the full list of still-valid saved entries first, so we know
+            // the true total before slicing to the current page.
+            const validEntries = [];
             entries.forEach(({ jobId, posIdx }) => {
                 const job = (allJobsCache || []).find(j => j._id === jobId);
                 if (!job) return; // job may have been removed/expired since it was saved
                 const pos = job.positions ? job.positions[posIdx] : null;
                 if (!pos) return;
                 if (isJobExpired(pos.expireDate, job.createdAt)) return;
-                shown++;
+                validEntries.push({ job, pos, posIdx });
+            });
 
-                html += `
+            if (validEntries.length === 0) {
+                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">Your saved jobs have expired or were removed.</p>`;
+                return;
+            }
+
+            const visible = validEntries.slice(0, savedJobsRenderLimit);
+
+            let html = visible.map(({ job, pos, posIdx }) => `
                 <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
                     <div class="flex items-start justify-between gap-2 mb-1">
                         <div class="min-w-0">
@@ -1788,19 +1803,36 @@
                         </div>
                     </div>
                     ${fitReasonHtml(job._id, posIdx)}
-                </div>`;
-            });
+                </div>`).join('');
 
-            if (shown === 0) {
-                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">Your saved jobs have expired or were removed.</p>`;
-                return;
+            if (validEntries.length > visible.length) {
+                html += `
+                    <button id="loadMoreSavedJobsBtn" onclick="loadMoreSavedJobs()"
+                        class="w-full py-3 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
+                        <span id="loadMoreSavedJobsBtnLabel">Load more jobs</span>
+                    </button>`;
             }
+
             listEl.innerHTML = html;
+        }
+
+        function loadMoreSavedJobs() {
+            const btn = document.getElementById('loadMoreSavedJobsBtn');
+            const label = document.getElementById('loadMoreSavedJobsBtnLabel');
+            if (btn) { btn.disabled = true; btn.classList.add('opacity-70', 'cursor-not-allowed'); }
+            if (label) {
+                label.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:-2px;margin-right:6px;"></span>Loading jobs…';
+            }
+            setTimeout(() => {
+                savedJobsRenderLimit += SAVED_JOBS_PAGE_SIZE;
+                renderSavedJobs();
+            }, 350);
         }
 
         async function showSavedJobsTab() {
             const listEl = document.getElementById('savedJobsList');
             if (listEl) listEl.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-10">Loading saved jobs…</p>';
+            savedJobsRenderLimit = SAVED_JOBS_PAGE_SIZE;
 
             // Saved jobs are rendered from allJobsCache (for full job/position details),
             // so make sure both the job list and the saved-jobs set are available.
@@ -1893,20 +1925,24 @@
             });
             if (panel === 'alljobs') {
                 allJobsDateFilter = filter;
+                allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
                 renderAllJobs(allJobsCache);
             } else {
                 smartFinderDateFilter = filter;
+                smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
                 renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
             }
         }
 
         function filterAllJobs() {
             allJobsSearchTerm = document.getElementById('allJobsSearchInput').value;
+            allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
             renderAllJobs(allJobsCache);
         }
 
         function filterSmartFinderResults() {
             smartFinderSearchTerm = document.getElementById('smartFinderSearchInput').value;
+            smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
             renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
         }
 
@@ -1923,6 +1959,7 @@
                 const data = await res.json();
                 if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load jobs.');
                 allJobsCache = data.jobs || [];
+                allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
                 renderAllJobs(allJobsCache);
             } catch (err) {
                 listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(userFacingError(err))}</p>`;
@@ -2144,17 +2181,28 @@
             }
 
             const term = allJobsSearchTerm;
-            let html = '';
-            let shown = 0;
 
+            // Build the full matching list first (unpaginated) so we know the
+            // true total, then slice to whatever's currently revealed.
+            const matched = [];
             jobs.forEach(job => {
                 if (!jobMatchesDateFilter(job.createdAt, allJobsDateFilter)) return;
                 (job.positions || []).forEach((pos, posIdx) => {
                     if (isJobExpired(pos.expireDate, job.createdAt)) return; // hide positions past their due date (incl. undetermined-date auto-expiry)
                     const haystack = [job.company, pos.title, pos.shortDescription, pos.qualification, pos.experience].join(' ');
                     if (!jobMatchesSearch(term, haystack)) return;
-                    shown++;
-                    html += `
+                    matched.push({ job, pos, posIdx });
+                });
+            });
+
+            if (matched.length === 0) {
+                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No jobs match your search or filter.</p>`;
+                return;
+            }
+
+            const visible = matched.slice(0, allJobsRenderLimit);
+
+            let html = visible.map(({ job, pos, posIdx }) => `
                     <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
                         <div class="flex items-start justify-between gap-2 mb-1">
                             <div class="min-w-0">
@@ -2175,15 +2223,37 @@
                             </div>
                         </div>
                         ${fitReasonHtml(job._id, posIdx)}
-                    </div>`;
-                });
-            });
+                    </div>`).join('');
 
-            if (shown === 0) {
-                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No jobs match your search or filter.</p>`;
-                return;
+            if (matched.length > visible.length) {
+                html += `
+                    <button id="loadMoreJobsBtn" onclick="loadMoreJobs()"
+                        class="w-full py-3 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
+                        <span id="loadMoreJobsBtnLabel">Load more jobs</span>
+                    </button>`;
             }
+
             listEl.innerHTML = html;
+        }
+
+        // Reveals the next page of already-loaded jobs. All jobs are fetched in
+        // one request (manage-jobs has no server-side pagination), so this is a
+        // client-side reveal — the brief "Loading jobs…" state is intentional
+        // UX feedback so the button doesn't feel unresponsive, not a real fetch.
+        function loadMoreJobs() {
+            const btn = document.getElementById('loadMoreJobsBtn');
+            const label = document.getElementById('loadMoreJobsBtnLabel');
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('opacity-70', 'cursor-not-allowed');
+            }
+            if (label) {
+                label.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:-2px;margin-right:6px;"></span>Loading jobs…';
+            }
+            setTimeout(() => {
+                allJobsRenderLimit += ALL_JOBS_PAGE_SIZE;
+                renderAllJobs(allJobsCache);
+            }, 350);
         }
 
         let currentJobDetail = null; // { company, title, ... } for the "Generate Application Letter" hand-off
@@ -2512,6 +2582,8 @@
 
 
         let smartFinderCache = null; // { matches, jobsUsed } — avoid re-running on every subtab click
+        const SMART_FINDER_PAGE_SIZE = 15;
+        let smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
 
         // ── Inline CV uploader for Smart Finder (saves straight to profile, like onboarding) ──
         const CV_ACCEPTED_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -2731,6 +2803,7 @@
                 if (!res.ok || !data.success) throw new Error(data.error || 'Smart Finder failed.');
 
                 smartFinderCache = { matches: data.matches, jobs: allJobsCache };
+                smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
                 renderSmartFinderResults(data.matches, allJobsCache);
 
             } catch (err) {
@@ -2753,8 +2826,10 @@
             }
 
             const term = smartFinderSearchTerm;
-            let html = '';
-            let shown = 0;
+
+            // Build the full matching list first so we know the true total,
+            // then slice to whatever's currently revealed.
+            const matched = [];
             matches.forEach(m => {
                 const job = (jobsList || []).find(j => j._id === m.jobId);
                 if (!job) return;
@@ -2765,11 +2840,19 @@
 
                 const haystack = [job.company, pos.title, pos.shortDescription, pos.qualification, pos.experience, m.reason].join(' ');
                 if (!jobMatchesSearch(term, haystack)) return;
-                shown++;
+                matched.push({ m, job, pos });
+            });
 
+            if (matched.length === 0) {
+                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No matches for that search or filter.</p>`;
+                return;
+            }
+
+            const visible = matched.slice(0, smartFinderRenderLimit);
+
+            let html = visible.map(({ m, job, pos }) => {
                 const scoreColor = m.matchScore >= 80 ? 'bg-emerald-50 text-emerald-700' : m.matchScore >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600';
-
-                html += `
+                return `
                 <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
                     <div class="flex items-start justify-between gap-2 mb-1">
                         <div class="min-w-0">
@@ -2794,13 +2877,30 @@
                     </div>
                     ${fitReasonHtml(job._id, m.positionIndex)}
                 </div>`;
-            });
+            }).join('');
 
-            if (shown === 0) {
-                listEl.innerHTML = `<p class="text-sm text-gray-400 italic text-center py-10">No matches for that search or filter.</p>`;
-                return;
+            if (matched.length > visible.length) {
+                html += `
+                    <button id="loadMoreSmartFinderBtn" onclick="loadMoreSmartFinderJobs()"
+                        class="w-full py-3 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
+                        <span id="loadMoreSmartFinderBtnLabel">Load more jobs</span>
+                    </button>`;
             }
-            listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${shown} match${shown !== 1 ? 'es' : ''} shown</p></div>` + html;
+
+            listEl.innerHTML = `<div class="mb-1 px-1"><p class="text-xs text-gray-400">${matched.length} match${matched.length !== 1 ? 'es' : ''} found${matched.length > visible.length ? ` — showing ${visible.length}` : ''}</p></div>` + html;
+        }
+
+        function loadMoreSmartFinderJobs() {
+            const btn = document.getElementById('loadMoreSmartFinderBtn');
+            const label = document.getElementById('loadMoreSmartFinderBtnLabel');
+            if (btn) { btn.disabled = true; btn.classList.add('opacity-70', 'cursor-not-allowed'); }
+            if (label) {
+                label.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:-2px;margin-right:6px;"></span>Loading jobs…';
+            }
+            setTimeout(() => {
+                smartFinderRenderLimit += SMART_FINDER_PAGE_SIZE;
+                renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
+            }, 350);
         }
 
         window.switchFindJobSubtab = async (which) => {
