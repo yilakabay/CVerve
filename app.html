@@ -1645,16 +1645,65 @@
         };
 
         // ── Job Feed (All Jobs) ────────────────────────────────────────────────────
-        let allJobsCache = null;
+        // allJobsCache holds only the job DOCUMENTS actually fetched from the
+        // server so far — paginated over the network, not just re-rendered from
+        // one big download. This is what keeps load time flat as more jobs get
+        // posted: opening the tab only ever downloads one page's worth of jobs,
+        // and clicking "Load more" fetches more from the server as needed.
+        let allJobsCache = [];
         let allJobsSearchTerm = '';
         let allJobsDateFilter = 'all';
         let smartFinderSearchTerm = '';
         let smartFinderDateFilter = 'all';
 
-        // Pagination — show 15 jobs at a time with a "Load more jobs" button at
-        // the bottom, revealing 15 more per click until everything is shown.
-        const ALL_JOBS_PAGE_SIZE = 15;
+        // Pagination — show 15 job CARDS at a time with a "Load more jobs"
+        // button at the bottom. Server-side we fetch jobs in batches of
+        // SERVER_JOBS_PAGE_SIZE (a job can have multiple positions/cards), and
+        // fetch additional server pages automatically if a batch didn't yield
+        // enough matching cards to fill the next reveal.
+        const ALL_JOBS_PAGE_SIZE   = 15; // cards revealed per "Load more" click
+        const SERVER_JOBS_PAGE_SIZE = 20; // job documents fetched per network request
         let allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
+        let allJobsServerPage = 0;       // last successfully fetched server page (0 = none yet)
+        let allJobsServerHasMore = true; // whether the server has more job documents beyond what's cached
+        let allJobsLoadingMore = false;  // guards against overlapping "Load more" fetches
+
+        // fullJobsCache holds the COMPLETE job dataset (same one-request fetch
+        // manage-jobs.js has always done) — required by Smart Finder (must score
+        // every open position against the CV) and Saved Jobs (must resolve a
+        // star tapped on any job, not just whatever page All Jobs has loaded so
+        // far). Pagination must never be applied to this cache.
+        let fullJobsCache = null;
+        let fullJobsCacheLoadingPromise = null;
+
+        async function ensureFullJobsLoaded(force) {
+            if (fullJobsCache && !force) return fullJobsCache;
+            if (fullJobsCacheLoadingPromise) return fullJobsCacheLoadingPromise;
+            fullJobsCacheLoadingPromise = (async () => {
+                try {
+                    const res = await fetch('/.netlify/functions/manage-jobs', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'list' }) // no page/limit → full dataset
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) fullJobsCache = data.jobs || [];
+                    return fullJobsCache;
+                } finally {
+                    fullJobsCacheLoadingPromise = null;
+                }
+            })();
+            return fullJobsCacheLoadingPromise;
+        }
+
+        // Looks up a job by id across BOTH caches — a job card can come from
+        // either the paginated All Jobs feed or the full Smart Finder/Saved
+        // Jobs dataset, and callers like openJobDetail/checkJobFit are shared
+        // across all three.
+        function findJobById(jobId) {
+            return (allJobsCache || []).find(j => j._id === jobId)
+                || (fullJobsCache || []).find(j => j._id === jobId)
+                || null;
+        }
 
         // ── Saved Jobs (favorites) ───────────────────────────────────────────────
         let savedJobsSet = new Set();      // keys: "jobId:posIdx" — for quick lookup/render
@@ -1764,10 +1813,12 @@
             }
 
             // Build the full list of still-valid saved entries first, so we know
-            // the true total before slicing to the current page.
+            // the true total before slicing to the current page. Uses
+            // fullJobsCache (not the paginated allJobsCache) since a saved job
+            // could be anywhere in the dataset, not just a recently-loaded page.
             const validEntries = [];
             entries.forEach(({ jobId, posIdx }) => {
-                const job = (allJobsCache || []).find(j => j._id === jobId);
+                const job = (fullJobsCache || []).find(j => j._id === jobId);
                 if (!job) return; // job may have been removed/expired since it was saved
                 const pos = job.positions ? job.positions[posIdx] : null;
                 if (!pos) return;
@@ -1834,22 +1885,10 @@
             if (listEl) listEl.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-10">Loading saved jobs…</p>';
             savedJobsRenderLimit = SAVED_JOBS_PAGE_SIZE;
 
-            // Saved jobs are rendered from allJobsCache (for full job/position details),
-            // so make sure both the job list and the saved-jobs set are available.
-            const tasks = [ensureSavedJobsLoaded()];
-            if (!allJobsCache) {
-                tasks.push((async () => {
-                    try {
-                        const res = await fetch('/.netlify/functions/manage-jobs', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'list' })
-                        });
-                        const data = await res.json();
-                        if (res.ok && data.success) allJobsCache = data.jobs || [];
-                    } catch (e) { console.error('Load jobs error', e); }
-                })());
-            }
-            await Promise.all(tasks);
+            // Saved jobs are rendered from fullJobsCache (the complete dataset,
+            // not the paginated All Jobs buffer) so a star tapped on ANY job
+            // resolves here, not just ones from a recently-loaded page.
+            await Promise.all([ensureSavedJobsLoaded(), ensureFullJobsLoaded()]);
             renderSavedJobs();
         }
 
@@ -1913,7 +1952,7 @@
             return Date.now() >= cutoff.getTime();
         }
 
-        function setDateFilter(panel, filter) {
+        async function setDateFilter(panel, filter) {
             const barId = panel === 'alljobs' ? 'allJobsDateFilterBar' : 'smartFinderDateFilterBar';
             const bar = document.getElementById(barId);
             bar.querySelectorAll('.jf-filter-btn').forEach(btn => {
@@ -1926,7 +1965,8 @@
             if (panel === 'alljobs') {
                 allJobsDateFilter = filter;
                 allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
-                renderAllJobs(allJobsCache);
+                try { await ensureAllJobsBuffer(allJobsRenderLimit); } catch (err) { console.error(err); }
+                renderAllJobs();
             } else {
                 smartFinderDateFilter = filter;
                 smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
@@ -1934,10 +1974,11 @@
             }
         }
 
-        function filterAllJobs() {
+        async function filterAllJobs() {
             allJobsSearchTerm = document.getElementById('allJobsSearchInput').value;
             allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
-            renderAllJobs(allJobsCache);
+            try { await ensureAllJobsBuffer(allJobsRenderLimit); } catch (err) { console.error(err); }
+            renderAllJobs();
         }
 
         function filterSmartFinderResults() {
@@ -1946,21 +1987,64 @@
             renderSmartFinderResults(smartFinderCache ? smartFinderCache.matches : null, smartFinderCache ? smartFinderCache.jobs : null);
         }
 
+        // Fetches the next server page of job documents and appends it to
+        // allJobsCache. Safe to call repeatedly — it's a no-op once the server
+        // reports no more pages.
+        async function fetchNextJobsServerPage() {
+            if (!allJobsServerHasMore) return;
+            const nextPage = allJobsServerPage + 1;
+            const res = await fetch('/.netlify/functions/manage-jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'list', page: nextPage, limit: SERVER_JOBS_PAGE_SIZE })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load jobs.');
+            allJobsCache = allJobsCache.concat(data.jobs || []);
+            allJobsServerPage = nextPage;
+            allJobsServerHasMore = !!data.hasMore;
+        }
+
+        // Counts how many currently-buffered job cards match the active search
+        // term and date filter — used to decide whether we need to fetch more
+        // server pages before revealing the next batch (search/filter operate
+        // client-side over whatever's been downloaded, so a narrow search could
+        // otherwise show "no results" purely because matching jobs live on a
+        // server page we haven't fetched yet).
+        function countMatchedAllJobs() {
+            let count = 0;
+            (allJobsCache || []).forEach(job => {
+                if (!jobMatchesDateFilter(job.createdAt, allJobsDateFilter)) return;
+                (job.positions || []).forEach(pos => {
+                    if (isJobExpired(pos.expireDate, job.createdAt)) return;
+                    const haystack = [job.company, pos.title, pos.shortDescription, pos.qualification, pos.experience].join(' ');
+                    if (!jobMatchesSearch(allJobsSearchTerm, haystack)) return;
+                    count++;
+                });
+            });
+            return count;
+        }
+
+        // Fetches additional server pages until at least targetCount matching
+        // cards are buffered, or the server genuinely has nothing more.
+        async function ensureAllJobsBuffer(targetCount) {
+            while (allJobsServerHasMore && countMatchedAllJobs() < targetCount) {
+                await fetchNextJobsServerPage();
+            }
+        }
+
         async function loadAllJobs(force) {
             const listEl = document.getElementById('allJobsList');
-            if (allJobsCache && !force) { renderAllJobs(allJobsCache); return; }
+            if (allJobsCache.length > 0 && !force) { renderAllJobs(); return; }
             listEl.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-10">Loading jobs…</p>';
+            allJobsCache = [];
+            allJobsServerPage = 0;
+            allJobsServerHasMore = true;
+            allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
             try {
-                const res = await fetch('/.netlify/functions/manage-jobs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'list' })
-                });
-                const data = await res.json();
-                if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load jobs.');
-                allJobsCache = data.jobs || [];
-                allJobsRenderLimit = ALL_JOBS_PAGE_SIZE;
-                renderAllJobs(allJobsCache);
+                // Only the FIRST page downloads on open — not the whole dataset.
+                // This is what keeps load time flat as more jobs get posted.
+                await fetchNextJobsServerPage();
+                renderAllJobs();
             } catch (err) {
                 listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(userFacingError(err))}</p>`;
             }
@@ -2118,7 +2202,7 @@
 
             if (!(await checkAndConsumeUsage('fitTest', 'Fit/Not fit tests'))) return;
 
-            const job = (allJobsCache || []).find(j => j._id === jobId);
+            const job = findJobById(jobId);
             if (!job) return;
             const pos = job.positions[posIdx];
             if (!pos) return;
@@ -2166,9 +2250,9 @@
             }
         }
 
-        function renderAllJobs(jobs) {
+        function renderAllJobs() {
             const listEl = document.getElementById('allJobsList');
-            if (!jobs || jobs.length === 0) {
+            if (!allJobsCache || allJobsCache.length === 0) {
                 listEl.innerHTML = `
                     <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
                         <div class="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
@@ -2182,10 +2266,13 @@
 
             const term = allJobsSearchTerm;
 
-            // Build the full matching list first (unpaginated) so we know the
-            // true total, then slice to whatever's currently revealed.
+            // Build the matching list from whatever's been fetched so far, then
+            // slice to whatever's currently revealed. If this doesn't yield
+            // enough to fill the current page and the server still has more,
+            // loadMoreJobs()/ensureAllJobsBuffer() are what fetch additional
+            // pages — this function only ever renders what's already buffered.
             const matched = [];
-            jobs.forEach(job => {
+            allJobsCache.forEach(job => {
                 if (!jobMatchesDateFilter(job.createdAt, allJobsDateFilter)) return;
                 (job.positions || []).forEach((pos, posIdx) => {
                     if (isJobExpired(pos.expireDate, job.createdAt)) return; // hide positions past their due date (incl. undetermined-date auto-expiry)
@@ -2225,7 +2312,9 @@
                         ${fitReasonHtml(job._id, posIdx)}
                     </div>`).join('');
 
-            if (matched.length > visible.length) {
+            // Show the button whenever there's a KNOWN next card locally, OR the
+            // server might still have more that just hasn't been checked yet.
+            if (matched.length > visible.length || allJobsServerHasMore) {
                 html += `
                     <button id="loadMoreJobsBtn" onclick="loadMoreJobs()"
                         class="w-full py-3 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
@@ -2236,11 +2325,15 @@
             listEl.innerHTML = html;
         }
 
-        // Reveals the next page of already-loaded jobs. All jobs are fetched in
-        // one request (manage-jobs has no server-side pagination), so this is a
-        // client-side reveal — the brief "Loading jobs…" state is intentional
-        // UX feedback so the button doesn't feel unresponsive, not a real fetch.
-        function loadMoreJobs() {
+        // Reveals the next page of jobs. Fetches additional server pages first
+        // if the currently-buffered data doesn't have enough matching cards to
+        // fill the next reveal — so "Load more" always does real network
+        // pagination rather than just uncovering data that was already fully
+        // downloaded up front.
+        async function loadMoreJobs() {
+            if (allJobsLoadingMore) return;
+            allJobsLoadingMore = true;
+
             const btn = document.getElementById('loadMoreJobsBtn');
             const label = document.getElementById('loadMoreJobsBtnLabel');
             if (btn) {
@@ -2250,16 +2343,23 @@
             if (label) {
                 label.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:-2px;margin-right:6px;"></span>Loading jobs…';
             }
-            setTimeout(() => {
-                allJobsRenderLimit += ALL_JOBS_PAGE_SIZE;
-                renderAllJobs(allJobsCache);
-            }, 350);
+
+            const nextLimit = allJobsRenderLimit + ALL_JOBS_PAGE_SIZE;
+            try {
+                await ensureAllJobsBuffer(nextLimit);
+                allJobsRenderLimit = nextLimit;
+            } catch (err) {
+                showMessage('error', userFacingError(err));
+            } finally {
+                allJobsLoadingMore = false;
+                renderAllJobs();
+            }
         }
 
         let currentJobDetail = null; // { company, title, ... } for the "Generate Application Letter" hand-off
 
         function openJobDetail(jobId, posIdx) {
-            const job = (allJobsCache || []).find(j => j._id === jobId);
+            const job = findJobById(jobId);
             if (!job) return;
             const pos = job.positions[posIdx];
             if (!pos) return;
@@ -2766,19 +2866,12 @@
                 </div>`;
 
             try {
-                // Make sure we have the job list to match against
-                if (!allJobsCache) {
-                    const res0 = await fetch('/.netlify/functions/manage-jobs', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'list' })
-                    });
-                    const data0 = await res0.json();
-                    if (!res0.ok || !data0.success) throw new Error(data0.error || 'Failed to load jobs.');
-                    allJobsCache = data0.jobs || [];
-                }
+                // Smart Finder must score EVERY open position against the CV, so
+                // it needs the complete dataset, not the paginated All Jobs buffer.
+                await ensureFullJobsLoaded();
 
                 const flatPositions = [];
-                (allJobsCache || []).forEach(job => {
+                (fullJobsCache || []).forEach(job => {
                     (job.positions || []).forEach((pos, posIdx) => {
                         if (isJobExpired(pos.expireDate, job.createdAt)) return; // don't waste matching effort on expired postings
                         flatPositions.push({
@@ -2802,9 +2895,9 @@
                 const data = await res.json();
                 if (!res.ok || !data.success) throw new Error(data.error || 'Smart Finder failed.');
 
-                smartFinderCache = { matches: data.matches, jobs: allJobsCache };
+                smartFinderCache = { matches: data.matches, jobs: fullJobsCache };
                 smartFinderRenderLimit = SMART_FINDER_PAGE_SIZE;
-                renderSmartFinderResults(data.matches, allJobsCache);
+                renderSmartFinderResults(data.matches, fullJobsCache);
 
             } catch (err) {
                 listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-10">${escapeHtmlJob(userFacingError(err))}</p>`;
