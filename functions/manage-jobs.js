@@ -1,11 +1,22 @@
 // functions/manage-jobs.js
-// POST body: { token, action: 'create' | 'list' | 'get' | 'delete' | 'update', job?, jobId? }
+// POST body: { token, action: 'create' | 'list' | 'get' | 'delete' | 'update', job?, jobId?, page?, limit? }
 //
 // 'create' → admin posts a structured job (company + positions[]) after AI refinement
 //            in refine-job-posting.js and admin review/edits in admin.html
-// 'list'   → returns active job postings (used by admin dashboard and, later, the
-//            Find Job "All Jobs" feed — no admin token required for 'list' so the
-//            app can call it directly)
+// 'list'   → returns job postings — no admin token required (the app's job feed
+//            calls this directly). Two modes:
+//              - PAGINATED: pass { page, limit } → returns that page of job
+//                DOCUMENTS (sorted newest first) plus { page, hasMore }. Used
+//                by app.html's "All Jobs" feed so opening the app with a large
+//                number of posted jobs doesn't download everything at once —
+//                only the page actually needed to render loads over the network.
+//              - FULL (legacy, unchanged): omit page/limit → returns up to 200
+//                jobs in one response, exactly as before. Used by the admin
+//                dashboard's job list, and by Smart Finder / Saved Jobs, both
+//                of which genuinely need the complete dataset (Smart Finder
+//                scores every open position against the CV; Saved Jobs must
+//                resolve a star tapped on any job, not just a recently-loaded
+//                page of them) — pagination would silently break those.
 // 'get'    → single job by jobId (used for the "Detail" view)
 // 'delete' → admin removes a posting
 // 'update' → admin edits an existing posting
@@ -19,6 +30,10 @@ const crypto = require('crypto');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+const MAX_PAGE_LIMIT = 50;
+const DEFAULT_PAGE_LIMIT = 20;
+const LEGACY_FULL_LIST_CAP = 200;
 
 function verifyToken(token) {
   if (!token) return false;
@@ -61,7 +76,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { token, action, job, jobId } = body;
+  const { token, action, job, jobId, page, limit } = body;
 
   try {
     await client.connect();
@@ -69,12 +84,40 @@ exports.handler = async (event, context) => {
     const jobsCol = db.collection('jobs');
 
     // ── list ─────────────────────────────────────────────────────────────────
-    // Public (no admin token) — the app's job feed will call this directly.
+    // Public (no admin token) — the app's job feed calls this directly.
     if (action === 'list') {
+      const filter = { status: { $ne: 'deleted' } };
+
+      // PAGINATED path — only taken when the caller explicitly asks for a page.
+      if (page) {
+        const pageNum   = Math.max(1, parseInt(page, 10) || 1);
+        const pageLimit = Math.min(MAX_PAGE_LIMIT, Math.max(1, parseInt(limit, 10) || DEFAULT_PAGE_LIMIT));
+        const skip      = (pageNum - 1) * pageLimit;
+
+        // Fetch one extra document beyond the page size so we can tell
+        // whether there's a next page, without a separate count query.
+        const docs = await jobsCol
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(pageLimit + 1)
+          .toArray();
+
+        const hasMore = docs.length > pageLimit;
+        const jobs    = hasMore ? docs.slice(0, pageLimit) : docs;
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: true, jobs, page: pageNum, hasMore })
+        };
+      }
+
+      // FULL (legacy, unchanged) path — used by the admin dashboard, Smart
+      // Finder, and Saved Jobs, all of which need the complete dataset.
       const jobs = await jobsCol
-        .find({ status: { $ne: 'deleted' } })
+        .find(filter)
         .sort({ createdAt: -1 })
-        .limit(200)
+        .limit(LEGACY_FULL_LIST_CAP)
         .toArray();
       return { statusCode: 200, body: JSON.stringify({ success: true, jobs }) };
     }
