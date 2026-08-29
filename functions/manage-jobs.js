@@ -35,6 +35,18 @@ const MAX_PAGE_LIMIT = 50;
 const DEFAULT_PAGE_LIMIT = 20;
 const LEGACY_FULL_LIST_CAP = 200;
 
+// Company logo — one per job posting (shared across all its positions, since a
+// posting is inherently one company). Stored as a data-URI string (already
+// square-cropped client-side in admin.html before upload). Capped generously
+// to keep the job feed's payload size reasonable even with many logos.
+const MAX_LOGO_DATA_URI_LENGTH = 700000; // ~500KB decoded
+
+function isValidLogoDataUri(logo) {
+  if (typeof logo !== 'string') return false;
+  if (logo.length === 0 || logo.length > MAX_LOGO_DATA_URI_LENGTH) return false;
+  return /^data:image\/(png|jpe?g|webp);base64,/.test(logo);
+}
+
 function verifyToken(token) {
   if (!token) return false;
   const parts = token.split('.');
@@ -143,9 +155,17 @@ exports.handler = async (event, context) => {
       if (!job || !job.company || !Array.isArray(job.positions) || job.positions.length === 0) {
         return { statusCode: 400, body: JSON.stringify({ error: 'company and at least one position are required' }) };
       }
+      let logo = null;
+      if (job.logoBase64) {
+        if (!isValidLogoDataUri(job.logoBase64)) {
+          return { statusCode: 400, body: JSON.stringify({ error: 'Invalid or oversized logo image.' }) };
+        }
+        logo = job.logoBase64;
+      }
       const doc = {
         company:    job.company.toString().trim(),
         sourceUrl:  job.sourceUrl ? job.sourceUrl.toString().trim() : null,
+        logo,
         positions:  job.positions.map(sanitizePosition),
         status:     'active',
         createdAt:  new Date(),
@@ -166,6 +186,15 @@ exports.handler = async (event, context) => {
       if (job.company) update.company = job.company.toString().trim();
       if (Array.isArray(job.positions)) update.positions = job.positions.map(sanitizePosition);
       if (job.status) update.status = job.status;
+      if (job.logoBase64 !== undefined) {
+        if (job.logoBase64 === null) {
+          update.logo = null;
+        } else if (isValidLogoDataUri(job.logoBase64)) {
+          update.logo = job.logoBase64;
+        } else {
+          return { statusCode: 400, body: JSON.stringify({ error: 'Invalid or oversized logo image.' }) };
+        }
+      }
 
       await jobsCol.updateOne({ _id }, { $set: update });
       return { statusCode: 200, body: JSON.stringify({ success: true }) };
