@@ -6,12 +6,22 @@
 // Anti-fraud: each Telegram user ID (tgUserId) can only ever be linked to ONE
 // CVcase account. A person with 10 phone numbers still only has one Telegram
 // identity, so they can only register once.
+//
+// Main keyboard: every reply from the bot carries BOTH buttons — "Share my
+// phone number" (request_contact) and "Open CVcase App" (web_app, opens the
+// live app directly inside Telegram as a Mini App). This is intentionally
+// used everywhere instead of ever calling { remove_keyboard: true }, so the
+// two buttons stay pinned below the chat input after every single reply.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+// The app's live Mini App URL — tapping this button opens it directly inside
+// Telegram without leaving the chat.
+const CVCASE_APP_URL = 'https://cverve.netlify.app/app';
 
 function httpsPost(url, payload) {
   return new Promise((resolve, reject) => {
@@ -36,7 +46,9 @@ function httpsPost(url, payload) {
 
 async function sendMessage(botToken, chatId, text, replyMarkup) {
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown' };
-  if (replyMarkup) payload.reply_markup = replyMarkup;
+  // Default to the main keyboard unless a caller explicitly passes something
+  // else — this is what keeps both buttons present after every reply.
+  payload.reply_markup = replyMarkup || mainKeyboard;
   return httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, payload);
 }
 
@@ -49,15 +61,22 @@ function normalizePhone(phone) {
   return p;
 }
 
-// ── CHANGE: Button is now always visible in the chat bar.
-//   - removed one_time_keyboard: true  → button no longer disappears after one tap
-//   - added persistent: true           → button stays pinned below the text input
-//     at all times so users never have to type manually
+// ── Main keyboard — always visible, on every bot reply ──────────────────────
+//   Row 1: Share phone number (request_contact) — used for registration and
+//          password reset verification.
+//   Row 2: Open CVcase App (web_app) — opens the live app as a Telegram Mini
+//          App directly inside the Telegram client.
+//   - resize_keyboard: true   → keyboard sizes itself neatly instead of full-height
+//   - persistent: true        → keyboard stays pinned below the text input at
+//     all times, never disappearing after one tap
 // NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
 //   that is a limitation of the Telegram platform itself and cannot be changed
 //   from the bot/webhook side.
-const shareButton = {
-  keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
+const mainKeyboard = {
+  keyboard: [
+    [{ text: '📱 Share my phone number', request_contact: true }],
+    [{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]
+  ],
   resize_keyboard: true,
   persistent: true
 };
@@ -98,16 +117,14 @@ exports.handler = async (event, context) => {
         const user = await usersCol.findOne({ phoneNumber: existing.phoneNumber });
         if (user) {
           await sendMessage(botToken, chatId,
-            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nIf you need to reset your password, tap the button below to share your phone number again.`,
-            shareButton
+            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nOpen the app below, or tap "Share my phone number" again if you need to reset your password.`
           );
           return { statusCode: 200, body: 'OK' };
         }
       }
 
       await sendMessage(botToken, chatId,
-        `👋 *Welcome to CVcase!*\n\nTo verify your account, tap the button below to share your phone number.`,
-        shareButton
+        `👋 *Welcome to CVcase!*\n\nTap *Open CVcase App* below to start using the app right here in Telegram, or tap *Share my phone number* to verify your account.`
       );
       return { statusCode: 200, body: 'OK' };
     }
@@ -117,8 +134,7 @@ exports.handler = async (event, context) => {
       // Security: make sure the contact is the user's own number, not someone else's
       if (String(msg.contact.user_id) !== String(msg.from.id)) {
         await sendMessage(botToken, chatId,
-          `⚠️ Please share *your own* phone number using the button below.`,
-          shareButton
+          `⚠️ Please share *your own* phone number using the button below.`
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -173,8 +189,7 @@ exports.handler = async (event, context) => {
         const pendingReset = await resetCol.findOne({ phoneNumber, verified: false });
         if (pendingReset && new Date() < new Date(pendingReset.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`,
-            { remove_keyboard: true }
+            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`
           );
           return { statusCode: 200, body: 'OK' };
         }
@@ -183,16 +198,14 @@ exports.handler = async (event, context) => {
         const pendingOtp = await otpCol.findOne({ phoneNumber, verified: false });
         if (pendingOtp && new Date() < new Date(pendingOtp.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔐 *Your CVcase verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
-            { remove_keyboard: true }
+            `🔐 *Your CVcase verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`
           );
           return { statusCode: 200, body: 'OK' };
         }
 
         // No pending OTP — just confirm the link
         await sendMessage(botToken, chatId,
-          `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nYou can now use password reset and will receive verification codes here.`,
-          { remove_keyboard: true }
+          `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nYou can now use password reset and will receive verification codes here.`
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -225,13 +238,11 @@ exports.handler = async (event, context) => {
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
       if (pending && new Date() < new Date(pending.expiresAt)) {
         await sendMessage(botToken, chatId,
-          `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
-          { remove_keyboard: true }
+          `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`
         );
       } else {
         await sendMessage(botToken, chatId,
-          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`,
-          { remove_keyboard: true }
+          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`
         );
       }
 
@@ -240,8 +251,7 @@ exports.handler = async (event, context) => {
 
     // ── Any other message ─────────────────────────────────────────────────────
     await sendMessage(botToken, chatId,
-      `To verify your CVcase account, please share your phone number using the button below.`,
-      shareButton
+      `Tap *Open CVcase App* below to use the app, or *Share my phone number* to verify your account.`
     );
 
   } catch (err) {
