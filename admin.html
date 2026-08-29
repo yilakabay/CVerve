@@ -1196,16 +1196,52 @@
   let logoCrop = null;          // { natW, natH, baseScale, width, height, left, top }
   let _logoDragBound = false;   // drag listeners are attached once and reused across opens
 
-  function handleLogoFileSelected(evt) {
+  // Reads a file as a data URL, retrying automatically a few times on failure.
+  // On Android, a photo picked from a cloud-backed gallery (e.g. Google Photos)
+  // can fail the FIRST read attempt because the actual bytes haven't finished
+  // downloading to the device yet — retrying shortly after almost always
+  // succeeds once Android caches it locally. This does that automatically
+  // instead of making the person re-pick the same photo several times.
+  function readFileAsDataURLWithRetry(file, maxAttempts) {
+    maxAttempts = maxAttempts || 4;
+    return new Promise((resolve, reject) => {
+      let attempt = 0;
+      const tryRead = () => {
+        attempt++;
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => {
+          if (attempt < maxAttempts) {
+            setTimeout(tryRead, 350 * attempt); // small backoff between retries
+          } else {
+            reject(reader.error || new Error('Could not read file'));
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+      tryRead();
+    });
+  }
+
+  async function handleLogoFileSelected(evt) {
     const file = evt.target.files[0];
     evt.target.value = ''; // allow re-choosing the same file later
     if (!file) return;
     if (!file.type.startsWith('image/')) { showToast('Please choose an image file.', 'error'); return; }
     if (file.size > 15 * 1024 * 1024) { showToast('Image is too large. Please choose a smaller file.', 'error'); return; }
-    const reader = new FileReader();
-    reader.onload = () => openLogoCropModal(reader.result);
-    reader.onerror = () => showToast('Could not read that image. Please try another.', 'error');
-    reader.readAsDataURL(file);
+
+    const btnLabel = document.getElementById('jpLogoBtnLabel');
+    const prevLabel = btnLabel ? btnLabel.textContent : null;
+    if (btnLabel) btnLabel.textContent = 'Reading photo…';
+
+    try {
+      const dataUrl = await readFileAsDataURLWithRetry(file);
+      openLogoCropModal(dataUrl);
+    } catch (e) {
+      showToast('Could not read that image. Please try another.', 'error');
+    } finally {
+      if (btnLabel && prevLabel !== null) btnLabel.textContent = prevLabel;
+    }
   }
 
   function openLogoCropModal(dataUrl) {
@@ -1221,10 +1257,14 @@
         left: (LOGO_VIEW_SIZE - width) / 2,
         top:  (LOGO_VIEW_SIZE - height) / 2
       };
-      document.getElementById('logoCropZoom').value = 100;
+      document.getElementById('logoCropZoomX').value = 100;
+      document.getElementById('logoCropZoomY').value = 100;
       applyLogoCropTransform();
       document.getElementById('logoCropModal').classList.remove('hidden');
       setupLogoCropDrag();
+    };
+    img.onerror = () => {
+      showToast('Could not open that image. Please try another file.', 'error');
     };
     img.src = dataUrl;
   }
@@ -1250,13 +1290,16 @@
     img.style.top    = c.top    + 'px';
   }
 
+  // Width and height zoom are independent — dragging one slider only changes
+  // that axis, so the logo can be stretched/compressed to fit the square
+  // exactly how the admin wants, not just scaled uniformly.
   function onLogoCropZoomInput() {
     if (!logoCrop) return;
     const c = logoCrop;
-    const zoomPct = parseFloat(document.getElementById('logoCropZoom').value); // 100–300
-    const scale = c.baseScale * (zoomPct / 100);
-    const newWidth  = c.natW * scale;
-    const newHeight = c.natH * scale;
+    const zoomX = parseFloat(document.getElementById('logoCropZoomX').value); // 100–300
+    const zoomY = parseFloat(document.getElementById('logoCropZoomY').value); // 100–300
+    const newWidth  = c.natW * c.baseScale * (zoomX / 100);
+    const newHeight = c.natH * c.baseScale * (zoomY / 100);
     // Zoom around the currently-visible center, not the image's top-left
     const centerX = c.left + c.width  / 2;
     const centerY = c.top  + c.height / 2;
@@ -1317,16 +1360,20 @@
 
     // Map the visible square viewport back to the ORIGINAL image's own pixel
     // coordinates, then draw exactly that region onto the fixed-size output.
-    const naturalScale = c.width / c.natW; // == c.height / c.natH (aspect preserved)
-    const sx = (0 - c.left) / naturalScale;
-    const sy = (0 - c.top)  / naturalScale;
-    const sSize = LOGO_VIEW_SIZE / naturalScale;
+    // Width and height can now be zoomed independently, so scale factors are
+    // tracked separately per axis rather than assuming one uniform scale.
+    const scaleX = c.width  / c.natW;
+    const scaleY = c.height / c.natH;
+    const sx = (0 - c.left) / scaleX;
+    const sy = (0 - c.top)  / scaleY;
+    const sWidth  = LOGO_VIEW_SIZE / scaleX;
+    const sHeight = LOGO_VIEW_SIZE / scaleY;
 
     const canvas = document.createElement('canvas');
     canvas.width = LOGO_OUTPUT_SIZE;
     canvas.height = LOGO_OUTPUT_SIZE;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, sx, sy, sSize, sSize, 0, 0, LOGO_OUTPUT_SIZE, LOGO_OUTPUT_SIZE);
+    ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, LOGO_OUTPUT_SIZE, LOGO_OUTPUT_SIZE);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
     jpStructured = jpStructured || {};
@@ -1808,14 +1855,21 @@
 <div id="logoCropModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9995] px-4">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
     <h3 class="font-bold text-gray-800 mb-1">Adjust Logo</h3>
-    <p class="text-xs text-gray-500 mb-3">Drag to reposition, use the slider to zoom in or out.</p>
+    <p class="text-xs text-gray-500 mb-3">Drag to reposition, use the sliders to zoom horizontally and vertically.</p>
     <div id="logoCropViewport" style="width:260px;height:260px;margin:0 auto;position:relative;overflow:hidden;border-radius:16px;background:#f1f5f9;touch-action:none;cursor:grab;">
       <img id="logoCropImg" style="position:absolute;left:0;top:0;user-select:none;pointer-events:none;" draggable="false" alt="">
     </div>
-    <div class="flex items-center gap-2 mt-4">
-      <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input type="range" id="logoCropZoom" min="100" max="300" value="100" class="flex-1" oninput="onLogoCropZoomInput()">
-      <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+    <div class="mt-4 space-y-2.5">
+      <div class="flex items-center gap-2">
+        <span class="text-[0.65rem] font-semibold text-gray-400 w-14 flex-shrink-0">Width</span>
+        <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M8 17H4m0 0l4 4m-4-4l4-4"/></svg>
+        <input type="range" id="logoCropZoomX" min="100" max="300" value="100" class="flex-1" oninput="onLogoCropZoomInput()">
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[0.65rem] font-semibold text-gray-400 w-14 flex-shrink-0">Height</span>
+        <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8V4m0 0L3 8m4-4l4 4M7 16v4m0 0l-4-4m4 4l4-4"/></svg>
+        <input type="range" id="logoCropZoomY" min="100" max="300" value="100" class="flex-1" oninput="onLogoCropZoomInput()">
+      </div>
     </div>
     <div class="flex gap-2 mt-5">
       <button onclick="cancelLogoCrop()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">Cancel</button>
