@@ -3670,6 +3670,8 @@
                 </div>`;
             // Scoped mark-read — only the messages actually in THIS thread ever
             // get marked read; every other chat's unread state is untouched.
+            // keepalive:true lets this survive a quick refresh/navigation right
+            // after opening a thread instead of being cancelled mid-flight.
             const storedPw = localStorage.getItem('cv_userPassword') || '';
             if (userId && storedPw && unreadIds.length > 0) {
                 fetch('/.netlify/functions/mark-notifications-read', {
@@ -3677,25 +3679,13 @@
                     body: JSON.stringify({ userId, password: storedPw, notificationIds: unreadIds }),
                     keepalive: true
                 }).then(async (res) => {
-                    let data = null;
-                    try { data = await res.json(); } catch (_) {}
                     if (!res.ok) {
+                        const data = await res.json().catch(() => null);
                         console.error('mark-notifications-read failed:', res.status, data);
-                        showMessage('error', 'Mark-read failed (' + res.status + '): ' + (data && data.error ? data.error : 'unknown error'));
-                        return;
-                    }
-                    console.log('mark-notifications-read result:', data);
-                    if (data && data.modifiedCount === 0) {
-                        showMessage('error', 'Mark-read matched nothing! requested=' + data.requestedCount + ' foundOnUser=' + data.requestedFoundCount + ' totalWithId=' + data.totalNotificationsWithId + '/' + data.totalNotificationsOnUser);
-                    } else if (data) {
-                        showMessage('success', 'Mark-read OK: modified=' + data.modifiedCount + '/' + data.requestedCount);
                     }
                 }).catch((err) => {
                     console.error('mark-notifications-read network error:', err);
-                    showMessage('error', 'Mark-read network error: ' + (err && err.message ? err.message : 'unknown'));
                 });
-            } else if (userId && !storedPw && unreadIds.length > 0) {
-                showMessage('error', 'Mark-read skipped: no stored password found (cv_userPassword is empty).');
             }
             updateNotifDot(countUnreadChats(_appNotifs));
 
