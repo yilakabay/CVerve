@@ -6,6 +6,14 @@
 // previous bug where opening one chat thread could mark every notification
 // across every sender as read — an unread message must stay unread forever
 // until the user actually opens that specific chat.
+//
+// IMPORTANT: every notification pushed to a user must include a unique `id`
+// field for this to work — the arrayFilter below matches by `elem.id`. A
+// notification without one silently fails to update (no error, matchedCount
+// just comes back 0), which previously caused entire notification types
+// (e.g. announcements) to always reappear unread. See admin-verify.js,
+// payment-report.js, subscribe-plan.js, and send-announcement.js for the
+// correct pattern (id: crypto.randomUUID()) when adding new notification types.
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const uri    = process.env.MONGODB_URI;
@@ -30,36 +38,14 @@ exports.handler = async (event, context) => {
       const pwOk = await bcrypt.compare(password, user.password);
       if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
     }
-
-    // ── Diagnostics: check BEFORE the update how many notifications on this
-    // user actually have an id in notificationIds, so we can tell the caller
-    // whether a mismatch (e.g. missing/undefined id on some notification
-    // types) is the reason nothing gets marked read. ─────────────────────────
-    const existingIds = (user.notifications || [])
-      .map(n => n && n.id)
-      .filter(Boolean);
-    const requestedFound = notificationIds.filter(id => existingIds.includes(id));
-
-    const updateResult = await usersCol.updateOne(
+    await usersCol.updateOne(
       { phoneNumber: userId },
       { $set: { 'notifications.$[elem].read': true } },
       { arrayFilters: [{ 'elem.id': { $in: notificationIds } }] }
     );
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        matchedCount:  updateResult.matchedCount,
-        modifiedCount: updateResult.modifiedCount,
-        requestedCount: notificationIds.length,
-        requestedFoundCount: requestedFound.length,
-        totalNotificationsOnUser: (user.notifications || []).length,
-        totalNotificationsWithId: existingIds.length
-      })
-    };
+    return { statusCode: 200, body: JSON.stringify({ success: true }) };
   } catch (error) {
     console.error('mark-notifications-read error:', error);
-    return { statusCode: 500, body: JSON.stringify({ error: 'An unexpected error occurred.', detail: error.message }) };
+    return { statusCode: 500, body: JSON.stringify({ error: 'An unexpected error occurred.' }) };
   }
 };
