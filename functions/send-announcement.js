@@ -3,6 +3,13 @@
 //   send   — push announcement to all users, store in announcements collection
 //   list   — return all sent announcements (admin)
 //   recall — remove a specific announcement from all user notifications by announceId
+//
+// Every notification pushed to a user MUST include a unique `id` field —
+// mark-notifications-read.js matches and updates notifications by `id` via a
+// MongoDB arrayFilter. A notification without one can never be marked read:
+// the update runs, matches zero array elements, and silently does nothing (no
+// error), so it always reappears unread on the next reload. This previously
+// happened here — announcements had no `id` at all.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
@@ -60,7 +67,14 @@ exports.handler = async (event, context) => {
       });
       const announceId = insertResult.insertedId.toString();
 
+      // NOTE: each user gets their OWN copy of this notification object via
+      // $push below, but every copy shares the same `id` here since it's
+      // generated once before the updateMany call. That's fine for read
+      // tracking (each user's own array entry is matched independently by
+      // their own phoneNumber + this id), but do NOT rely on this id being
+      // globally unique across users the way pendingId/paymentId are.
       const notification = {
+        id:          crypto.randomUUID(),
         type:        'announcement',
         sender:      'CVcase Official',
         title:       title.trim(),
