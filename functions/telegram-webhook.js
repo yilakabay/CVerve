@@ -7,11 +7,14 @@
 // CVcase account. A person with 10 phone numbers still only has one Telegram
 // identity, so they can only register once.
 //
-// Main keyboard: every reply from the bot carries BOTH buttons — "Share my
-// phone number" (request_contact) and "Open CVcase App" (web_app, opens the
-// live app directly inside Telegram as a Mini App). This is intentionally
-// used everywhere instead of ever calling { remove_keyboard: true }, so the
-// two buttons stay pinned below the chat input after every single reply.
+// Keyboard behavior: the bot shows exactly ONE button at a time, based on
+// whether this Telegram account has shared its phone number yet:
+//   - NOT linked yet  → only "Share my phone number" (request_contact)
+//   - Already linked  → only "Open CVcase App" (web_app, opens the live app
+//     directly inside Telegram as a Mini App)
+// The moment a phone number is successfully shared/linked, every subsequent
+// reply switches to the app-only keyboard — the share button never reappears
+// for that Telegram account again.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -46,9 +49,11 @@ function httpsPost(url, payload) {
 
 async function sendMessage(botToken, chatId, text, replyMarkup) {
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown' };
-  // Default to the main keyboard unless a caller explicitly passes something
-  // else — this is what keeps both buttons present after every reply.
-  payload.reply_markup = replyMarkup || mainKeyboard;
+  // Every call site below passes the correct keyboard explicitly (share-only
+  // vs app-only) based on that user's actual linked status at that point in
+  // the flow — falls back to the share-only keyboard only if a call site
+  // somehow omits it, since that's the safer default for an unknown state.
+  payload.reply_markup = replyMarkup || shareOnlyKeyboard;
   return httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, payload);
 }
 
@@ -61,22 +66,21 @@ function normalizePhone(phone) {
   return p;
 }
 
-// ── Main keyboard — always visible, on every bot reply ──────────────────────
-//   Row 1: Share phone number (request_contact) — used for registration and
-//          password reset verification.
-//   Row 2: Open CVcase App (web_app) — opens the live app as a Telegram Mini
-//          App directly inside the Telegram client.
+// ── Keyboards ────────────────────────────────────────────────────────────────
+// Only ONE of these is ever shown at a time — never both together.
 //   - resize_keyboard: true   → keyboard sizes itself neatly instead of full-height
 //   - persistent: true        → keyboard stays pinned below the text input at
 //     all times, never disappearing after one tap
 // NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
 //   that is a limitation of the Telegram platform itself and cannot be changed
 //   from the bot/webhook side.
-const mainKeyboard = {
-  keyboard: [
-    [{ text: '📱 Share my phone number', request_contact: true }],
-    [{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]
-  ],
+const shareOnlyKeyboard = {
+  keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
+  resize_keyboard: true,
+  persistent: true
+};
+const appOnlyKeyboard = {
+  keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]],
   resize_keyboard: true,
   persistent: true
 };
@@ -117,14 +121,16 @@ exports.handler = async (event, context) => {
         const user = await usersCol.findOne({ phoneNumber: existing.phoneNumber });
         if (user) {
           await sendMessage(botToken, chatId,
-            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nOpen the app below, or tap "Share my phone number" again if you need to reset your password.`
+            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nTap *Open CVcase App* below to get started.`,
+            appOnlyKeyboard
           );
           return { statusCode: 200, body: 'OK' };
         }
       }
 
       await sendMessage(botToken, chatId,
-        `👋 *Welcome to CVcase!*\n\nTap *Open CVcase App* below to start using the app right here in Telegram, or tap *Share my phone number* to verify your account.`
+        `👋 *Welcome to CVcase!*\n\nTap the button below to share your phone number and verify your account.`,
+        shareOnlyKeyboard
       );
       return { statusCode: 200, body: 'OK' };
     }
@@ -134,7 +140,8 @@ exports.handler = async (event, context) => {
       // Security: make sure the contact is the user's own number, not someone else's
       if (String(msg.contact.user_id) !== String(msg.from.id)) {
         await sendMessage(botToken, chatId,
-          `⚠️ Please share *your own* phone number using the button below.`
+          `⚠️ Please share *your own* phone number using the button below.`,
+          shareOnlyKeyboard
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -150,7 +157,8 @@ exports.handler = async (event, context) => {
         const prevUser = await usersCol.findOne({ phoneNumber: existingTgRecord.phoneNumber });
         if (prevUser) {
           await sendMessage(botToken, chatId,
-            `⛔ This Telegram account is already linked to a CVcase account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVcase account.`
+            `⛔ This Telegram account is already linked to a CVcase account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVcase account. Tap *Open CVcase App* below to use your existing account.`,
+            appOnlyKeyboard
           );
           return { statusCode: 200, body: 'OK' };
         }
@@ -165,7 +173,8 @@ exports.handler = async (event, context) => {
         const existingPhoneRecord = await tgCol.findOne({ phoneNumber });
         if (existingPhoneRecord && existingPhoneRecord.tgUserId !== tgUserId) {
           await sendMessage(botToken, chatId,
-            `⛔ This phone number is already linked to a different Telegram account. If this is your number, please contact support.`
+            `⛔ This phone number is already linked to a different Telegram account. If this is your number, please contact support.`,
+            shareOnlyKeyboard
           );
           return { statusCode: 200, body: 'OK' };
         }
@@ -189,7 +198,8 @@ exports.handler = async (event, context) => {
         const pendingReset = await resetCol.findOne({ phoneNumber, verified: false });
         if (pendingReset && new Date() < new Date(pendingReset.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`
+            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`,
+            appOnlyKeyboard
           );
           return { statusCode: 200, body: 'OK' };
         }
@@ -198,14 +208,16 @@ exports.handler = async (event, context) => {
         const pendingOtp = await otpCol.findOne({ phoneNumber, verified: false });
         if (pendingOtp && new Date() < new Date(pendingOtp.expiresAt)) {
           await sendMessage(botToken, chatId,
-            `🔐 *Your CVcase verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`
+            `🔐 *Your CVcase verification code is:*\n\n\`${pendingOtp.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+            appOnlyKeyboard
           );
           return { statusCode: 200, body: 'OK' };
         }
 
         // No pending OTP — just confirm the link
         await sendMessage(botToken, chatId,
-          `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nYou can now use password reset and will receive verification codes here.`
+          `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nTap *Open CVcase App* below to get started.`,
+          appOnlyKeyboard
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -217,7 +229,8 @@ exports.handler = async (event, context) => {
       const existingPhoneRecord = await tgCol.findOne({ phoneNumber });
       if (existingPhoneRecord && existingPhoneRecord.tgUserId !== tgUserId) {
         await sendMessage(botToken, chatId,
-          `⛔ This phone number is already linked to a different Telegram account. If this is your number, please contact support.`
+          `⛔ This phone number is already linked to a different Telegram account. If this is your number, please contact support.`,
+          shareOnlyKeyboard
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -234,15 +247,19 @@ exports.handler = async (event, context) => {
         { upsert: true }
       );
 
-      // Check for a pending registration OTP and send it immediately
+      // Check for a pending registration OTP and send it immediately.
+      // Phone sharing is done at this point either way, so the keyboard
+      // switches to app-only from here on regardless of which branch runs.
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
       if (pending && new Date() < new Date(pending.expiresAt)) {
         await sendMessage(botToken, chatId,
-          `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`
+          `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`,
+          appOnlyKeyboard
         );
       } else {
         await sendMessage(botToken, chatId,
-          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`
+          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`,
+          appOnlyKeyboard
         );
       }
 
@@ -250,8 +267,15 @@ exports.handler = async (event, context) => {
     }
 
     // ── Any other message ─────────────────────────────────────────────────────
+    // Look up whether this Telegram account is already linked to decide which
+    // single button to show.
+    const existingForOther = await tgCol.findOne({ tgUserId });
+    const isLinked = !!(existingForOther && existingForOther.phoneNumber);
     await sendMessage(botToken, chatId,
-      `Tap *Open CVcase App* below to use the app, or *Share my phone number* to verify your account.`
+      isLinked
+        ? `Tap *Open CVcase App* below to use the app.`
+        : `Tap the button below to share your phone number and verify your account.`,
+      isLinked ? appOnlyKeyboard : shareOnlyKeyboard
     );
 
   } catch (err) {
