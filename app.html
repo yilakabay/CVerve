@@ -509,7 +509,7 @@
 
         function toggleLoginScreen(show) {
             if (show) {
-                window.location.replace('/login.html?next=/app.html');
+                window.location.replace('/register.html?next=/app.html');
                 return;
             }
             // Hide login screen, show app
@@ -748,7 +748,7 @@
 
         async function handleLogin() {
             // app.html delegates login to login.html
-            window.location.replace('/login.html?next=/app.html');
+            window.location.replace('/register.html?next=/app.html');
         }
 
         // ── OTP Registration Flow (Telegram) ──────────────────────────────────
@@ -1596,7 +1596,7 @@
             const savedUsage   = localStorage.getItem('cv_usageCounts');
 
             if (!savedUserId) {
-                window.location.replace('/login.html?next=/app.html');
+                window.location.replace('/register.html?next=/app.html');
                 return;
             }
 
@@ -6387,7 +6387,7 @@
 /* Pre-render auth guard — redirects before any HTML paints */
 (function(){
     if (!localStorage.getItem('cv_userId')) {
-        window.location.replace('/login.html?next=/app.html');
+        window.location.replace('/register.html?next=/app.html');
     }
 })();
 </script>
