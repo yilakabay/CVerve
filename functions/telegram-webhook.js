@@ -7,14 +7,18 @@
 // CVcase account. A person with 10 phone numbers still only has one Telegram
 // identity, so they can only register once.
 //
-// Keyboard behavior: the bot shows exactly ONE button at a time, based on
-// whether this Telegram account has shared its phone number yet:
-//   - NOT linked yet  → only "Share my phone number" (request_contact)
-//   - Already linked  → only "Open CVcase App" (web_app, opens the live app
-//     directly inside Telegram as a Mini App)
+// Keyboard behavior:
+//   - NOT linked yet  → a reply keyboard below the input bar with ONE button:
+//     "Share my phone number" (request_contact). Telegram only supports
+//     request_contact inside a reply keyboard, not an inline one, so this
+//     button cannot be moved into the chat itself — that's a Telegram
+//     platform limitation, not a choice made here.
+//   - Already linked  → no reply keyboard at all (it's removed). Instead,
+//     every message includes an INLINE "Open CVcase App" button attached
+//     directly to the message bubble (web_app buttons support this).
 // The moment a phone number is successfully shared/linked, every subsequent
-// reply switches to the app-only keyboard — the share button never reappears
-// for that Telegram account again.
+// reply switches to the inline app button and removes the reply keyboard —
+// the share button never reappears for that Telegram account again.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -50,9 +54,10 @@ function httpsPost(url, payload) {
 async function sendMessage(botToken, chatId, text, replyMarkup) {
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown' };
   // Every call site below passes the correct keyboard explicitly (share-only
-  // vs app-only) based on that user's actual linked status at that point in
-  // the flow — falls back to the share-only keyboard only if a call site
-  // somehow omits it, since that's the safer default for an unknown state.
+  // reply keyboard vs inline app button) based on that user's actual linked
+  // status at that point in the flow — falls back to the share-only keyboard
+  // only if a call site somehow omits it, since that's the safer default for
+  // an unknown state.
   payload.reply_markup = replyMarkup || shareOnlyKeyboard;
   return httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, payload);
 }
@@ -67,22 +72,25 @@ function normalizePhone(phone) {
 }
 
 // ── Keyboards ────────────────────────────────────────────────────────────────
-// Only ONE of these is ever shown at a time — never both together.
 //   - resize_keyboard: true   → keyboard sizes itself neatly instead of full-height
 //   - persistent: true        → keyboard stays pinned below the text input at
 //     all times, never disappearing after one tap
 // NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
 //   that is a limitation of the Telegram platform itself and cannot be changed
-//   from the bot/webhook side.
+//   from the bot/webhook side. Likewise, request_contact buttons are only
+//   valid in a reply keyboard (below the input bar) — Telegram does not allow
+//   that button type inside an inline (in-message) keyboard.
 const shareOnlyKeyboard = {
   keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
   resize_keyboard: true,
   persistent: true
 };
+
+// Once a user is linked, we no longer need any reply keyboard — remove it —
+// and instead attach the "Open CVcase App" button directly to the message
+// itself as an inline keyboard, so it appears inside the chat.
 const appOnlyKeyboard = {
-  keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]],
-  resize_keyboard: true,
-  persistent: true
+  inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]]
 };
 
 exports.handler = async (event, context) => {
@@ -249,7 +257,8 @@ exports.handler = async (event, context) => {
 
       // Check for a pending registration OTP and send it immediately.
       // Phone sharing is done at this point either way, so the keyboard
-      // switches to app-only from here on regardless of which branch runs.
+      // switches to the inline app button from here on regardless of which
+      // branch runs.
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
       if (pending && new Date() < new Date(pending.expiresAt)) {
         await sendMessage(botToken, chatId,
