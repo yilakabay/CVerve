@@ -539,9 +539,10 @@ async function saveStep(which) {
 }
 
 function finishOnboarding() {
-  showOverlay('Taking you to login…');
+  showOverlay('Taking you to the app…');
+  try { localStorage.setItem('cv_lastActivity', Date.now().toString()); } catch (_) {}
   setTimeout(function() {
-    window.location.href = '/login.html?registered=1';
+    window.location.href = '/app.html';
   }, 400);
 }
 
