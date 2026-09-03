@@ -154,27 +154,6 @@
         }
         .pw-eye:hover { color: var(--text-2); }
 
-        /* Password strength bar */
-        .pw-strength-bar {
-            height: 3px;
-            border-radius: 99px;
-            margin-top: 6px;
-            background: var(--border);
-            overflow: hidden;
-        }
-        .pw-strength-fill {
-            height: 100%;
-            border-radius: 99px;
-            transition: width 0.3s, background 0.3s;
-            width: 0%;
-            background: var(--border);
-        }
-        .pw-strength-label {
-            font-size: 0.72rem;
-            margin-top: 3px;
-            color: var(--text-3);
-        }
-
         /* OTP input */
         .otp-input {
             text-align: center;
@@ -483,17 +462,12 @@
                     <div class="field-input-wrap">
                         <input class="field-input" type="password" id="regPassword"
                             placeholder="Min. 6 characters"
-                            oninput="updateStrength(this.value)"
                             onkeydown="if(event.key==='Enter') focusNext('regConfirmPassword')">
                         <button class="pw-eye" type="button" id="regPwEye"
                             onclick="togglePw('regPassword','regPwEye')" tabindex="-1">
                             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                         </button>
                     </div>
-                    <div class="pw-strength-bar">
-                        <div class="pw-strength-fill" id="pwStrengthFill"></div>
-                    </div>
-                    <div class="pw-strength-label" id="pwStrengthLabel"></div>
                 </div>
 
                 <div class="field-group">
@@ -673,33 +647,6 @@ function togglePw(fieldId, btnId) {
         : '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
 }
 
-// ── Password strength meter ────────────────────────────────────────────────────
-function updateStrength(pw) {
-    var fill  = document.getElementById('pwStrengthFill');
-    var label = document.getElementById('pwStrengthLabel');
-    if (!fill) return;
-    var score = 0;
-    if (pw.length >= 6)  score++;
-    if (pw.length >= 10) score++;
-    if (/[A-Z]/.test(pw)) score++;
-    if (/[0-9]/.test(pw)) score++;
-    if (/[^A-Za-z0-9]/.test(pw)) score++;
-
-    var configs = [
-        { w: '0%',   bg: '#e2e8f0', txt: '' },
-        { w: '25%',  bg: '#ef4444', txt: 'Weak' },
-        { w: '50%',  bg: '#f97316', txt: 'Fair' },
-        { w: '75%',  bg: '#eab308', txt: 'Good' },
-        { w: '90%',  bg: '#22c55e', txt: 'Strong' },
-        { w: '100%', bg: '#16a34a', txt: 'Very strong' },
-    ];
-    var cfg = configs[Math.min(score, 5)];
-    fill.style.width      = pw.length === 0 ? '0%' : cfg.w;
-    fill.style.background = cfg.bg;
-    label.textContent     = pw.length === 0 ? '' : cfg.txt;
-    label.style.color     = cfg.bg;
-}
-
 // ── Telegram polling ──────────────────────────────────────────────────────────
 function stopTgPolling() {
     if (_tgPollTimer) { clearInterval(_tgPollTimer); _tgPollTimer = null; }
@@ -812,6 +759,11 @@ async function handleVerifyOtp() {
 
         if (res.ok) {
             var newUserId = _pendingReg.phoneNumber;
+            // Log the user in right away so onboarding can send them straight
+            // into the app afterwards, with no separate login step needed.
+            localStorage.setItem('cv_userId', newUserId);
+            localStorage.setItem('cv_userPassword', _pendingReg.password);
+            localStorage.setItem('cv_lastActivity', Date.now().toString());
             _pendingReg = null;
             showStep('successStep');
             // After 2 s send the new user into the profile onboarding flow
