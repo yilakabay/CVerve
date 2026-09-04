@@ -46,7 +46,7 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition } = JSON.parse(event.body);
+  const { fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = JSON.parse(event.body);
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -86,6 +86,7 @@ exports.handler = async (event, context) => {
     console.log("CV Text Length:", cvText.length);
     console.log("JD Text Length:", resolvedJdText.length);
     console.log("Target Position:", targetPosition);
+    console.log("Extra Prompt Provided:", !!(extraPrompt && extraPrompt.trim()));
 
     const MAX_TEXT_LENGTH = 50000;
     const truncatedJdText = resolvedJdText.length > MAX_TEXT_LENGTH
@@ -94,6 +95,14 @@ exports.handler = async (event, context) => {
     const truncatedCvText = cvText.length > MAX_TEXT_LENGTH
       ? cvText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : cvText;
+
+    // Extra, user-supplied instructions are optional and bounded in length so a
+    // very long paste can't blow out the prompt or override the core structure.
+    const MAX_EXTRA_PROMPT_LENGTH = 1500;
+    let sanitizedExtraPrompt = '';
+    if (extraPrompt && typeof extraPrompt === 'string' && extraPrompt.trim()) {
+      sanitizedExtraPrompt = extraPrompt.trim().substring(0, MAX_EXTRA_PROMPT_LENGTH);
+    }
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
@@ -134,6 +143,10 @@ exports.handler = async (event, context) => {
       11. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
       12. Do not mention attaching documents.
       13. CRITICAL: Phone number and email must appear ONLY in the header block (item 2 above). Do NOT repeat them anywhere in the body paragraphs or closing. The closing sentence should only mention availability for an interview, NOT contact details.
+      ${sanitizedExtraPrompt ? `
+      ADDITIONAL APPLICANT INSTRUCTIONS (apply these on top of the rules above; if anything here conflicts with the STRICT GUIDELINES or the header/body structure, the STRICT GUIDELINES win):
+      "${sanitizedExtraPrompt}"
+      ` : ''}
 
       Generate the letter now:
     `;
