@@ -20,6 +20,18 @@
 //
 // "∞" is represented as -1 (unlimited).
 //
+// ── Anti-abuse: permanent usage ledger ──────────────────────────────────────
+// `usage_ledger` (keyed by tgUserId) is a lifetime, never-reset, never-deleted
+// mirror of usage counts — see create-user.js for the full explanation. Every
+// time this file increments a real usage counter on `users`, it applies the
+// exact same increment to `usage_ledger`, so create-user.js can restore the
+// correct starting point if this Telegram identity ever registers again
+// (e.g. after deleting the account) instead of handing out a fresh free
+// quota. The ledger is purely additive — it is NOT touched by the
+// plan-expiry-driven monthly reset below, since that's a legitimate
+// paid-plan cycle event, unrelated to the free-tier abuse this ledger exists
+// to prevent.
+//
 // ── Smart Finder cooldown ────────────────────────────────────────────────
 // Smart Finder runs a real AI call across every open job posting scored
 // against the user's CV — far more expensive than a single letter/fit-check
@@ -90,6 +102,38 @@ function formatCooldownRemaining(endsAt) {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
+}
+
+// Mirrors a +1 usage increment into the permanent ledger. Fire-and-forget
+// isn't safe here (we want the ledger to reliably reflect reality), but it's
+// also not worth failing the user's actual request if this write hiccups —
+// so errors are logged, not thrown.
+async function mirrorIncrementToLedger(db, tgUserId, field) {
+  if (!tgUserId) return; // legacy user with no linked Telegram identity — nothing to mirror to
+  try {
+    await db.collection('usage_ledger').updateOne(
+      { tgUserId },
+      { $inc: { [`usageCounts.${field}`]: 1 }, $setOnInsert: { firstSeenAt: new Date(), accountsCreatedCount: 1 } },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error(`Failed to mirror usage increment to ledger (tgUserId ${tgUserId}, field ${field}):`, err);
+  }
+}
+
+// Mirrors the Smart Finder cooldown timestamp into the ledger, same
+// best-effort reasoning as above.
+async function mirrorSmartFinderRunToLedger(db, tgUserId, runAt) {
+  if (!tgUserId) return;
+  try {
+    await db.collection('usage_ledger').updateOne(
+      { tgUserId },
+      { $set: { lastSmartFinderRunAt: runAt }, $setOnInsert: { firstSeenAt: new Date(), accountsCreatedCount: 1 } },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error(`Failed to mirror Smart Finder run to ledger (tgUserId ${tgUserId}):`, err);
+  }
 }
 
 exports.handler = async (event, context) => {
@@ -197,6 +241,10 @@ exports.handler = async (event, context) => {
         };
       }
 
+      // Successful claim — mirror the cooldown timestamp into the permanent
+      // ledger so deleting + recreating the account can't dodge it.
+      await mirrorSmartFinderRunToLedger(db, user.tgUserId, now);
+
       return { statusCode: 200, body: JSON.stringify({ allowed: true, plan }) };
 
     } catch (error) {
@@ -231,7 +279,11 @@ exports.handler = async (event, context) => {
     // ── Resolve plan (check expiry) ───────────────────────────────────────────
     let plan = user.plan || 'free';
     if (user.planExpiry && new Date(user.planExpiry) < new Date()) {
-      // Plan expired — downgrade to free automatically
+      // Plan expired — downgrade to free automatically. This resets the
+      // LIVE usageCounts on `users` (a legitimate paid-cycle reset), but
+      // deliberately does NOT touch usage_ledger — the permanent ledger
+      // keeps growing regardless, since it exists purely to stop free-tier
+      // abuse via account deletion, not to track billing cycles.
       plan = 'free';
       await usersCol.updateOne(
         { phoneNumber: userId },
@@ -281,6 +333,7 @@ exports.handler = async (event, context) => {
         { phoneNumber: userId },
         { $inc: { [`usageCounts.${field}`]: 1 } }
       );
+      await mirrorIncrementToLedger(db, user.tgUserId, field);
       const updatedCounts = { ...usageCounts, [field]: currentUse + 1 };
       return {
         statusCode: 200,
@@ -350,6 +403,8 @@ exports.handler = async (event, context) => {
         })
       };
     }
+
+    await mirrorIncrementToLedger(db, user.tgUserId, field);
 
     const newCounts   = updateResult.value.usageCounts || {};
     const newCount    = isCombinedPlan
