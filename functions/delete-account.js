@@ -1,14 +1,32 @@
 // functions/delete-account.js
 // POST body: { phoneNumber, otp }
 //
-// Verifies the deletion OTP then permanently removes ALL data for this user:
+// Verifies the deletion OTP then permanently removes personal data for this
+// user:
 //   - users
 //   - user_profiles
-//   - telegram_chats (both tgUserId and phoneNumber indexed docs)
 //   - otp_codes / reset_otp_codes / delete_otp_codes
 //   - reset_tokens
 //   - pending_payments (still-pending ones)
 //   (verified payments are kept for accounting records)
+//
+// ── Anti-abuse: what this intentionally does NOT delete ─────────────────────
+// telegram_chats and usage_ledger are deliberately left alone. Deleting them
+// used to be how a scammer reset their free-plan usage: delete the account,
+// which wiped the Telegram↔phone link, freeing that Telegram identity to
+// link a fresh phone number and register a brand new account with a zeroed
+// usage counter. Now:
+//   - usage_ledger (keyed by tgUserId) is never touched here at all — it's
+//     the permanent lifetime-usage record create-user.js checks before
+//     handing out a "fresh" quota.
+//   - telegram_chats is kept too (so the tgUserId↔phoneNumber link survives),
+//     but scrubbed of the non-essential personal fields (first name,
+//     username, chat id) right below — only the identity linkage needed for
+//     fraud/abuse prevention remains. Those fields get refreshed
+//     automatically the next time this Telegram account messages the bot, so
+//     nothing is lost if they come back legitimately.
+// This is a deliberate, narrow exception to "permanently removes ALL data"
+// for fraud-prevention purposes — worth a line in your privacy policy/ToS.
 
 const { MongoClient } = require('mongodb');
 
@@ -58,7 +76,7 @@ exports.handler = async (event, context) => {
       return { statusCode: 404, body: JSON.stringify({ error: 'Account not found.' }) };
     }
 
-    // ── Delete all user data ──────────────────────────────────────────────────
+    // ── Delete personal data ───────────────────────────────────────────────────
 
     // 1. User account
     await db.collection('users').deleteOne({ phoneNumber });
@@ -66,10 +84,18 @@ exports.handler = async (event, context) => {
     // 2. Stored profile
     await db.collection('user_profiles').deleteOne({ userId: phoneNumber });
 
-    // 3. Telegram chat records (indexed by both tgUserId and phoneNumber)
-    await db.collection('telegram_chats').deleteMany({ phoneNumber });
+    // 3. Telegram chat records — kept (see note at top), but scrubbed of
+    // non-essential personal fields. tgUserId and phoneNumber stay so the
+    // fraud/abuse-prevention checks in telegram-webhook.js and the usage
+    // ledger in create-user.js keep working correctly if this person
+    // registers again.
+    const scrub = {
+      $set:   { accountDeletedAt: new Date() },
+      $unset: { firstName: '', username: '', chatId: '' }
+    };
+    await db.collection('telegram_chats').updateMany({ phoneNumber }, scrub);
     if (user.tgUserId) {
-      await db.collection('telegram_chats').deleteMany({ tgUserId: user.tgUserId });
+      await db.collection('telegram_chats').updateMany({ tgUserId: user.tgUserId }, scrub);
     }
 
     // 4. All OTP / token collections
@@ -84,8 +110,11 @@ exports.handler = async (event, context) => {
     // Note: verified payments (db.collection('payments')) are intentionally
     // kept for financial audit records but contain no sensitive personal data
     // beyond the phone number.
+    //
+    // Note: usage_ledger (db.collection('usage_ledger')) is intentionally
+    // left completely untouched — see the comment at the top of this file.
 
-    console.log(`Account permanently deleted: ${phoneNumber} (tgUserId: ${user.tgUserId || 'none'})`);
+    console.log(`Account deleted: ${phoneNumber} (tgUserId: ${user.tgUserId || 'none'}) — Telegram identity link retained for abuse prevention.`);
 
     return {
       statusCode: 200,
