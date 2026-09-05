@@ -118,10 +118,20 @@ const appOnlyKeyboard = {
 // Flips the persistent reply keyboard (below the input bar) from
 // "Share my phone number" to "Open CVcase App", exactly once per Telegram
 // user. Safe to call on every message from a linked user — it's a no-op
-// (no extra message sent) once appKeyboardSet is already true.
+// (no extra messages sent) once appKeyboardSet is already true.
+//
+// This explicitly REMOVES the old keyboard first, then sets the new one, as
+// two separate calls — some Telegram clients don't reliably swap a visible
+// custom reply keyboard for a different one in a single step; sending
+// remove_keyboard first forces every client to actually drop the old
+// "Share my phone number" button before the new "Open CVcase App" one goes up.
 async function ensureAppReplyKeyboard(botToken, chatId, tgUserId, tgCol) {
   const rec = await tgCol.findOne({ tgUserId });
   if (rec && rec.appKeyboardSet) return;
+  await sendMessage(botToken, chatId,
+    '✅ Phone number confirmed.',
+    { remove_keyboard: true }
+  );
   await sendMessage(botToken, chatId,
     '🔓 You\'re all set — use the button below anytime to open the app.',
     appOnlyReplyKeyboard
