@@ -87,7 +87,7 @@ function normalizePhone(phone) {
 
 // ── Keyboards ────────────────────────────────────────────────────────────────
 //   - resize_keyboard: true   → keyboard sizes itself neatly instead of full-height
-//   - persistent: true        → keyboard stays pinned below the text input at
+//   - is_persistent: true     → keyboard stays pinned below the text input at
 //     all times, never disappearing after one tap
 // NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
 //   that is a limitation of the Telegram platform itself and cannot be changed
@@ -97,7 +97,7 @@ function normalizePhone(phone) {
 const shareOnlyKeyboard = {
   keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
   resize_keyboard: true,
-  persistent: true
+  is_persistent: true
 };
 
 // Reply keyboard (below the input bar) shown once a user is linked. Replaces
@@ -106,7 +106,7 @@ const shareOnlyKeyboard = {
 const appOnlyReplyKeyboard = {
   keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]],
   resize_keyboard: true,
-  persistent: true
+  is_persistent: true
 };
 
 // Inline keyboard attached directly to a message bubble (used for every
