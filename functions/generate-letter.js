@@ -186,13 +186,17 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('Letter generation error:', error);
-    let errorMessage = 'Failed to generate letter. ';
-    if (error.message.includes('503') || error.message.includes('high demand')) {
+    let errorMessage = 'We are unable to generate your letter right now. ';
+    if (error.message && (error.message.includes('503') || error.message.includes('high demand'))) {
       errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
-    } else if (error.message.includes('timeout')) {
-      errorMessage += 'The AI request took too long. Please try again.';
+    } else if (error.message && error.message.includes('timeout')) {
+      errorMessage += 'The request took too long. Please try again.';
     } else {
-      errorMessage += error.message || 'An unexpected error occurred.';
+      // Never forward the raw error (e.g. a Gemini API quota/rate-limit
+      // message) to the client — it's technical, unhelpful to the person
+      // using the app, and can leak implementation details. The real error
+      // is still logged above for debugging.
+      errorMessage += 'Please try again in a moment.';
     }
     return {
       statusCode: 500,
