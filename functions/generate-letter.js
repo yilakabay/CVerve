@@ -105,7 +105,30 @@ exports.handler = async (event, context) => {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1beta" });
+    // generationConfig controls HOW the model samples words, on top of what
+    // the prompt asks for — this is what actually produces natural,
+    // non-repetitive phrasing rather than the same safe wording every time:
+    //   - temperature: randomness in word choice. Default is lower/more
+    //     deterministic; bumping it up gives more natural variation between
+    //     letters without going incoherent.
+    //   - topP: nucleus sampling — only samples from the smallest set of
+    //     words whose combined probability crosses this threshold, so it
+    //     stays coherent even with a higher temperature.
+    //   - frequencyPenalty: discourages reusing the SAME words/phrases
+    //     within one letter — directly targets the repetitive, templated
+    //     phrasing that reads as AI-written.
+    //   - presencePenalty: discourages circling back to ideas already
+    //     covered, pushing the model to keep moving forward rather than
+    //     padding with restatements.
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        temperature:      1.1,
+        topP:             0.95,
+        frequencyPenalty: 0.4,
+        presencePenalty:  0.3
+      }
+    }, { apiVersion: "v1beta" });
 
     const prompt = `
       TARGET POSITION: "${targetPosition}"
@@ -138,11 +161,19 @@ exports.handler = async (event, context) => {
       6. Paragraph 2: Highlight one or two concrete skills or experiences from the CV that directly match the job requirements. Be specific about what you did and how it relates to this role.
       7. Paragraph 3: Express genuine interest in the company/role in one sentence, then close with availability for interview in one sentence. Do NOT include phone number or email here — they are already in the header.
       8. Close with "Sincerely," then the applicant's name.
-      9. Tone: natural, humble, and direct — write like a real person, not a template. Avoid corporate filler phrases such as "I am excited to apply", "I am confident", "leverage my skills", "dynamic team", or any similar buzzwords.
-      10. No bullet points, no bold text, no em dashes, no placeholders.
-      11. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
-      12. Do not mention attaching documents.
-      13. CRITICAL: Phone number and email must appear ONLY in the header block (item 2 above). Do NOT repeat them anywhere in the body paragraphs or closing. The closing sentence should only mention availability for an interview, NOT contact details.
+      9. No bullet points, no bold text, no em dashes, no placeholders.
+      10. Only mention GPA if it is 3.0 or above; omit the "/4.0" scale.
+      11. Do not mention attaching documents.
+      12. CRITICAL: Phone number and email must appear ONLY in the header block (item 2 above). Do NOT repeat them anywhere in the body paragraphs or closing. The closing sentence should only mention availability for an interview, NOT contact details.
+
+      VOICE — SOUND LIKE A REAL PERSON, NOT AN AI OR AN HR TEMPLATE:
+      Act like a seasoned, empathetic ghostwriter, not an HR bot or a LinkedIn-influencer voice. Write in a warm, confident, first-person voice — like a thoughtful professional explaining themselves over coffee, not a keyword list.
+      - Vary sentence length on purpose within each paragraph: mix one short, punchy sentence with one longer, more detailed one. It's fine, occasionally, to start a sentence with "And," "But," or "So" if it reads naturally — don't force it into every paragraph.
+      - Use natural connective phrases where they fit honestly, e.g. "What drew me to this role is...", "I found myself drawn to...", rather than starting every sentence the same structural way.
+      - Don't just list the CV — narrate it in miniature: what you did, why it mattered, what the result was. One concrete detail beats three vague claims.
+      - Never use stock opening/closing lines like "I am writing to apply," "I am a hard-working team player," or "In my previous role, I was responsible for." Also avoid other AI-sounding buzzwords and filler — "I am confident," "leverage my skills," "dynamic team," "excited to apply" — for the same reason. Prefer specific, active verbs (led, untangled, rebuilt, championed) over generic ones (managed, did, worked, handled) — but don't force an unusual verb where a plain one is clearer; it should still sound like something a person would actually say, not a thesaurus.
+      - The result should read as if a sharp, slightly informal professional wrote it in one sitting: polished enough to send, natural enough that no two letters sound alike.
+      - None of the above overrides the STRICT GUIDELINES above — the paragraph count, header format, and phone/email placement rules always win over stylistic choices.
       ${sanitizedExtraPrompt ? `
       ADDITIONAL APPLICANT INSTRUCTIONS (apply these on top of the rules above; if anything here conflicts with the STRICT GUIDELINES or the header/body structure, the STRICT GUIDELINES win):
       "${sanitizedExtraPrompt}"
