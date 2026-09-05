@@ -13,26 +13,25 @@
 //     request_contact inside a reply keyboard, not an inline one, so this
 //     button cannot be moved into the chat itself — that's a Telegram
 //     platform limitation, not a choice made here.
-//   - Already linked  → the reply keyboard below the input bar switches to a
-//     single "Open CVcase App" button (a web_app button, supported inside a
-//     reply keyboard since Bot API 6.1) — the share button is gone for good.
-//     On top of that, every message the bot sends also carries its OWN
-//     inline "Open CVcase App" button attached directly to that message
-//     bubble (web_app buttons support this too). So once linked, the user
-//     sees an Open App button in BOTH places: on every chat bubble, and
-//     pinned below the typing bar.
+//   - Already linked  → the reply keyboard is removed, and instead the chat's
+//     MENU BUTTON (the button next to the input bar, set via the separate
+//     setChatMenuButton API — not a reply keyboard at all) becomes
+//     "🚀 Open App", opening the Mini App directly. On top of that, every
+//     message the bot sends also carries its OWN inline "Open CVcase App"
+//     button attached directly to that message bubble. So once linked, the
+//     user sees an Open App button in BOTH places: on every chat bubble, and
+//     next to the input bar.
 //
-// IMPORTANT Telegram platform limitation: a single sendMessage call can only
-// carry ONE reply_markup — either an inline keyboard (attached to that
-// message's bubble) or a reply keyboard (the persistent bar below the input),
-// never both at once. So the reply keyboard can't be swapped from
-// "Share phone" to "Open App" in the same call that also attaches the inline
-// button. Instead, the very first time we detect a Telegram user is linked,
-// we send one short extra message whose only job is to flip the reply
-// keyboard to the Open App button; we record that in `telegram_chats.
-// appKeyboardSet` so it only ever happens once per Telegram user — every
-// message after that just uses the inline button, and the reply keyboard
-// stays on Open App indefinitely without needing to be resent.
+// Why the menu button instead of a second reply keyboard: reply keyboards
+// are message-driven state — swapping "Share phone" for "Open App" means
+// sending a different `keyboard` array on a later message, and several
+// Telegram clients don't reliably refresh a VISIBLE reply keyboard once a
+// request_contact button has been tapped (a client-side quirk, not something
+// fixable from the bot side, even when explicitly sending remove_keyboard
+// first). The chat menu button is a completely separate per-chat setting —
+// once set, it can't be confused with, or get stuck showing, a reply
+// keyboard, so it's the reliable way to guarantee an always-visible,
+// never-hidden Open App button next to the input bar.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -63,6 +62,20 @@ function httpsPost(url, payload) {
     req.write(body);
     req.end();
   });
+}
+
+// Sets the chat menu button (next to the input bar) to open the Mini App
+// directly. Independent of reply_markup entirely — see the note at the top
+// of this file for why that independence is exactly what makes it reliable.
+async function setAppMenuButton(botToken, chatId) {
+  const res = await httpsPost(`https://api.telegram.org/bot${botToken}/setChatMenuButton`, {
+    chat_id: chatId,
+    menu_button: { type: 'web_app', text: '🚀 Open App', web_app: { url: CVCASE_APP_URL } }
+  });
+  if (!res || res.ok !== true) {
+    console.error('setChatMenuButton failed:', JSON.stringify(res));
+  }
+  return res;
 }
 
 async function sendMessage(botToken, chatId, text, replyMarkup) {
@@ -100,51 +113,32 @@ const shareOnlyKeyboard = {
   is_persistent: true
 };
 
-// Reply keyboard (below the input bar) shown once a user is linked. Replaces
-// shareOnlyKeyboard permanently — see ensureAppReplyKeyboard() below for how
-// the switch actually happens.
-const appOnlyReplyKeyboard = {
-  keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]],
-  resize_keyboard: true,
-  is_persistent: true
-};
-
 // Inline keyboard attached directly to a message bubble (used for every
-// message once a user is linked, alongside the reply keyboard above).
+// message once a user is linked).
 const appOnlyKeyboard = {
   inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]]
 };
 
-// Flips the persistent reply keyboard (below the input bar) from
-// "Share my phone number" to "Open CVcase App", exactly once per Telegram
-// user. Safe to call on every message from a linked user — it's a no-op
-// (no extra messages sent) once appKeyboardSet is already true.
-//
-// This explicitly REMOVES the old keyboard first, then sets the new one, as
-// two separate calls — some Telegram clients don't reliably swap a visible
-// custom reply keyboard for a different one in a single step; sending
-// remove_keyboard first forces every client to actually drop the old
-// "Share my phone number" button before the new "Open CVcase App" one goes up.
-async function ensureAppReplyKeyboard(botToken, chatId, tgUserId, tgCol) {
+// Runs exactly once per Telegram user, the first time we detect they're
+// linked: removes the "Share my phone number" reply keyboard and sets the
+// chat menu button (next to the input bar) to open the app — see the note
+// at the top of this file for why the menu button, not another reply
+// keyboard, is what goes here. Safe to call on every message from a linked
+// user; it's a no-op once appMenuButtonSet is already true.
+async function ensureAppMenuButton(botToken, chatId, tgUserId, tgCol) {
   const rec = await tgCol.findOne({ tgUserId });
-  if (rec && rec.appKeyboardSet) return;
-  await sendMessage(botToken, chatId,
-    '✅ Phone number confirmed.',
-    { remove_keyboard: true }
-  );
-  await sendMessage(botToken, chatId,
-    '🔓 You\'re all set — use the button below anytime to open the app.',
-    appOnlyReplyKeyboard
-  );
-  await tgCol.updateOne({ tgUserId }, { $set: { appKeyboardSet: true } }, { upsert: true });
+  if (rec && rec.appMenuButtonSet) return;
+  await sendMessage(botToken, chatId, '✅ Phone number confirmed.', { remove_keyboard: true });
+  await setAppMenuButton(botToken, chatId);
+  await tgCol.updateOne({ tgUserId }, { $set: { appMenuButtonSet: true } }, { upsert: true });
 }
 
 // Every "user is linked" message in this file should go through this instead
 // of calling sendMessage(..., appOnlyKeyboard) directly — it guarantees the
-// reply keyboard has actually been switched (see above) before attaching the
-// inline button to this particular message.
+// menu button has actually been set (see above) before attaching the inline
+// button to this particular message.
 async function sendAppMessage(botToken, chatId, tgUserId, tgCol, text) {
-  await ensureAppReplyKeyboard(botToken, chatId, tgUserId, tgCol);
+  await ensureAppMenuButton(botToken, chatId, tgUserId, tgCol);
   await sendMessage(botToken, chatId, text, appOnlyKeyboard);
 }
 
