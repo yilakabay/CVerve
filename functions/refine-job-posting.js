@@ -122,7 +122,7 @@ exports.handler = async (event, context) => {
       : rawText;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
       You are structuring a raw job posting (possibly containing several openings from
@@ -208,11 +208,13 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('refine-job-posting error:', error);
-    let errorMessage = 'Failed to refine job posting. ';
-    if (error.message.includes('503') || error.message.includes('high demand')) {
+    let errorMessage = 'We are unable to refine this job posting right now. ';
+    if (error.message && (error.message.includes('503') || error.message.includes('high demand'))) {
       errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
     } else {
-      errorMessage += error.message || 'An unexpected error occurred.';
+      // Never forward the raw provider error to the client — see the same
+      // reasoning documented in generate-letter.js / smart-finder.js.
+      errorMessage += 'Please try again in a moment.';
     }
     return { statusCode: 500, body: JSON.stringify({ error: errorMessage }) };
   }
