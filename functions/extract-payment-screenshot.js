@@ -53,7 +53,7 @@ function isServiceFailure(err) {
 
 async function extractWithGemini(base64, mime) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
 
   const prompt = `This is a screenshot of a bank/mobile-money payment confirmation
 (Ethiopian bank or wallet — CBE, CBE Birr, or Telebirr).
