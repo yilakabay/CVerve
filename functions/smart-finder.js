@@ -63,7 +63,7 @@ exports.handler = async (event, context) => {
     }));
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
       You are a job-matching assistant talking directly to a job seeker. Given their
