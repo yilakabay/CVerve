@@ -105,30 +105,14 @@ exports.handler = async (event, context) => {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // generationConfig controls HOW the model samples words, on top of what
-    // the prompt asks for — this is what actually produces natural,
-    // non-repetitive phrasing rather than the same safe wording every time:
-    //   - temperature: randomness in word choice. Default is lower/more
-    //     deterministic; bumping it up gives more natural variation between
-    //     letters without going incoherent.
-    //   - topP: nucleus sampling — only samples from the smallest set of
-    //     words whose combined probability crosses this threshold, so it
-    //     stays coherent even with a higher temperature.
-    //   - frequencyPenalty: discourages reusing the SAME words/phrases
-    //     within one letter — directly targets the repetitive, templated
-    //     phrasing that reads as AI-written.
-    //   - presencePenalty: discourages circling back to ideas already
-    //     covered, pushing the model to keep moving forward rather than
-    //     padding with restatements.
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature:      1.1,
-        topP:             0.95,
-        frequencyPenalty: 0.4,
-        presencePenalty:  0.3
-      }
-    }, { apiVersion: "v1beta" });
+    // NOTE on generationConfig: gemini-3.6-flash does not support custom
+    // temperature/topP/topK (silently ignored) or custom frequencyPenalty/
+    // presencePenalty (throws an error if set) — see Google's own model docs.
+    // So none of those are set here; the "sound human, not robotic" behavior
+    // now comes entirely from the VOICE section of the prompt below rather
+    // than sampling parameters. If Google adds support for these back on a
+    // future model, this is the place to reintroduce them.
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" }, { apiVersion: "v1beta" });
 
     const prompt = `
       TARGET POSITION: "${targetPosition}"
