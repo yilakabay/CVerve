@@ -1,0 +1,1891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CVcase Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #f1f5f9; font-family: 'Inter', sans-serif; }
+
+    /* ── Top bar ─────────────────────────────────────────────────────── */
+    #topBar {
+      position: sticky; top: 0; z-index: 40;
+      height: 56px; background: #ffffff; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; box-sizing: border-box;
+    }
+    #menuBtn {
+      width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s; flex-shrink: 0;
+    }
+    #menuBtn:hover { background: #f8fafc; border-color: #c7d2fe; }
+    .menu-icon-line { display: block; height: 2px; border-radius: 2px; background: #475569; transition: background 0.15s; }
+    #menuBtn:hover .menu-icon-line { background: #4f46e5; }
+
+    /* ── Sidebar (off-canvas overlay, nav-list only) — same component on
+         mobile & desktop, only the width/proportions differ. ────────────── */
+    #sidebarBackdrop {
+      display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.35);
+      z-index: 9984; opacity: 0; transition: opacity 0.2s;
+    }
+    #sidebarBackdrop.open { display: block; opacity: 1; }
+
+    #adminSidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 84vw; max-width: 300px;
+      background: #ffffff; border-right: 1px solid #e2e8f0;
+      z-index: 9985; box-sizing: border-box;
+      display: flex; flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.22s cubic-bezier(.4,0,.2,1);
+    }
+    #adminSidebar.open { transform: translateX(0); }
+    @media (min-width: 768px) {
+      #adminSidebar { width: 260px; }
+    }
+
+    .sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 16px 12px; border-bottom: 1px solid #f1f5f9; flex-shrink: 0;
+    }
+    .sidebar-close-btn {
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+      background: transparent; border: none; border-radius: 8px;
+      color: #94a3b8; cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    .sidebar-close-btn:hover { background: #f8fafc; color: #4f46e5; }
+    .sidebar-body { flex: 1; overflow-y: auto; padding: 10px 10px 24px; display: flex; flex-direction: column; gap: 2px; }
+
+    .sidebar-nav-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 11px 12px; border-radius: 10px;
+      font-size: 0.87rem; font-weight: 600;
+      color: #475569; background: transparent; border: none;
+      cursor: pointer; text-align: left; width: 100%;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sidebar-nav-item:hover { background: #f8fafc; color: #4f46e5; }
+    .sidebar-nav-item .nav-badge {
+      margin-left: auto; background: #ef4444; color: #fff; font-size: 0.6rem; font-weight: 700;
+      border-radius: 999px; padding: 1px 6px;
+    }
+
+    /* ── Main content ────────────────────────────────────────────────── */
+    #mainContent { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+
+    /* ── Tabs ────────────────────────────────────────────────────────── */
+    .main-tab-btn {
+      flex: 1; padding: 10px 8px; font-size: 0.82rem; font-weight: 700;
+      border-radius: 10px; transition: all 0.15s; text-align: center; position: relative;
+      color: #64748b; background: transparent;
+    }
+    .main-tab-btn.active { background: #fff; color: #4f46e5; box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+
+    /* ── Action page (full-page view for a single sidebar action) ──────── */
+    #actionPage { display: none; }
+    #actionPage.open { display: block; }
+    #actionPageHeader {
+      position: sticky; top: 56px; z-index: 30;
+      background: #f1f5f9; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px; max-width: 720px; margin: 0 auto;
+    }
+    .action-back-btn {
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s; flex-shrink: 0;
+    }
+    .action-back-btn:hover { background: #f8fafc; border-color: #c7d2fe; }
+    #actionPageBody { max-width: 720px; margin: 0 auto; padding: 16px 16px 60px; }
+    .action-page-section { display: none; }
+    .action-page-section.active { display: block; }
+
+    /* ── Results modal ───────────────────────────────────────────────── */
+    #resultsModal { display: none; position: fixed; inset: 0; z-index: 9990; background: rgba(15,23,42,0.4); align-items: center; justify-content: center; padding: 16px; }
+    #resultsModal.open { display: flex; }
+  </style>
+</head>
+<body class="text-gray-800 min-h-screen">
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed top-4 inset-x-0 flex justify-center z-50">
+  <div id="toastInner" class="px-6 py-3 rounded-xl shadow-lg text-white font-semibold max-w-sm text-center"></div>
+</div>
+
+<!-- Loading -->
+<div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-40">
+  <div class="bg-white rounded-xl p-8 text-center shadow-xl">
+    <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+    <p class="font-semibold text-gray-700">Processing…</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     AUTH PANEL (pre-login)
+═══════════════════════════════════════════════════════════════ -->
+<div id="authWrapper" class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-lg">
+    <div id="authPanel" class="bg-white rounded-2xl shadow-lg p-8">
+      <h1 class="text-2xl font-bold text-indigo-600 text-center mb-1">CVcase Admin</h1>
+      <p id="authSubtitle" class="text-sm text-center text-gray-500 mb-6">Payment Verification</p>
+
+      <div id="loginForm">
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Admin Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter admin password"
+            class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button onclick="doLogin()"
+          class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors shadow-md">
+          Login
+        </button>
+      </div>
+
+      <div id="registerForm" class="hidden">
+        <p class="text-sm text-amber-700 bg-amber-50 rounded-lg p-3 mb-4">
+          No admin account exists yet. You are the first visitor — set your admin password now.
+        </p>
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <input type="password" id="regPassword" placeholder="Choose a password (min. 6 characters)"
+            class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="mb-6">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+          <input type="password" id="regConfirm" placeholder="Confirm your password"
+            class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button onclick="doRegister()"
+          class="w-full bg-emerald-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-emerald-600 transition-colors shadow-md">
+          Create Admin Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     ADMIN APP (shown after login)
+═══════════════════════════════════════════════════════════════ -->
+<div id="adminApp" class="hidden">
+
+  <!-- ── Top bar ──────────────────────────────────────────────────── -->
+  <div id="topBar">
+    <div class="flex items-center gap-3">
+      <button id="menuBtn" onclick="toggleSidebar()" title="Menu" aria-label="Toggle menu">
+        <div style="display:flex;flex-direction:column;gap:4px;width:18px;">
+          <span class="menu-icon-line" style="width:100%;"></span>
+          <span class="menu-icon-line" style="width:65%;"></span>
+          <span class="menu-icon-line" style="width:100%;"></span>
+        </div>
+      </button>
+      <span class="text-base font-bold text-indigo-600">CVcase Admin</span>
+      <span class="hidden sm:inline text-xs bg-indigo-100 text-indigo-600 font-semibold px-2 py-0.5 rounded-full">Dashboard</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="adminLabel" class="hidden sm:inline text-sm text-gray-500">Admin</span>
+      <button onclick="doLogout()" class="text-sm text-gray-500 hover:text-red-500 transition-colors font-medium">Logout</button>
+    </div>
+  </div>
+
+  <!-- ── Sidebar backdrop ─────────────────────────────────────────── -->
+  <div id="sidebarBackdrop" onclick="toggleSidebar()"></div>
+
+  <!-- ── Sidebar — plain list of action names only. Clicking one closes
+       the sidebar and opens that action's dedicated full page. Same
+       component on mobile and desktop; only its width differs. ──────── -->
+  <div id="adminSidebar">
+    <div class="sidebar-header">
+      <span class="font-bold text-gray-800 text-sm">Admin Actions</span>
+      <button onclick="toggleSidebar()" class="sidebar-close-btn" title="Close menu" aria-label="Close menu">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-body">
+      <button class="sidebar-nav-item" onclick="openActionPage('override')">
+        <svg class="w-4 h-4 text-purple-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+        <span>Manual Plan Override</span>
+      </button>
+      <button class="sidebar-nav-item" onclick="openActionPage('lookup')">
+        <svg class="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        <span>Lookup User</span>
+      </button>
+      <button class="sidebar-nav-item" onclick="openActionPage('announce')">
+        <svg class="w-4 h-4 text-violet-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+        <span>Official Announcement</span>
+      </button>
+      <button class="sidebar-nav-item" onclick="openActionPage('jobs')">
+        <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m-6 4v8a2 2 0 002 2h16a2 2 0 002-2v-8a2 2 0 00-2-2H4a2 2 0 00-2 2z"/></svg>
+        <span>Job Postings</span>
+      </button>
+      <button class="sidebar-nav-item" onclick="openActionPage('refunds')">
+        <svg class="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l-4-4m0 0l4-4m-4 4h11a4 4 0 010 8h-1"/></svg>
+        <span>Refunds</span>
+        <span id="refundPendingBadge" class="hidden nav-badge"></span>
+      </button>
+    </div><!-- /sidebar-body -->
+  </div><!-- /adminSidebar -->
+
+  <!-- ── Main content — 3 tabs: Pending / Reports / SMS ──────────────── -->
+  <div id="mainContent">
+
+    <div class="flex gap-1 bg-gray-200/60 rounded-xl p-1 mb-4">
+      <button id="tab-pending-btn" onclick="switchMainTab('pending')" class="main-tab-btn active">Pending</button>
+      <button id="tab-reports-btn" onclick="switchMainTab('reports')" class="main-tab-btn relative">
+        Reports
+        <span id="reports-badge" class="hidden absolute -top-1 right-1 w-4 h-4 bg-red-500 text-white text-[0.55rem] font-bold rounded-full flex items-center justify-center"></span>
+      </button>
+      <button id="tab-sms-btn" onclick="switchMainTab('sms')" class="main-tab-btn">SMS</button>
+    </div>
+
+    <!-- Pending tab -->
+    <div id="tab-pending">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">Pending Payments</p>
+        <button onclick="loadPending()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+      </div>
+      <div id="pendingList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Loading…</p>
+      </div>
+    </div>
+
+    <!-- Reports tab -->
+    <div id="tab-reports" class="hidden">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">Payment Reports <span class="text-red-400 normal-case font-medium">(oldest first)</span></p>
+        <button onclick="loadReports()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+      </div>
+      <div id="reportsList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Loading…</p>
+      </div>
+    </div>
+
+    <!-- SMS tab -->
+    <div id="tab-sms" class="hidden">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-400">SMS Detections</p>
+        <button onclick="loadSmsDetections()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+      </div>
+      <div id="smsList" class="space-y-2">
+        <p class="text-sm text-gray-400 italic">Click Refresh to load…</p>
+      </div>
+    </div>
+
+  </div><!-- /mainContent -->
+
+  <!-- ── Action page — full page for whichever sidebar item was clicked ── -->
+  <div id="actionPage">
+    <div id="actionPageHeader">
+      <button class="action-back-btn" onclick="closeActionPage()" title="Back" aria-label="Back">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h2 id="actionPageTitle" class="font-bold text-gray-800 text-base"></h2>
+    </div>
+
+    <div id="actionPageBody">
+
+      <!-- Manual Plan Override -->
+      <div id="page-override" class="action-page-section">
+        <p class="text-sm text-gray-500 mb-3">Force-set a plan on any user (comps, corrections).</p>
+        <div class="space-y-2 mb-3">
+          <input type="text" id="overrideUserId" placeholder="User phone number"
+            class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
+          <select id="overridePlan"
+            class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
+            <option value="free">Free (0 ETB)</option>
+            <option value="basic" selected>Basic (49 ETB/mo)</option>
+            <option value="pro">Pro (79 ETB/mo)</option>
+          </select>
+          <div>
+            <textarea id="overrideReason" rows="2" placeholder="Reason (required) — e.g. Gift, goodwill after a bug, promo, correction..."
+              class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white"></textarea>
+            <p class="text-xs text-gray-400 mt-1">Shown to the user in place of a payment amount, and kept on record for your own accounting. No payment is implied or charged by this action.</p>
+          </div>
+        </div>
+        <button onclick="doManualPlanOverride()"
+          class="w-full bg-purple-500 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-purple-600 transition-colors shadow-sm">
+          Set Plan Now
+        </button>
+      </div>
+
+      <!-- Lookup User -->
+      <div id="page-lookup" class="action-page-section">
+        <p class="text-sm text-gray-500 mb-3">Look up a user's plan, usage, and pending payments.</p>
+        <div class="mb-3">
+          <input type="text" id="lookupUserId" placeholder="User phone number"
+            class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+        </div>
+        <button onclick="doLookupUser()"
+          class="w-full bg-blue-500 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-blue-600 transition-colors shadow-sm">
+          Lookup
+        </button>
+      </div>
+
+      <!-- Official Announcement -->
+      <div id="page-announce" class="action-page-section">
+        <p class="text-sm text-gray-500 mb-3">Sends to <strong>all users</strong> as a verified notification.</p>
+        <div class="space-y-2 mb-3">
+          <input type="text" id="announceTitle" placeholder="Title (e.g. Scheduled Maintenance)"
+            class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white">
+          <textarea id="announceBody" rows="4" placeholder="Write your announcement here…"
+            class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white resize-none"></textarea>
+        </div>
+        <button onclick="doAnnounce()"
+          class="w-full bg-violet-500 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-violet-600 transition-colors shadow-sm flex items-center justify-center gap-2 mb-6">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          Announce to All Users
+        </button>
+
+        <div class="border-t border-gray-200 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold text-gray-800 text-sm">Sent Announcements</h3>
+            <button onclick="loadAnnouncements()" class="text-xs text-indigo-500 hover:underline font-medium">↻ Refresh</button>
+          </div>
+          <div id="announcementsList" class="space-y-2 max-h-96 overflow-y-auto">
+            <p class="text-xs text-gray-400 italic">Loading…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job Postings -->
+      <div id="page-jobs" class="action-page-section">
+
+        <!-- STEP A: source input -->
+        <div id="jp-source-step">
+          <div class="flex gap-2 mb-3">
+            <button id="jp-mode-url-btn" onclick="setJobSourceMode('url')" class="flex-1 py-2 rounded-full text-xs font-semibold bg-emerald-500 text-white">Paste URL</button>
+            <button id="jp-mode-file-btn" onclick="setJobSourceMode('file')" class="flex-1 py-2 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Upload File</button>
+          </div>
+
+          <div id="jp-url-input">
+            <input type="url" id="jpUrl" placeholder="https://example.com/job-posting"
+              class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+          </div>
+
+          <div id="jp-file-input" class="hidden">
+            <input type="file" id="jpFile" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" onchange="handleJobFile(event)"
+              class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-full file:border-0 file:bg-emerald-50 file:text-emerald-600 file:text-xs file:font-semibold">
+            <p id="jpFileStatus" class="text-xs text-gray-400 mt-1"></p>
+          </div>
+
+          <p id="jpSourceError" class="text-xs text-red-500 mt-2 hidden"></p>
+
+          <button onclick="refineJobPosting()" id="jpRefineBtn"
+            class="w-full mt-4 bg-emerald-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Extract & Refine with AI
+          </button>
+        </div>
+
+        <!-- STEP B: loading -->
+        <div id="jp-loading-step" class="hidden py-10 text-center">
+          <div class="w-8 h-8 mx-auto mb-3 rounded-full border-3 border-gray-200 border-t-emerald-500" style="border-width:3px;animation:jpspin 0.8s linear infinite;"></div>
+          <p class="text-sm text-gray-500 font-medium" id="jp-loading-text">Reading job posting…</p>
+        </div>
+
+        <!-- STEP C: editable structured result -->
+        <div id="jp-review-step" class="hidden">
+          <div class="mb-4">
+            <label class="text-xs font-semibold text-gray-500 mb-1 block">Company Logo</label>
+            <div class="flex items-center gap-3">
+              <div id="jpLogoPreviewWrap" class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
+                <svg id="jpLogoPlaceholderIcon" class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M4 8h.01M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
+                <img id="jpLogoPreviewImg" class="hidden w-full h-full object-cover" alt="Logo preview">
+              </div>
+              <div class="flex-1">
+                <input type="file" id="jpLogoFileInput" accept="image/*" class="hidden" onchange="handleLogoFileSelected(event)">
+                <button type="button" onclick="document.getElementById('jpLogoFileInput').click()" class="text-xs font-semibold text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-full px-3 py-1.5 transition-colors">
+                  <span id="jpLogoBtnLabel">Upload Logo</span>
+                </button>
+                <button type="button" id="jpLogoRemoveBtn" onclick="removeLogo()" class="hidden text-xs font-semibold text-red-500 hover:underline ml-2">Remove</button>
+                <p class="text-[0.7rem] text-gray-400 mt-1">You'll be able to crop and zoom after choosing a photo. Shown on every position in this posting.</p>
+              </div>
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="text-xs font-semibold text-gray-500 mb-1 block">Company</label>
+            <input type="text" id="jpCompany" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+          </div>
+
+          <div id="jpBulkUrlBar" class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 hidden">
+            <label class="text-xs font-semibold text-indigo-700 mb-1 block">Application Link URL (for online positions)</label>
+            <div class="flex gap-2 mb-2">
+              <input type="url" id="jpBulkUrl" placeholder="https://company.com/careers/apply" class="flex-1 px-3 py-2 rounded-lg border border-indigo-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <button onclick="applyBulkUrl()" class="bg-indigo-500 text-white text-xs font-bold px-4 rounded-lg hover:bg-indigo-600 transition-colors flex-shrink-0">Apply to checked</button>
+            </div>
+            <label class="flex items-center gap-2 text-xs text-indigo-600 cursor-pointer">
+              <input type="checkbox" id="jpSelectAllOnline" onchange="toggleSelectAllOnline(this.checked)"> Select all online positions
+            </label>
+            <p class="text-[0.7rem] text-indigo-400 mt-1">Tip: enter a link, check the positions it applies to, then click "Apply to checked". Checked boxes clear afterward so you can enter a different link for the rest.</p>
+          </div>
+
+          <div id="jpPositionsList" class="space-y-4"></div>
+
+          <button onclick="addPositionCard()" class="w-full mt-3 py-2 rounded-full text-xs font-semibold border border-dashed border-gray-300 text-gray-500 hover:border-emerald-400 hover:text-emerald-500 transition-colors">
+            + Add another position
+          </button>
+
+          <div class="flex gap-2 mt-5">
+            <button onclick="backToSourceStep()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white">Back</button>
+            <button onclick="submitJobPost()" id="jpPostBtn" class="flex-[2] py-2.5 rounded-full text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm">Post Job</button>
+          </div>
+        </div>
+
+        <!-- Posted jobs list -->
+        <div class="border-t border-gray-200 mt-6 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide">Posted Jobs</h3>
+            <button onclick="loadPostedJobs()" class="text-xs text-emerald-600 hover:underline font-medium">↻ Refresh</button>
+          </div>
+          <div id="postedJobsList" class="space-y-2 max-h-96 overflow-y-auto">
+            <p class="text-xs text-gray-400 italic">Loading…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Refunds -->
+      <div id="page-refunds" class="action-page-section">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex gap-2">
+            <button onclick="setRefundFilter('pending')" id="refundFilter-pending" class="text-xs font-semibold px-3 py-1 rounded-full bg-red-500 text-white">Pending</button>
+            <button onclick="setRefundFilter('refunded')" id="refundFilter-refunded" class="text-xs font-semibold px-3 py-1 rounded-full bg-gray-200 text-gray-500">Refunded</button>
+          </div>
+          <button onclick="loadRefunds()" class="text-xs text-red-600 hover:underline font-medium">↻ Refresh</button>
+        </div>
+        <div id="refundsList" class="space-y-2">
+          <p class="text-xs text-gray-400 italic">Loading…</p>
+        </div>
+      </div>
+
+    </div><!-- /actionPageBody -->
+  </div><!-- /actionPage -->
+
+</div><!-- /adminApp -->
+
+<!-- ══════════════════ Results Modal (Verify / Lookup results) ══════════════════ -->
+<div id="resultsModal">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+      <h2 id="resultsModalTitle" class="font-bold text-gray-700 text-base">Results</h2>
+      <button onclick="closeResultsModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+    <div id="resultsModalBody" class="px-5 py-4 space-y-3 text-sm"></div>
+  </div>
+</div>
+
+<style>@keyframes jpspin{to{transform:rotate(360deg);}}</style>
+
+<script>
+
+  let adminToken = sessionStorage.getItem('cverve_admin_token') || null;
+
+  // ── Utilities ────────────────────────────────────────────────────────────
+
+  function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    const i = document.getElementById('toastInner');
+    i.textContent = msg;
+    i.className = `px-6 py-3 rounded-xl shadow-lg text-white font-semibold max-w-sm text-center ${type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`;
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 3500);
+  }
+
+  function setLoading(on) {
+    document.getElementById('loading').classList.toggle('hidden', !on);
+  }
+
+  async function api(path, data) {
+    const res = await fetch(`/.netlify/functions/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return { ok: res.ok, status: res.status, data: await res.json() };
+  }
+
+  // ── Sidebar toggle ───────────────────────────────────────────────────────
+
+  function toggleSidebar() {
+    const sidebar  = document.getElementById('adminSidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const nowOpen  = !sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', nowOpen);
+    backdrop.classList.toggle('open', nowOpen);
+  }
+  function closeSidebar() {
+    document.getElementById('adminSidebar').classList.remove('open');
+    document.getElementById('sidebarBackdrop').classList.remove('open');
+  }
+
+  // ── Action pages (Verify / Override / Lookup / Announce / Jobs / Refunds) ──
+
+  const ACTION_PAGE_TITLES = {
+    override: 'Manual Plan Override',
+    lookup:   'Lookup User',
+    announce: 'Official Announcement',
+    jobs:     'Job Postings',
+    refunds:  'Refunds'
+  };
+
+  function openActionPage(key) {
+    closeSidebar();
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('actionPage').classList.add('open');
+    document.getElementById('actionPageTitle').textContent = ACTION_PAGE_TITLES[key] || '';
+    document.querySelectorAll('.action-page-section').forEach(el => el.classList.remove('active'));
+    const section = document.getElementById('page-' + key);
+    if (section) section.classList.add('active');
+
+    // Load whatever data that page needs
+    if (key === 'announce') loadAnnouncements();
+    if (key === 'jobs')     { backToSourceStep(); loadPostedJobs(); }
+    if (key === 'refunds')  loadRefunds();
+  }
+
+  function closeActionPage() {
+    document.getElementById('actionPage').classList.remove('open');
+    document.getElementById('mainContent').style.display = '';
+  }
+
+  // ── Main tab switching (Pending / Reports / SMS) ────────────────────────
+
+  function switchMainTab(tab) {
+    ['pending', 'reports', 'sms'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
+      document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === tab);
+    });
+    if (tab === 'reports') loadReports();
+    if (tab === 'sms')     loadSmsDetections();
+  }
+
+  // ── Results modal ────────────────────────────────────────────────────────
+
+  function showResultsModal(title, html) {
+    document.getElementById('resultsModalTitle').textContent = title;
+    document.getElementById('resultsModalBody').innerHTML = html;
+    document.getElementById('resultsModal').classList.add('open');
+  }
+  function closeResultsModal() {
+    document.getElementById('resultsModal').classList.remove('open');
+  }
+
+  // ── Startup ──────────────────────────────────────────────────────────────
+
+  async function init() {
+    if (adminToken) { showAdminApp(); return; }
+    setLoading(true);
+    try {
+      const { data } = await api('admin-auth', { action: 'check' });
+      if (data.hasAdmin) {
+        document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('registerForm').classList.add('hidden');
+      } else {
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('registerForm').classList.remove('hidden');
+      }
+    } catch {
+      showToast('Could not reach server. Please refresh.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+
+  async function doLogin() {
+    const password = document.getElementById('loginPassword').value;
+    if (!password) { showToast('Please enter your password', 'error'); return; }
+    setLoading(true);
+    try {
+      const { ok, data } = await api('admin-auth', { action: 'login', password });
+      if (ok && data.token) {
+        adminToken = data.token;
+        sessionStorage.setItem('cverve_admin_token', adminToken);
+        showAdminApp();
+      } else {
+        showToast(data.error || 'Login failed', 'error');
+      }
+    } catch {
+      showToast('Login failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function doRegister() {
+    const password        = document.getElementById('regPassword').value;
+    const confirmPassword = document.getElementById('regConfirm').value;
+    if (!password)                    { showToast('Please enter a password', 'error'); return; }
+    if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return; }
+    if (password.length < 6)          { showToast('Password must be at least 6 characters', 'error'); return; }
+    setLoading(true);
+    try {
+      const { ok, data } = await api('admin-auth', { action: 'register', password, confirmPassword });
+      if (ok && data.token) {
+        adminToken = data.token;
+        sessionStorage.setItem('cverve_admin_token', adminToken);
+        showAdminApp();
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch {
+      showToast('Registration failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function doLogout() {
+    adminToken = null;
+    sessionStorage.removeItem('cverve_admin_token');
+    document.getElementById('adminApp').classList.add('hidden');
+    document.getElementById('authWrapper').classList.remove('hidden');
+    init();
+  }
+
+  // ── Show admin app ───────────────────────────────────────────────────────
+
+  function showAdminApp() {
+    document.getElementById('authWrapper').classList.add('hidden');
+    document.getElementById('adminApp').classList.remove('hidden');
+    loadPending();
+    loadRefunds(); // populates the pending-refunds badge
+  }
+
+  // ── Pending payments ─────────────────────────────────────────────────────
+
+  function renderPendingItem(p) {
+    const planBadge = `<span class="inline-block ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${p.chosenPlan === 'pro' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'}">${p.chosenPlan}</span>`;
+    return `
+      <div class="bg-white rounded-lg p-3 border border-gray-200">
+        <p class="text-sm font-bold text-gray-800">${escapeHtml(p.senderName || 'Unknown sender')}</p>
+        <p class="text-xs text-gray-600 mt-0.5">
+          User: ${p.userId} · <span class="font-semibold">${p.amount} ETB</span> · ${p.paymentMethod || '–'}
+          ${planBadge}
+        </p>
+        ${p.transactionId ? `<p class="text-[10px] text-gray-400 font-mono mt-0.5">Txn: ${escapeHtml(p.transactionId)}</p>` : ''}
+        <p class="text-xs text-gray-400">${new Date(p.submittedAt).toLocaleString()}</p>
+        ${!p.canVerify ? `<p class="text-[10px] text-amber-600 font-semibold mt-1">Amount does not cover the ${p.chosenPlan} plan — cannot verify, reject only.</p>` : ''}
+        <div class="flex gap-2 mt-2">
+          ${p.canVerify ? `
+          <button onclick="doVerifyFromLookup('${p.pendingId}')"
+            class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
+            ✓ Verify ${p.chosenPlan}
+          </button>` : ''}
+          <button onclick="openRejectDialog('${p.pendingId}', ${p.amountIssueApplicable ? 'true' : 'false'})"
+            class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
+            ✕ Reject
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Reject dialog — amount-issue toggle only shown when amount < 49 ETB ────
+  let _rejectPendingId = null;
+
+  function openRejectDialog(pendingId, amountIssueApplicable) {
+    _rejectPendingId = pendingId;
+    document.getElementById('rejectAmountIssueRow').classList.toggle('hidden', !amountIssueApplicable);
+    document.getElementById('rejectAmountIssueToggle').checked = false;
+    document.getElementById('rejectReasonBox').value = '';
+    toggleRejectReasonVisibility();
+    document.getElementById('rejectPendingModal').classList.remove('hidden');
+  }
+  function closeRejectDialog() {
+    _rejectPendingId = null;
+    document.getElementById('rejectPendingModal').classList.add('hidden');
+  }
+  function toggleRejectReasonVisibility() {
+    const amountIssueOn = document.getElementById('rejectAmountIssueToggle').checked;
+    document.getElementById('rejectReasonWrap').classList.toggle('hidden', amountIssueOn);
+  }
+  async function confirmRejectPending() {
+    if (!_rejectPendingId) return;
+    const amountIssueRowVisible = !document.getElementById('rejectAmountIssueRow').classList.contains('hidden');
+    const amountIssue = amountIssueRowVisible && document.getElementById('rejectAmountIssueToggle').checked;
+    const reason = document.getElementById('rejectReasonBox').value.trim();
+    if (!amountIssue && !reason) { showToast('Please enter a rejection reason.', 'error'); return; }
+
+    const pendingId = _rejectPendingId;
+    setLoading(true);
+    closeRejectDialog();
+    try {
+      const { ok, data } = await api('admin-verify', {
+        token: adminToken, action: 'reject', pendingId, amountIssue, reason
+      });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Rejection failed', 'error');
+        return;
+      }
+      showToast('Payment rejected and user notified.', 'success');
+      loadPending();
+      const userId = document.getElementById('lookupUserId').value.trim();
+      if (userId) doLookupUser();
+    } catch {
+      showToast('Rejection failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadPending() {
+    const container = document.getElementById('pendingList');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
+
+    try {
+      const { ok, data } = await api('admin-verify', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error}</p>`;
+        return;
+      }
+      const list = data.pending || [];
+      if (list.length === 0) {
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No pending payments.</p>';
+        return;
+      }
+      if (container) container.innerHTML = list.map(renderPendingItem).join('');
+    } catch {
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load pending payments.</p>';
+    }
+  }
+
+  // ── Lookup User ───────────────────────────────────────────────────────────
+
+  async function doLookupUser() {
+    const userId = document.getElementById('lookupUserId').value.trim();
+    if (!userId) { showToast('Please enter a user phone number', 'error'); return; }
+    setLoading(true);
+    try {
+      const { ok, data } = await api('get-user', { token: adminToken, userId });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Lookup failed', 'error');
+        showResultsModal('User Lookup', `
+          <div class="rounded-lg border p-3 bg-red-50 border-red-200 text-red-800">
+            <p class="font-semibold">User not found</p>
+            <p class="text-xs mt-1">${data.error || 'No user found with that phone number'}</p>
+          </div>
+        `);
+        return;
+      }
+      const u  = data.user || data;
+      const pp = u.pendingPayment;
+
+      // Plan badge helper
+      const planColors = { free: 'bg-gray-100 text-gray-600', basic: 'bg-indigo-100 text-indigo-700', pro: 'bg-orange-100 text-orange-700' };
+      const planBadge = (p) => `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase ${planColors[p] || planColors.free}">${p || 'free'}</span>`;
+
+      showResultsModal('User Lookup', `
+        <div class="rounded-xl border border-gray-200 bg-white p-4 space-y-2">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
+              <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            </div>
+            <div>
+              <p class="font-bold text-gray-800">${u.phoneNumber || userId}</p>
+              <p class="text-xs text-gray-400">Registered user</p>
+            </div>
+          </div>
+
+          <!-- Plan row -->
+          <div class="flex justify-between text-sm items-center">
+            <span class="text-gray-500">Current Plan</span>
+            ${planBadge(u.plan)}
+          </div>
+
+          ${u.planExpiry ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Plan Expires</span><span class="font-medium">${new Date(u.planExpiry).toLocaleDateString()}</span></div>` : ''}
+
+          <!-- Usage counters -->
+          ${u.usageCounts ? `
+          <div class="bg-gray-50 rounded-lg p-2 text-xs space-y-1 border border-gray-100">
+            <p class="font-semibold text-gray-500 uppercase text-[10px] tracking-wide mb-1">This Month's Usage</p>
+            <div class="flex justify-between"><span class="text-gray-500">Letters</span><span class="font-semibold">${u.usageCounts.letters || 0}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">PDF Merges</span><span class="font-semibold">${u.usageCounts.merges || 0}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">CV Builds</span><span class="font-semibold">${u.usageCounts.cvBuilds || 0}</span></div>
+          </div>` : ''}
+
+          ${u.createdAt ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Joined</span><span class="font-medium">${new Date(u.createdAt).toLocaleDateString()}</span></div>` : ''}
+          ${u.email ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Email</span><span class="font-medium">${u.email}</span></div>` : ''}
+
+          ${pp
+            ? (() => {
+                const ADMIN_PLAN_PRICES = { basic: 49, pro: 79 };
+                const tierPrice = ADMIN_PLAN_PRICES[pp.chosenPlan] || 0;
+                const canVerify = pp.amount >= tierPrice;
+                const amountIssueApplicable = !canVerify;
+                const planBadge = `<span class="font-bold uppercase">${pp.chosenPlan}</span>`;
+                return `<div class="mt-3 pt-3 border-t border-amber-200 bg-amber-50 rounded-lg p-3 space-y-1">
+                <p class="text-xs font-bold text-amber-700 uppercase tracking-wide">⏳ Pending Payment</p>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Sender Name</span><span class="font-semibold text-amber-800">${escapeHtml(pp.senderName || '–')}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Amount</span><span class="font-semibold text-amber-800">${pp.amount} ETB</span></div>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Chosen Plan</span><span class="text-amber-800">${planBadge}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Method</span><span class="font-medium text-amber-800">${pp.paymentMethod || '–'}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-amber-600">Submitted</span><span class="font-medium text-amber-800">${new Date(pp.submittedAt).toLocaleString()}</span></div>
+                ${!canVerify ? `<p class="text-xs text-amber-700 font-semibold pt-1">Amount does not cover the ${pp.chosenPlan} plan — cannot verify, reject only.</p>` : ''}
+
+                <div class="flex gap-2 mt-2">
+                  ${canVerify ? `
+                  <button onclick="doVerifyFromLookup('${pp.pendingId}')"
+                    class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-full hover:bg-emerald-600 transition-colors">
+                    ✓ Verify ${pp.chosenPlan}
+                  </button>` : ''}
+                  <button onclick="openRejectDialog('${pp.pendingId}', ${amountIssueApplicable ? 'true' : 'false'})"
+                    class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-full hover:bg-red-200 transition-colors">
+                    ✕ Reject
+                  </button>
+                </div>
+              </div>`;
+              })()
+            : `<div class="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400 text-center">No pending payments</div>`
+          }
+        </div>
+      `);
+    } catch {
+      showToast('Lookup failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Verify from Lookup / Pending card ────────────────────────────────────
+  // Reject is handled by the shared openRejectDialog/confirmRejectPending flow.
+
+  async function doVerifyFromLookup(pendingId) {
+    if (!confirm(`Verify this payment and activate the plan the user chose? This cannot be undone.`)) return;
+
+    setLoading(true);
+    try {
+      const { ok, data } = await api('admin-verify', {
+        token: adminToken,
+        action: 'verify-one',
+        pendingId
+      });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Verification failed', 'error');
+        return;
+      }
+      const expiry = data.planExpiry ? ` (until ${new Date(data.planExpiry).toLocaleDateString()})` : '';
+      showToast(`✓ Payment verified. ${data.plan.toUpperCase()} plan activated${expiry}.`, 'success');
+      loadPending();
+      const userId = document.getElementById('lookupUserId').value.trim();
+      if (userId) doLookupUser();
+    } catch {
+      showToast('Verification failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Manual Plan Override (no payment required — for comps / corrections) ──
+
+  async function doManualPlanOverride() {
+    const userId = (document.getElementById('overrideUserId').value || '').trim();
+    const plan   = (document.getElementById('overridePlan').value  || '').trim();
+    const reason = (document.getElementById('overrideReason').value || '').trim();
+    if (!userId) { showToast('Please enter a user phone number', 'error'); return; }
+    if (!['free','basic','pro'].includes(plan)) { showToast('Invalid plan selected', 'error'); return; }
+    if (!reason) { showToast('Please enter a reason for this override (e.g. gift, correction, promo).', 'error'); return; }
+    if (!confirm(`Force-set ${plan.toUpperCase()} plan on ${userId}? This takes effect immediately.`)) return;
+
+    setLoading(true);
+    try {
+      const { ok, data } = await api('subscribe-plan', {
+        token: adminToken,
+        userId,
+        plan,
+        adminOverride: true,
+        overrideReason: reason
+      });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Plan override failed', 'error');
+        return;
+      }
+      const expiry = data.planExpiry ? ` (until ${new Date(data.planExpiry).toLocaleDateString()})` : '';
+      showToast(`✓ ${plan.toUpperCase()} plan set on ${userId}${expiry}.`, 'success');
+      document.getElementById('overrideUserId').value = '';
+      document.getElementById('overrideReason').value = '';
+      const lookupId = document.getElementById('lookupUserId').value.trim();
+      if (lookupId === userId) doLookupUser();
+    } catch {
+      showToast('Plan override failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── SMS Detections ────────────────────────────────────────────────────────
+
+  function renderSmsItem(s) {
+    const statusConfig = {
+      verified:            { bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: '✓ Verified' },
+      rejected_low_amount: { bg: 'bg-red-50 border-red-200',         badge: 'bg-red-100 text-red-700',         label: '✕ Rejected (low amount)' },
+      waiting:             { bg: 'bg-blue-50 border-blue-200',       badge: 'bg-blue-100 text-blue-700',       label: '⏳ Waiting for matching payment' },
+      ambiguous:           { bg: 'bg-amber-50 border-amber-200',     badge: 'bg-amber-100 text-amber-700',     label: '⚠ Multiple possible matches' },
+      unreadable:          { bg: 'bg-gray-50 border-gray-200',       badge: 'bg-gray-100 text-gray-500',       label: '✗ Unreadable' },
+      extracted:           { bg: 'bg-indigo-50 border-indigo-200',   badge: 'bg-indigo-100 text-indigo-700',   label: '🔍 Extracted' },
+    };
+    const cfg = statusConfig[s.status] || statusConfig.unreadable;
+    const date = new Date(s.createdAt || s.receivedAt).toLocaleString();
+
+    const needsReview = s.status === 'waiting' || s.status === 'ambiguous';
+
+    return `
+      <div class="rounded-lg border p-3 ${cfg.bg}">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}">${cfg.label}</span>
+          <span class="text-xs text-gray-400">${date}</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-1">From: <strong>${s.sender || '–'}</strong></p>
+        ${s.senderName ? `<p class="text-xs text-gray-700 font-semibold">${escapeHtml(s.senderName)}</p>` : ''}
+        ${s.amount    ? `<p class="text-xs text-gray-600">Amount: <strong>${s.amount} ETB</strong></p>` : ''}
+        ${s.matchedUserId ? `<p class="text-xs text-gray-500">User: ${s.matchedUserId}</p>` : ''}
+        <details class="mt-1">
+          <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">View SMS text</summary>
+          <p class="text-xs text-gray-500 mt-1 bg-white rounded p-2 border border-gray-200 break-words">${s.smsBody || '–'}</p>
+        </details>
+        ${needsReview ? `<p class="text-xs text-amber-600 mt-2 font-medium">No confident single match yet — resolve from the Verify Payments page using this name and amount.</p>` : ''}
+      </div>
+    `;
+  }
+
+  async function loadSmsDetections() {
+    const container = document.getElementById('smsList');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
+
+    try {
+      const { ok, data } = await api('check-sms-detections', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error || 'Failed to load'}</p>`;
+        return;
+      }
+      const records = data.records || [];
+      if (records.length === 0) {
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No SMS detections yet.</p>';
+        return;
+      }
+      if (container) container.innerHTML = records.map(renderSmsItem).join('');
+    } catch {
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load SMS detections.</p>';
+    }
+  }
+
+  // ══════════════════ Job Posting ══════════════════
+
+  let jpSourceMode = 'url';
+  let jpFileBase64 = null, jpFileMime = null, jpExtractedText = null;
+  let jpStructured = null; // { company, positions: [...] }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function setJobSourceMode(mode) {
+    jpSourceMode = mode;
+    document.getElementById('jp-url-input').classList.toggle('hidden', mode !== 'url');
+    document.getElementById('jp-file-input').classList.toggle('hidden', mode !== 'file');
+    document.getElementById('jp-mode-url-btn').className = 'flex-1 py-2 rounded-full text-xs font-semibold ' + (mode === 'url' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500');
+    document.getElementById('jp-mode-file-btn').className = 'flex-1 py-2 rounded-full text-xs font-semibold ' + (mode === 'file' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500');
+  }
+
+  async function handleJobFile(evt) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    document.getElementById('jpFileStatus').textContent = 'Reading file…';
+    try {
+      jpFileBase64 = await fileToBase64(file);
+      jpFileMime   = file.type || 'application/pdf';
+      document.getElementById('jpFileStatus').textContent = `Ready: ${file.name}`;
+    } catch (e) {
+      document.getElementById('jpFileStatus').textContent = 'Could not read file. Please try another.';
+      jpFileBase64 = null;
+    }
+  }
+
+  function backToSourceStep() {
+    document.getElementById('jp-source-step').classList.remove('hidden');
+    document.getElementById('jp-loading-step').classList.add('hidden');
+    document.getElementById('jp-review-step').classList.add('hidden');
+  }
+
+  function setJpLoading(text) {
+    document.getElementById('jp-source-step').classList.add('hidden');
+    document.getElementById('jp-review-step').classList.add('hidden');
+    document.getElementById('jp-loading-step').classList.remove('hidden');
+    document.getElementById('jp-loading-text').textContent = text || 'Working…';
+  }
+
+  async function refineJobPosting() {
+    const errEl = document.getElementById('jpSourceError');
+    errEl.classList.add('hidden');
+
+    let jdUrl = null, jdText = null;
+
+    if (jpSourceMode === 'url') {
+      jdUrl = document.getElementById('jpUrl').value.trim();
+      if (!jdUrl) { errEl.textContent = 'Please paste a job posting URL.'; errEl.classList.remove('hidden'); return; }
+    } else {
+      if (!jpFileBase64) { errEl.textContent = 'Please choose a file first.'; errEl.classList.remove('hidden'); return; }
+    }
+
+    try {
+      if (jpSourceMode === 'file') {
+        setJpLoading('Extracting text from file…');
+        const res = await fetch('/.netlify/functions/extract-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: [{ data: jpFileBase64, type: jpFileMime }], fileType: 'job-posting' })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Could not extract text from the file.');
+        }
+        jdText = data.extractedText;
+      }
+
+      setJpLoading('Refining with AI…');
+      const res2 = await fetch('/.netlify/functions/refine-job-posting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: adminToken, jdUrl: jdUrl || undefined, jdText: jdText || undefined })
+      });
+      const data2 = await res2.json();
+      if (!res2.ok || !data2.success) {
+        throw new Error(data2.error || 'AI refinement failed.');
+      }
+
+      jpStructured = { company: data2.company, positions: data2.positions, sourceUrl: jdUrl || null };
+      renderPositionsEditor();
+      document.getElementById('jp-loading-step').classList.add('hidden');
+      document.getElementById('jp-review-step').classList.remove('hidden');
+
+    } catch (err) {
+      backToSourceStep();
+      errEl.textContent = err.message || 'Something went wrong. Please try again.';
+      errEl.classList.remove('hidden');
+    }
+  }
+
+  function renderPositionsEditor() {
+    document.getElementById('jpCompany').value = jpStructured.company || '';
+    resetLogoPreviewUI(); // fresh AI-refined job never carries a logo yet
+    const list = document.getElementById('jpPositionsList');
+    list.innerHTML = '';
+    jpStructured.positions.forEach((p, idx) => list.appendChild(buildPositionCard(p, idx)));
+    updateBulkUrlSelectAllVisibility();
+  }
+
+  // Shows the "Select all" row only when at least one position is currently online
+  function updateBulkUrlSelectAllVisibility() {
+    const anyOnline = jpStructured.positions.some(p => p.applicationType !== 'physical');
+    const bar = document.getElementById('jpBulkUrlBar');
+    if (bar) bar.classList.toggle('hidden', !anyOnline);
+  }
+
+  function buildPositionCard(p, idx) {
+    const card = document.createElement('div');
+    card.className = 'border border-gray-200 rounded-xl p-3 bg-white relative';
+    card.dataset.idx = idx;
+    const isPhysical = p.applicationType === 'physical';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold text-emerald-600">Position ${idx + 1}</span>
+        <button onclick="removePositionCard(${idx})" class="text-gray-400 hover:text-red-500 text-xs font-semibold">Remove</button>
+      </div>
+      <input type="text" class="jp-title w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm font-semibold mb-2" placeholder="Position title" value="${escapeAttr(p.title)}">
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <input type="text" class="jp-salary px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Salary" value="${escapeAttr(p.salary)}">
+        <input type="text" class="jp-expire px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Expire date" value="${escapeAttr(p.expireDate)}">
+      </div>
+      <textarea class="jp-qualification w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Qualification">${escapeHtml(p.qualification)}</textarea>
+      <textarea class="jp-experience w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Experience">${escapeHtml(p.experience)}</textarea>
+      <textarea class="jp-short w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Short description (feed card teaser)">${escapeHtml(p.shortDescription)}</textarea>
+      <textarea class="jp-full w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="4" placeholder="Full description (shown behind Detail button)">${escapeHtml(p.fullDescription)}</textarea>
+
+      <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+        <button type="button" onclick="togglePositionAppType(${idx})" data-type="${isPhysical ? 'physical' : 'online'}" id="jp-apptype-btn-${idx}"
+          class="text-xs font-semibold px-2.5 py-1 rounded-full ${isPhysical ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}">
+          ${isPhysical ? '📍 Physical' : '🔗 Online'} — tap to switch
+        </button>
+        <label id="jp-select-wrap-${idx}" class="flex items-center gap-1.5 text-xs text-gray-500 ${isPhysical ? 'hidden' : ''}">
+          <input type="checkbox" class="jp-online-select" data-idx="${idx}"> Select for link
+        </label>
+      </div>
+      <div id="jp-apptype-detail-${idx}" class="mt-2">
+        ${isPhysical
+          ? `<textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="2" placeholder="Physical address to apply in person">${escapeHtml(p.physicalAddress || '')}</textarea>`
+          : `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL" value="${escapeAttr(p.applicationUrl || '')}">`
+        }
+      </div>
+    `;
+    return card;
+  }
+
+  function togglePositionAppType(idx) {
+    const btn = document.getElementById('jp-apptype-btn-' + idx);
+    const detailWrap = document.getElementById('jp-apptype-detail-' + idx);
+    const selectWrap = document.getElementById('jp-select-wrap-' + idx);
+    const goingPhysical = btn.dataset.type !== 'physical'; // toggling FROM online TO physical
+
+    if (goingPhysical) {
+      btn.dataset.type = 'physical';
+      btn.textContent = '📍 Physical — tap to switch';
+      btn.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700';
+      detailWrap.innerHTML = `<textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="2" placeholder="Physical address to apply in person"></textarea>`;
+      selectWrap.classList.add('hidden');
+      const cb = selectWrap.querySelector('.jp-online-select');
+      if (cb) cb.checked = false;
+    } else {
+      btn.dataset.type = 'online';
+      btn.textContent = '🔗 Online — tap to switch';
+      btn.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700';
+      detailWrap.innerHTML = `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL">`;
+      selectWrap.classList.remove('hidden');
+    }
+    updateBulkUrlSelectAllVisibility();
+  }
+
+  function toggleSelectAllOnline(checked) {
+    document.querySelectorAll('.jp-online-select').forEach(cb => {
+      const wrap = cb.closest('label');
+      if (wrap && !wrap.classList.contains('hidden')) cb.checked = checked;
+    });
+  }
+
+  // Applies the URL typed in the bulk field to every CHECKED online position, then
+  // unchecks them — so the admin can type a different URL and check the remaining
+  // positions next, repeating until every online position has its link set.
+  function applyBulkUrl() {
+    const urlInput = document.getElementById('jpBulkUrl');
+    const url = urlInput.value.trim();
+    if (!url) { showToast('Enter an application link URL first.', 'error'); return; }
+
+    const checked = document.querySelectorAll('.jp-online-select:checked');
+    if (checked.length === 0) { showToast('Check at least one position first.', 'error'); return; }
+
+    checked.forEach(cb => {
+      const idx = cb.dataset.idx;
+      const posUrlInput = document.querySelector(`#jp-apptype-detail-${idx} .jp-url`);
+      if (posUrlInput) posUrlInput.value = url;
+      cb.checked = false;
+    });
+
+    urlInput.value = '';
+    const selectAll = document.getElementById('jpSelectAllOnline');
+    if (selectAll) selectAll.checked = false;
+    showToast(`Link applied to ${checked.length} position${checked.length !== 1 ? 's' : ''}.`, 'success');
+  }
+
+  // ══════════════════ Company Logo — upload, crop, zoom ══════════════════
+  // One logo per job POSTING (shared by every position in it, since a posting
+  // is inherently one company) — no per-position checkbox needed here, unlike
+  // application links which genuinely can differ per position.
+  //
+  // Flow: pick an image file → shown in a fixed square crop viewport → drag to
+  // reposition, slider to zoom → "Use This Photo" renders exactly what's
+  // visible in the square viewport onto a fixed-size output canvas and stores
+  // it as a data URI on jpStructured.logoBase64, ready to submit with the job.
+
+  const LOGO_VIEW_SIZE   = 260; // crop viewport size, CSS px
+  const LOGO_OUTPUT_SIZE = 500; // exported square image size, px
+  let logoCrop = null;          // { natW, natH, baseScale, width, height, left, top }
+  let _logoDragBound = false;   // drag listeners are attached once and reused across opens
+
+  // Reads a file as a data URL, retrying automatically a few times on failure.
+  // On Android, a photo picked from a cloud-backed gallery (e.g. Google Photos)
+  // can fail the FIRST read attempt because the actual bytes haven't finished
+  // downloading to the device yet — retrying shortly after almost always
+  // succeeds once Android caches it locally. This does that automatically
+  // instead of making the person re-pick the same photo several times.
+  function readFileAsDataURLWithRetry(file, maxAttempts) {
+    maxAttempts = maxAttempts || 4;
+    return new Promise((resolve, reject) => {
+      let attempt = 0;
+      const tryRead = () => {
+        attempt++;
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => {
+          if (attempt < maxAttempts) {
+            setTimeout(tryRead, 350 * attempt); // small backoff between retries
+          } else {
+            reject(reader.error || new Error('Could not read file'));
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+      tryRead();
+    });
+  }
+
+  async function handleLogoFileSelected(evt) {
+    const file = evt.target.files[0];
+    evt.target.value = ''; // allow re-choosing the same file later
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please choose an image file.', 'error'); return; }
+    if (file.size > 15 * 1024 * 1024) { showToast('Image is too large. Please choose a smaller file.', 'error'); return; }
+
+    const btnLabel = document.getElementById('jpLogoBtnLabel');
+    const prevLabel = btnLabel ? btnLabel.textContent : null;
+    if (btnLabel) btnLabel.textContent = 'Reading photo…';
+
+    try {
+      const dataUrl = await readFileAsDataURLWithRetry(file);
+      openLogoCropModal(dataUrl);
+    } catch (e) {
+      showToast('Could not read that image. Please try another.', 'error');
+    } finally {
+      if (btnLabel && prevLabel !== null) btnLabel.textContent = prevLabel;
+    }
+  }
+
+  function openLogoCropModal(dataUrl) {
+    const img = document.getElementById('logoCropImg');
+    img.onload = () => {
+      const natW = img.naturalWidth, natH = img.naturalHeight;
+      // "Cover" fit: smallest scale that fully fills the square viewport with no gaps
+      const baseScale = Math.max(LOGO_VIEW_SIZE / natW, LOGO_VIEW_SIZE / natH);
+      const width = natW * baseScale, height = natH * baseScale;
+      logoCrop = {
+        natW, natH, baseScale,
+        width, height,
+        left: (LOGO_VIEW_SIZE - width) / 2,
+        top:  (LOGO_VIEW_SIZE - height) / 2
+      };
+      document.getElementById('logoCropZoomX').value = 100;
+      document.getElementById('logoCropZoomY').value = 100;
+      applyLogoCropTransform();
+      document.getElementById('logoCropModal').classList.remove('hidden');
+      setupLogoCropDrag();
+    };
+    img.onerror = () => {
+      showToast('Could not open that image. Please try another file.', 'error');
+    };
+    img.src = dataUrl;
+  }
+
+  // Keeps the image always fully covering the square viewport, however the
+  // user has dragged or zoomed — prevents ever revealing empty background.
+  function clampLogoCrop() {
+    const c = logoCrop;
+    if (!c) return;
+    if (c.left > 0) c.left = 0;
+    if (c.top > 0) c.top = 0;
+    if (c.left + c.width  < LOGO_VIEW_SIZE) c.left = LOGO_VIEW_SIZE - c.width;
+    if (c.top  + c.height < LOGO_VIEW_SIZE) c.top  = LOGO_VIEW_SIZE - c.height;
+  }
+
+  function applyLogoCropTransform() {
+    const img = document.getElementById('logoCropImg');
+    const c = logoCrop;
+    if (!c) return;
+    img.style.width  = c.width  + 'px';
+    img.style.height = c.height + 'px';
+    img.style.left   = c.left   + 'px';
+    img.style.top    = c.top    + 'px';
+  }
+
+  // Width and height zoom are independent — dragging one slider only changes
+  // that axis, so the logo can be stretched/compressed to fit the square
+  // exactly how the admin wants, not just scaled uniformly.
+  function onLogoCropZoomInput() {
+    if (!logoCrop) return;
+    const c = logoCrop;
+    const zoomX = parseFloat(document.getElementById('logoCropZoomX').value); // 100–300
+    const zoomY = parseFloat(document.getElementById('logoCropZoomY').value); // 100–300
+    const newWidth  = c.natW * c.baseScale * (zoomX / 100);
+    const newHeight = c.natH * c.baseScale * (zoomY / 100);
+    // Zoom around the currently-visible center, not the image's top-left
+    const centerX = c.left + c.width  / 2;
+    const centerY = c.top  + c.height / 2;
+    c.width  = newWidth;
+    c.height = newHeight;
+    c.left = centerX - newWidth  / 2;
+    c.top  = centerY - newHeight / 2;
+    clampLogoCrop();
+    applyLogoCropTransform();
+  }
+
+  function setupLogoCropDrag() {
+    if (_logoDragBound) return; // attach once; logoCrop itself is re-created on every open
+    _logoDragBound = true;
+    const viewport = document.getElementById('logoCropViewport');
+    let dragging = false, lastX = 0, lastY = 0;
+
+    function pointerDown(e) {
+      if (!logoCrop) return;
+      dragging = true;
+      const p = e.touches ? e.touches[0] : e;
+      lastX = p.clientX; lastY = p.clientY;
+      viewport.style.cursor = 'grabbing';
+    }
+    function pointerMove(e) {
+      if (!dragging || !logoCrop) return;
+      const p = e.touches ? e.touches[0] : e;
+      const dx = p.clientX - lastX, dy = p.clientY - lastY;
+      lastX = p.clientX; lastY = p.clientY;
+      logoCrop.left += dx;
+      logoCrop.top  += dy;
+      clampLogoCrop();
+      applyLogoCropTransform();
+      if (e.touches) e.preventDefault();
+    }
+    function pointerUp() {
+      dragging = false;
+      viewport.style.cursor = 'grab';
+    }
+
+    viewport.addEventListener('mousedown', pointerDown);
+    window.addEventListener('mousemove', pointerMove);
+    window.addEventListener('mouseup', pointerUp);
+    viewport.addEventListener('touchstart', pointerDown, { passive: true });
+    viewport.addEventListener('touchmove', pointerMove, { passive: false });
+    viewport.addEventListener('touchend', pointerUp);
+  }
+
+  function cancelLogoCrop() {
+    document.getElementById('logoCropModal').classList.add('hidden');
+    logoCrop = null;
+  }
+
+  function confirmLogoCrop() {
+    if (!logoCrop) return;
+    const img = document.getElementById('logoCropImg');
+    const c = logoCrop;
+
+    // Map the visible square viewport back to the ORIGINAL image's own pixel
+    // coordinates, then draw exactly that region onto the fixed-size output.
+    // Width and height can now be zoomed independently, so scale factors are
+    // tracked separately per axis rather than assuming one uniform scale.
+    const scaleX = c.width  / c.natW;
+    const scaleY = c.height / c.natH;
+    const sx = (0 - c.left) / scaleX;
+    const sy = (0 - c.top)  / scaleY;
+    const sWidth  = LOGO_VIEW_SIZE / scaleX;
+    const sHeight = LOGO_VIEW_SIZE / scaleY;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = LOGO_OUTPUT_SIZE;
+    canvas.height = LOGO_OUTPUT_SIZE;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, LOGO_OUTPUT_SIZE, LOGO_OUTPUT_SIZE);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+    jpStructured = jpStructured || {};
+    jpStructured.logoBase64 = dataUrl;
+
+    const previewImg = document.getElementById('jpLogoPreviewImg');
+    previewImg.src = dataUrl;
+    previewImg.classList.remove('hidden');
+    document.getElementById('jpLogoPlaceholderIcon').classList.add('hidden');
+    document.getElementById('jpLogoBtnLabel').textContent = 'Change Logo';
+    document.getElementById('jpLogoRemoveBtn').classList.remove('hidden');
+
+    document.getElementById('logoCropModal').classList.add('hidden');
+    logoCrop = null;
+  }
+
+  function removeLogo() {
+    if (jpStructured) jpStructured.logoBase64 = null;
+    resetLogoPreviewUI();
+  }
+
+  function resetLogoPreviewUI() {
+    const previewImg = document.getElementById('jpLogoPreviewImg');
+    previewImg.classList.add('hidden');
+    previewImg.src = '';
+    document.getElementById('jpLogoPlaceholderIcon').classList.remove('hidden');
+    document.getElementById('jpLogoBtnLabel').textContent = 'Upload Logo';
+    document.getElementById('jpLogoRemoveBtn').classList.add('hidden');
+  }
+
+  function escapeHtml(s) { return (s || '').toString().replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
+
+  function addPositionCard() {
+    const blank = { title: '', qualification: '', experience: '', salary: 'Not specified', expireDate: 'Not specified', shortDescription: '', fullDescription: '', applicationType: 'online', applicationUrl: '', physicalAddress: '' };
+    jpStructured.positions.push(blank);
+    document.getElementById('jpPositionsList').appendChild(buildPositionCard(blank, jpStructured.positions.length - 1));
+    updateBulkUrlSelectAllVisibility();
+  }
+
+  function removePositionCard(idx) {
+    jpStructured.positions.splice(idx, 1);
+    renderPositionsEditor();
+  }
+
+  function collectPositionsFromForm() {
+    const cards = document.querySelectorAll('#jpPositionsList > div');
+    return Array.from(cards).map((card, idx) => {
+      const btn = document.getElementById('jp-apptype-btn-' + idx);
+      const applicationType = (btn && btn.dataset.type === 'physical') ? 'physical' : 'online';
+      const urlInput  = card.querySelector('.jp-url');
+      const addrInput = card.querySelector('.jp-address');
+      return {
+        title:            card.querySelector('.jp-title').value.trim(),
+        qualification:    card.querySelector('.jp-qualification').value.trim(),
+        experience:       card.querySelector('.jp-experience').value.trim(),
+        salary:           card.querySelector('.jp-salary').value.trim() || 'Not specified',
+        expireDate:       card.querySelector('.jp-expire').value.trim() || 'Not specified',
+        shortDescription: card.querySelector('.jp-short').value.trim(),
+        fullDescription:  card.querySelector('.jp-full').value.trim(),
+        applicationType,
+        applicationUrl:   urlInput  ? urlInput.value.trim()  : '',
+        physicalAddress:  addrInput ? addrInput.value.trim() : ''
+      };
+    });
+  }
+
+  async function submitJobPost() {
+    const company = document.getElementById('jpCompany').value.trim();
+    const positions = collectPositionsFromForm();
+
+    if (!company) { showToast('Company name is required.', 'error'); return; }
+    if (positions.length === 0 || positions.some(p => !p.title)) {
+      showToast('Every position needs a title.', 'error'); return;
+    }
+
+    const btn = document.getElementById('jpPostBtn');
+    btn.disabled = true; btn.textContent = 'Posting…';
+    try {
+      const { ok, data } = await api('manage-jobs', {
+        token: adminToken,
+        action: 'create',
+        job: { company, positions, sourceUrl: jpStructured.sourceUrl, logoBase64: jpStructured.logoBase64 || null }
+      });
+      if (!ok) throw new Error(data.error || 'Failed to post job.');
+      showToast('Job posted!', 'success');
+      jpStructured = null; jpFileBase64 = null; jpExtractedText = null;
+      document.getElementById('jpUrl').value = '';
+      document.getElementById('jpFileStatus').textContent = '';
+      resetLogoPreviewUI();
+      backToSourceStep();
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Post Job';
+    }
+  }
+
+  async function loadPostedJobs() {
+    const listEl = document.getElementById('postedJobsList');
+    listEl.innerHTML = '<p class="text-xs text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('manage-jobs', { action: 'list' });
+      if (!ok) throw new Error(data.error || 'Failed to load jobs.');
+      if (!data.jobs || data.jobs.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-gray-400 italic">No jobs posted yet.</p>';
+        return;
+      }
+      listEl.innerHTML = data.jobs.map(j => `
+        <div class="border border-gray-100 rounded-lg p-2.5 flex items-center justify-between gap-2 bg-white">
+          <div class="flex items-center gap-2.5 min-w-0">
+            ${j.logo
+              ? `<img src="${j.logo}" alt="" class="w-9 h-9 rounded-lg object-cover flex-shrink-0 border border-gray-100">`
+              : `<div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0"><svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M4 8h.01M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg></div>`
+            }
+            <div class="min-w-0">
+              <p class="text-xs font-bold text-gray-700 truncate">${escapeHtml(j.company)}</p>
+              <p class="text-[0.7rem] text-gray-400">${j.positions.length} position${j.positions.length !== 1 ? 's' : ''} · ${new Date(j.createdAt).toLocaleDateString()}</p>
+            </div>
+          </div>
+          <button onclick="deleteJobPost('${j._id}')" class="text-red-400 hover:text-red-600 text-xs font-semibold flex-shrink-0">Delete</button>
+        </div>
+      `).join('');
+    } catch (err) {
+      listEl.innerHTML = `<p class="text-xs text-red-500">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function deleteJobPost(jobId) {
+    if (!confirm('Delete this job posting?')) return;
+    try {
+      const { ok, data } = await api('manage-jobs', { token: adminToken, action: 'delete', jobId });
+      if (!ok) throw new Error(data.error || 'Failed to delete.');
+      showToast('Job deleted.', 'success');
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  // ══════════════════ Refunds ══════════════════
+  let _refundFilter = 'pending';
+  let _allRefunds = [];
+
+  function setRefundFilter(filter) {
+    _refundFilter = filter;
+    ['pending', 'refunded'].forEach(f => {
+      const btn = document.getElementById('refundFilter-' + f);
+      if (btn) btn.className = 'text-xs font-semibold px-3 py-1 rounded-full ' + (f === filter ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-500');
+    });
+    renderRefundsList();
+  }
+
+  async function loadRefunds() {
+    const listEl = document.getElementById('refundsList');
+    if (listEl) listEl.innerHTML = '<p class="text-xs text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('manage-refunds', { token: adminToken, action: 'list' });
+      if (!ok) throw new Error(data.error || 'Failed to load refunds.');
+      _allRefunds = data.refunds || [];
+      const pendingCount = _allRefunds.filter(r => r.status === 'pending').length;
+      const badge = document.getElementById('refundPendingBadge');
+      if (badge) {
+        if (pendingCount > 0) { badge.textContent = pendingCount; badge.classList.remove('hidden'); }
+        else { badge.classList.add('hidden'); }
+      }
+      renderRefundsList();
+    } catch (err) {
+      if (listEl) listEl.innerHTML = `<p class="text-xs text-red-500">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function renderRefundsList() {
+    const listEl = document.getElementById('refundsList');
+    if (!listEl) return;
+    const filtered = _allRefunds.filter(r => r.status === _refundFilter);
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<p class="text-xs text-gray-400 italic">No ${_refundFilter} refund requests.</p>`;
+      return;
+    }
+    listEl.innerHTML = filtered.map(r => {
+      const idLabel = r.bankName === 'CBE' ? 'Account Number' : 'Phone Number';
+      return `
+      <div class="border border-gray-200 rounded-lg p-3 bg-white">
+        <div class="flex items-start justify-between gap-2 mb-1.5">
+          <div class="min-w-0">
+            <p class="text-sm font-bold text-gray-800">${Number(r.amount).toFixed(2)} ETB</p>
+          </div>
+          <span class="text-[0.65rem] text-gray-400 flex-shrink-0">${new Date(r.createdAt).toLocaleDateString()}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-2">
+          <p><span class="text-gray-400">User:</span> ${escapeHtml(r.userId)}</p>
+          <p><span class="text-gray-400">Method:</span> ${escapeHtml(r.bankName)}</p>
+          <p class="col-span-2"><span class="text-gray-400">Account Name:</span> ${escapeHtml(r.accountFullName)}</p>
+          <p class="col-span-2"><span class="text-gray-400">${idLabel}:</span> ${escapeHtml(r.accountIdentifier || '–')}</p>
+        </div>
+        ${r.status === 'pending'
+          ? `<button onclick="markRefunded('${r.id}')" class="w-full bg-red-500 text-white text-xs font-bold py-1.5 rounded-full hover:bg-red-600 transition-colors">Mark Refunded</button>`
+          : `<p class="text-xs text-emerald-600 font-semibold">✓ Refunded ${r.resolvedAt ? new Date(r.resolvedAt).toLocaleDateString() : ''}</p>`
+        }
+      </div>
+    `;
+    }).join('');
+  }
+
+  async function markRefunded(refundId) {
+    if (!confirm('Confirm you have sent this refund manually? This will notify the user.')) return;
+    try {
+      const { ok, data } = await api('manage-refunds', { token: adminToken, action: 'complete', refundId });
+      if (!ok) throw new Error(data.error || 'Failed to mark as refunded.');
+      showToast('Refund marked as completed. User notified.', 'success');
+      loadRefunds();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+
+  // ── Sent Announcements list ───────────────────────────────────────────────
+  async function loadAnnouncements() {
+    const container = document.getElementById('announcementsList');
+    if (container) container.innerHTML = '<p class="text-xs text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('send-announcement', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (container) container.innerHTML = '<p class="text-xs text-red-400">Failed to load.</p>';
+        return;
+      }
+      const list = data.announcements || [];
+      if (list.length === 0) {
+        if (container) container.innerHTML = '<p class="text-xs text-gray-400 italic">No announcements sent yet.</p>';
+        return;
+      }
+      if (container) container.innerHTML = list.map(a => {
+        const date = new Date(a.sentAt).toLocaleString();
+        const bodyPreview = (a.body || '').replace(/\n/g, ' ').substring(0, 60);
+        const recalled = a.recalled;
+        return `<div class="rounded-lg border ${recalled ? 'border-gray-100 bg-gray-50 opacity-60' : 'border-violet-100 bg-violet-50'} p-2.5">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-bold text-gray-800 truncate">${a.title}</p>
+              <p class="text-[0.65rem] text-gray-500 mt-0.5 truncate">${bodyPreview}…</p>
+              <p class="text-[0.6rem] text-gray-400 mt-1">${date}${recalled ? ' · <span class="text-red-400">Recalled</span>' : ''}</p>
+            </div>
+            ${!recalled ? `<button onclick="recallAnnouncement('${a._id}')" title="Recall from all users"
+              class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+              </svg>
+            </button>` : '<span class="text-[0.6rem] text-gray-400 flex-shrink-0">recalled</span>'}
+          </div>
+        </div>`;
+      }).join('');
+    } catch {
+      if (container) container.innerHTML = '<p class="text-xs text-red-400">Error loading.</p>';
+    }
+  }
+
+  async function recallAnnouncement(announceId) {
+    if (!confirm('Recall this announcement? It will be removed from all users\' notifications.')) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('send-announcement', { token: adminToken, action: 'recall', announceId });
+      if (!ok) { showToast(data.error || 'Failed to recall.', 'error'); return; }
+      showToast(data.message || 'Recalled successfully.', 'success');
+      loadAnnouncements();
+    } catch { showToast('Network error.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  // ── Official Announcement ─────────────────────────────────────────────────
+  async function doAnnounce() {
+    const title = ((document.getElementById('announceTitle') && document.getElementById('announceTitle').value) || '').trim();
+    const body  = ((document.getElementById('announceBody') && document.getElementById('announceBody').value)  || '').trim();
+    if (!title) { showToast('Please enter a title.', 'error'); return; }
+    if (!body)  { showToast('Please enter a message body.', 'error'); return; }
+    if (!confirm(`Send this announcement to ALL users?\n\n"${title}"`)) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('send-announcement', { token: adminToken, title, body });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed to send announcement.', 'error'); return;
+      }
+      showToast(data.message || 'Announcement sent!', 'success');
+      document.getElementById('announceTitle').value = '';
+      document.getElementById('announceBody').value  = '';
+      loadAnnouncements();
+    } catch { showToast('Network error. Please try again.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  // ── Reports ──────────────────────────────────────────────────────────────
+  let _pendingRejectReportId = null;
+
+  const TIER_BADGES = {
+    '30min': ['bg-amber-100 text-amber-700',   '30 min'],
+    '1hr':   ['bg-orange-100 text-orange-700', '1 hr'],
+    '72hr':  ['bg-red-100 text-red-600',       '72 hr'],
+    '1week': ['bg-red-200 text-red-800',       '1 week'],
+  };
+
+  function renderReportItem(r) {
+    const tier  = r.tierLabel || '30min';
+    const [badgeCls, badgeTxt] = TIER_BADGES[tier] || TIER_BADGES['30min'];
+    const date  = new Date(r.reportedAt).toLocaleString();
+    const subAt = new Date(r.submittedAt).toLocaleString();
+    return `
+      <div class="bg-white rounded-xl border border-red-100 p-3 shadow-sm">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full ${badgeCls}">${badgeTxt} report</span>
+          <span class="text-xs text-gray-400">${date}</span>
+        </div>
+        <p class="font-mono text-xs text-indigo-700 font-semibold truncate">${r.paymentId}</p>
+        <p class="text-xs text-gray-600 mt-0.5">User: <strong>${r.userId}</strong> · <strong>${r.amount} ETB</strong></p>
+        <p class="text-xs text-gray-400">Submitted: ${subAt}</p>
+        <div class="flex gap-2 mt-2">
+          <button onclick="doVerifyReport('${r._id}', '${r.paymentId}', ${r.amount})"
+            class="flex-1 bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-lg hover:bg-emerald-600 transition-colors">
+            ✓ Verify
+          </button>
+          <button onclick="openRejectModal('${r._id}')"
+            class="flex-1 bg-red-100 text-red-600 text-xs font-semibold py-1.5 rounded-lg hover:bg-red-200 transition-colors">
+            ✕ Reject
+          </button>
+        </div>
+      </div>`;
+  }
+
+  async function loadReports() {
+    const container = document.getElementById('reportsList');
+    if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">Loading…</p>';
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'list' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        if (container) container.innerHTML = `<p class="text-sm text-red-500">${data.error || 'Failed'}</p>`;
+        return;
+      }
+      const reports = data.reports || [];
+      // Update badge count
+      const badge = document.getElementById('reports-badge');
+      if (badge) {
+        badge.textContent = reports.length;
+        badge.classList.toggle('hidden', reports.length === 0);
+      }
+      if (reports.length === 0) {
+        if (container) container.innerHTML = '<p class="text-sm text-gray-400 italic">No open reports.</p>';
+        return;
+      }
+      if (container) container.innerHTML = reports.map(renderReportItem).join('');
+    } catch {
+      if (container) container.innerHTML = '<p class="text-sm text-red-500">Failed to load reports.</p>';
+    }
+  }
+
+  async function doVerifyReport(reportId, paymentId, amount) {
+    if (!confirm(`Verify payment ${paymentId} (${amount} ETB) via report?`)) return;
+    setLoading(true);
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId, decision: 'verify' });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed', 'error'); return;
+      }
+      showToast(`Payment ${paymentId} verified via report ✓`, 'success');
+      loadReports(); loadPending();
+    } catch { showToast('Error. Try again.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  function openRejectModal(reportId) {
+    _pendingRejectReportId = reportId;
+    document.getElementById('rejectReasonSelect').value = '';
+    document.getElementById('rejectReasonText').value   = '';
+    document.getElementById('rejectReportModal').classList.remove('hidden');
+  }
+
+  function closeRejectModal() {
+    _pendingRejectReportId = null;
+    document.getElementById('rejectReportModal').classList.add('hidden');
+  }
+
+  function handleRejectReasonSelect() {
+    const sel = document.getElementById('rejectReasonSelect').value;
+    const txt = document.getElementById('rejectReasonText');
+    if (sel && sel !== '__other__') {
+      txt.value = sel;
+    } else if (sel === '__other__') {
+      txt.value = '';
+      txt.focus();
+    }
+  }
+
+  async function confirmRejectReport() {
+    if (!_pendingRejectReportId) return;
+    const sel      = document.getElementById('rejectReasonSelect').value;
+    const custom   = document.getElementById('rejectReasonText').value.trim();
+    const reason   = (sel === '__other__' || !sel) ? custom : (custom || sel);
+    if (!reason) { showToast('Please select or write a reason.', 'error'); return; }
+    const reportId = _pendingRejectReportId; // capture before closeRejectModal nulls it
+    setLoading(true);
+    closeRejectModal();
+    try {
+      const { ok, data } = await api('payment-report', { token: adminToken, action: 'respond', reportId, decision: 'reject', reason });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed', 'error'); return;
+      }
+      showToast('Payment rejected and user notified.', 'success');
+      loadReports(); loadPending();
+    } catch { showToast('Error. Try again.', 'error'); }
+    finally { setLoading(false); }
+  }
+
+  // Auto-load report count on dashboard load
+  const _origShowAdminApp = showAdminApp;
+  showAdminApp = function() {
+    _origShowAdminApp();
+    loadReports();
+  };
+
+</script>
+<!-- Reject Pending Payment Modal -->
+<div id="rejectPendingModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+    <h3 class="font-bold text-gray-800 mb-3">Reject Pending Payment</h3>
+
+    <div id="rejectAmountIssueRow" class="hidden mb-4 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg p-3">
+      <div class="pr-3">
+        <p class="text-xs font-bold text-amber-800">Rejecting because the amount is insufficient</p>
+        <p class="text-[11px] text-amber-600 mt-0.5">If ON, sends the standard "amount not enough" message and offers the user a refund — plus a plan-activation option if the amount covers a lower tier. Turn OFF if the amount isn't the problem (e.g. you suspect this isn't real, or it's not on your bank statement) — you'll type a reason instead and no refund will be offered.</p>
+      </div>
+      <input type="checkbox" id="rejectAmountIssueToggle" onchange="toggleRejectReasonVisibility()" class="flex-shrink-0 w-5 h-5">
+    </div>
+
+    <div id="rejectReasonWrap">
+      <label class="text-xs font-semibold text-gray-500 mb-1 block">Reason (sent to the user)</label>
+      <textarea id="rejectReasonBox" rows="3" placeholder="e.g. This transaction does not appear on our bank statement."
+        class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300 mb-2"></textarea>
+    </div>
+
+    <div class="flex gap-2 mt-3">
+      <button onclick="closeRejectDialog()" class="flex-1 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+      <button onclick="confirmRejectPending()" class="flex-1 py-2 rounded-full bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors">Reject Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Report Modal -->
+<div id="rejectReportModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+    <h3 class="font-bold text-gray-800 mb-3">Reject Payment Report</h3>
+    <p class="text-xs text-gray-500 mb-3">Select a reason or write your own. This will be included in the user's notification.</p>
+    <select id="rejectReasonSelect" onchange="handleRejectReasonSelect()"
+      class="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-red-300">
+      <option value="">— Select a reason —</option>
+      <option value="Transaction ID not found in our system">Transaction ID not found in our system</option>
+<option value="Amount does not match the submitted transaction">Amount does not match the submitted transaction</option>
+<option value="Duplicate transaction — already processed">Duplicate transaction — already processed</option>
+<option value="Transaction was made to the wrong account">Transaction was made to the wrong account</option>
+<option value="Transaction appears to be expired or cancelled">Transaction appears to be expired or cancelled</option>
+<option value="Payment was reversed by the sender's bank">Payment was reversed by the sender's bank</option>
+<option value="Insufficient transaction evidence">Insufficient transaction evidence</option>
+      <option value="__other__">Other (write below)</option>
+    </select>
+    <textarea id="rejectReasonText" rows="3" placeholder="Additional details or custom reason..."
+      class="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-red-300 mb-4"></textarea>
+    <div class="flex gap-2">
+      <button onclick="closeRejectModal()" class="flex-1 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+      <button onclick="confirmRejectReport()" class="flex-1 py-2 rounded-full bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors">Reject Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Logo Crop/Zoom Modal -->
+<div id="logoCropModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9995] px-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+    <h3 class="font-bold text-gray-800 mb-1">Adjust Logo</h3>
+    <p class="text-xs text-gray-500 mb-3">Drag to reposition, use the sliders to zoom horizontally and vertically.</p>
+    <div id="logoCropViewport" style="width:260px;height:260px;margin:0 auto;position:relative;overflow:hidden;border-radius:16px;background:#f1f5f9;touch-action:none;cursor:grab;">
+      <img id="logoCropImg" style="position:absolute;left:0;top:0;user-select:none;pointer-events:none;" draggable="false" alt="">
+    </div>
+    <div class="mt-4 space-y-2.5">
+      <div class="flex items-center gap-2">
+        <span class="text-[0.65rem] font-semibold text-gray-400 w-14 flex-shrink-0">Width</span>
+        <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M8 17H4m0 0l4 4m-4-4l4-4"/></svg>
+        <input type="range" id="logoCropZoomX" min="100" max="300" value="100" class="flex-1" oninput="onLogoCropZoomInput()">
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[0.65rem] font-semibold text-gray-400 w-14 flex-shrink-0">Height</span>
+        <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8V4m0 0L3 8m4-4l4 4M7 16v4m0 0l-4-4m4 4l4-4"/></svg>
+        <input type="range" id="logoCropZoomY" min="100" max="300" value="100" class="flex-1" oninput="onLogoCropZoomInput()">
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="cancelLogoCrop()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">Cancel</button>
+      <button onclick="confirmLogoCrop()" class="flex-1 py-2.5 rounded-full text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors">Use This Photo</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
