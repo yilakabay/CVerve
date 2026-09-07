@@ -9,8 +9,8 @@
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --indigo:       #4f46e5;
-            --indigo-dark:  #4338ca;
+            --indigo:       #0088CC;
+            --indigo-dark:  #006999;
             --green:        #22c55e;
             --green-dark:   #16a34a;
             --orange:       #f97316;
@@ -19,13 +19,28 @@
             --text:         #0f172a;
             --text-2:       #475569;
             --text-3:       #94a3b8;
+            --bg:           #f8faff;
+            --card:         #fff;
+            --card-2:       #f8fafc;
+        }
+
+        html.dark {
+            color-scheme: dark;
+            --border:       #3a3a3f;
+            --text:         #f1f1f3;
+            --text-2:       #b7b9bf;
+            --text-3:       #8a8d94;
+            --bg:           #1e1e21;
+            --card:         #2a2a2e;
+            --card-2:       #232326;
         }
 
         html, body {
             height: 100%;
             font-family: 'DM Sans', sans-serif;
-            background: #f8faff;
+            background: var(--bg);
             color: var(--text);
+            transition: background 0.15s, color 0.15s;
         }
 
         /* ── Single centered layout (same on mobile & desktop, proportionally
@@ -76,7 +91,7 @@
             font-weight: 800;
             color: var(--text);
         }
-        .mobile-logo-text span { color: var(--indigo); }
+        .mobile-logo-text span { color: var(--text); }
 
         /* ── Form title ── */
         .form-title {
@@ -119,8 +134,8 @@
             font-family: 'DM Sans', sans-serif;
             font-size: 0.9rem;
             color: var(--text);
-            background: white;
-            transition: border-color 0.15s, box-shadow 0.15s;
+            background: var(--card);
+            transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
             outline: none;
         }
 
@@ -130,7 +145,7 @@
 
         .field-input:focus {
             border-color: var(--indigo);
-            box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+            box-shadow: 0 0 0 3px rgba(0,136,204,0.1);
         }
 
         .field-input::placeholder { color: var(--text-3); }
@@ -165,7 +180,7 @@
         }
         .otp-input:focus {
             border-color: var(--indigo);
-            box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+            box-shadow: 0 0 0 3px rgba(0,136,204,0.1);
         }
 
         /* ── Buttons ── */
@@ -201,7 +216,7 @@
         .btn-indigo {
             background: var(--indigo);
             color: white;
-            box-shadow: 0 3px 12px rgba(79,70,229,0.25);
+            box-shadow: 0 3px 12px rgba(0,136,204,0.25);
         }
         .btn-indigo:hover { background: var(--indigo-dark); transform: translateY(-1px); }
 
@@ -213,11 +228,12 @@
         .btn-blue:hover { background: #2563eb; transform: translateY(-1px); }
 
         .btn-outline {
-            background: white;
+            background: var(--card);
             color: var(--text-2);
             border: 1.5px solid var(--border);
         }
-        .btn-outline:hover { border-color: #cbd5e1; background: #f8fafc; }
+        html.dark .btn-outline:hover { border-color: #52525b; }
+        .btn-outline:hover { border-color: #cbd5e1; background: var(--card-2); }
 
         /* ── Links & misc ── */
         .form-divider {
@@ -258,6 +274,8 @@
             display: flex; align-items: center; justify-content: center;
             margin: 0 auto 16px;
         }
+        html.dark .step-icon-wrap[style*="background:#dbeafe"] { background: rgba(59,130,246,0.18) !important; }
+        html.dark .step-icon-wrap[style*="background:#EBF7FC"] { background: rgba(0,136,204,0.18) !important; }
 
         /* Telegram spinner */
         .tg-spinner {
@@ -320,7 +338,7 @@
         #loadingOverlay.show { display: flex; }
 
         .loading-box {
-            background: white;
+            background: var(--card);
             border-radius: 20px;
             padding: 32px 28px;
             text-align: center;
@@ -348,18 +366,18 @@
             border: 1.5px solid var(--border);
             border-radius: 10px;
             overflow: hidden;
-            background: white;
+            background: var(--card);
             transition: border-color 0.15s, box-shadow 0.15s;
         }
         .phone-prefix:focus-within {
             border-color: var(--indigo);
-            box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+            box-shadow: 0 0 0 3px rgba(0,136,204,0.1);
         }
         .phone-flag {
             padding: 11px 10px 11px 14px;
             font-size: 1.1rem;
             border-right: 1.5px solid var(--border);
-            background: #f8fafc;
+            background: var(--card-2);
             flex-shrink: 0;
             color: var(--text-2);
             font-size: 0.83rem;
@@ -393,6 +411,9 @@
             line-height: 1.5;
         }
         .tg-info-box strong { color: #78350f; }
+        html.dark .tg-info-box { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.35); }
+        html.dark .tg-info-box p { color: #fcd34d; }
+        html.dark .tg-info-box strong { color: #fde68a; }
 
         /* Success state */
         .success-icon-wrap {
@@ -403,6 +424,7 @@
             margin: 0 auto 20px;
             animation: successPop 0.4s cubic-bezier(0.175,0.885,0.32,1.275) forwards;
         }
+        html.dark .success-icon-wrap { background: rgba(34,197,94,0.18); }
         @keyframes successPop {
             from { transform: scale(0.5); opacity: 0; }
             to   { transform: scale(1);   opacity: 1; }
@@ -412,6 +434,28 @@
         .auth-step { transition: opacity 0.18s; }
         .auth-step.hidden { display: none; }
     </style>
+    <!-- Telegram Mini App SDK — used only to detect the user's Telegram theme;
+         harmless no-op when this page is opened in a normal browser. -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        // ── Theme detection: Telegram dark/light mode, or device dark/light mode ──
+        (function () {
+            function applyTheme(isDark) {
+                document.documentElement.classList.toggle('dark', !!isDark);
+            }
+            var tg = window.Telegram && window.Telegram.WebApp;
+            var inTelegram = !!(tg && tg.initData);
+            if (inTelegram) {
+                applyTheme(tg.colorScheme === 'dark');
+                tg.onEvent('themeChanged', function () { applyTheme(tg.colorScheme === 'dark'); });
+            } else {
+                var mq = window.matchMedia('(prefers-color-scheme: dark)');
+                applyTheme(mq.matches);
+                if (mq.addEventListener) mq.addEventListener('change', function (e) { applyTheme(e.matches); });
+                else if (mq.addListener) mq.addListener(function (e) { applyTheme(e.matches); });
+            }
+        })();
+    </script>
 </head>
 <body>
 
@@ -420,9 +464,9 @@
 <!-- Loading Overlay -->
 <div id="loadingOverlay">
     <div class="loading-box">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342" style="width:52px;height:52px;display:block;margin:0 auto 16px;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#1f2124"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#4f46e5"/></svg>
-        <p id="loadMsg" style="font-family:'Sora',sans-serif;font-weight:600;font-size:0.95rem;color:#0f172a;">Processing…</p>
-        <p style="font-size:0.78rem;color:#94a3b8;margin-top:6px;">Please wait</p>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342" style="width:52px;height:52px;display:block;margin:0 auto 16px;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
+        <p id="loadMsg" style="font-family:'Sora',sans-serif;font-weight:600;font-size:0.95rem;color:var(--text);">Processing…</p>
+        <p style="font-size:0.78rem;color:var(--text-3);margin-top:6px;">Please wait</p>
     </div>
 </div>
 
@@ -434,7 +478,7 @@
 
             <!-- Logo -->
             <div class="mobile-logo">
-                <svg width="48" height="28" xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#1f2124"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#4f46e5"/></svg>
+                <svg width="48" height="28" xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
                 <span class="mobile-logo-text">CV<span>case</span></span>
             </div>
 
@@ -547,8 +591,8 @@
                     <div class="progress-dot active"></div>
                 </div>
 
-                <div class="step-icon-wrap" style="background:#ede9fe;">
-                    <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#4f46e5" stroke-width="2">
+                <div class="step-icon-wrap" style="background:#EBF7FC;">
+                    <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#0088CC" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                     </svg>
                 </div>
@@ -623,10 +667,13 @@ function focusNext(id) {
 function toast(type, msg) {
     var container = document.getElementById('toastContainer');
     var el = document.createElement('div');
-    var colors = { success: '#10b981', error: '#ef4444', info: '#f59e0b' };
+    var isDark = document.documentElement.classList.contains('dark');
+    var colors = { success: '#10b981', error: isDark ? '#e08578' : '#b3261e', info: '#f59e0b' };
     var c = colors[type] || colors.info;
-    el.style.cssText = 'display:flex;align-items:flex-start;gap:8px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid '+c+';border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:9px 12px 9px 10px;pointer-events:auto;opacity:0;transform:translateX(16px);transition:opacity 0.2s,transform 0.2s;max-width:260px;word-break:break-word;';
-    var textColor = type === 'success' ? '#059669' : type === 'error' ? '#dc2626' : '#b45309';
+    var cardBg = isDark ? '#2a2a2e' : '#fff';
+    var cardBorder = isDark ? '#3a3a3f' : '#e5e7eb';
+    el.style.cssText = 'display:flex;align-items:flex-start;gap:8px;background:'+cardBg+';border:1px solid '+cardBorder+';border-left:3px solid '+c+';border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:9px 12px 9px 10px;pointer-events:auto;opacity:0;transform:translateX(16px);transition:opacity 0.2s,transform 0.2s;max-width:260px;word-break:break-word;';
+    var textColor = type === 'success' ? (isDark ? '#6ee7b7' : '#059669') : type === 'error' ? c : (isDark ? '#fcd34d' : '#b45309');
     el.innerHTML = '<span style="width:7px;height:7px;border-radius:50%;background:'+c+';flex-shrink:0;margin-top:4px;"></span><span style="font-size:0.78rem;font-weight:500;color:'+textColor+';line-height:1.4;">'+msg+'</span>';
     container.appendChild(el);
     requestAnimationFrame(function() { el.style.opacity='1'; el.style.transform='translateX(0)'; });
