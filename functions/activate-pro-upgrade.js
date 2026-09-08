@@ -20,15 +20,16 @@
 // Any leftover after Pro's own price (amount - 79) is reported back
 // so the app can offer Refund/Tip for the remainder.
 //
-// ── verifiedPaymentId on the resulting notification ─────────────────────────
-// FIX: the plan_activated notification written below now includes
-// `verifiedPaymentId` (pointing at the ORIGINAL Basic payments._id — the
-// underlying payment record doesn't change identity when upgraded in
-// place). Every other verify path (admin-verify.js, payment-report.js,
-// receive-sms.js) already includes this field; this one was missing it,
-// which meant a refund request for the leftover from an upgrade could never
-// be traced back to the real payment it came from. This is purely additive
-// — no existing field is removed or renamed.
+// ── REVENUE MODEL (UPDATED) ──────────────────────────────────────────────
+// Basic's tier price (49) was already counted as revenue at verification
+// time (admin-verify.js). The excess above that (e.g. 51 for a 100 ETB
+// payment) has been sitting in `pending_revenue`, NOT counted as revenue.
+// Upgrading to Pro "spends" part of that pending balance — specifically
+// (79 - 49) = 30 — to reach Pro's tier price. That 30 is now real revenue
+// (written to `revenue_events`, summed by admin-stats.js) and is removed
+// from the pending_revenue balance. Whatever remains (leftover, e.g. 21)
+// stays in pending_revenue exactly as before, still awaiting a
+// refund/tip/decision from the user.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -43,7 +44,7 @@ async function writeNotification(usersCol, userId, notification) {
   try {
     await usersCol.updateOne(
       { phoneNumber: userId },
-      { $push: { notifications: { id: crypto.randomUUID(), read: false, ...notification, createdAt: new Date() } } }
+      { $push: { notifications: { read: false, ...notification, id: notification.id || crypto.randomUUID(), createdAt: new Date() } } }
     );
   } catch (e) {
     console.error('writeNotification error:', e.message);
@@ -66,9 +67,11 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db          = client.db('cverve');
-    const usersCol     = db.collection('users');
-    const verifiedCol  = db.collection('payments');
+    const db                = client.db('cverve');
+    const usersCol          = db.collection('users');
+    const verifiedCol       = db.collection('payments');
+    const pendingRevenueCol = db.collection('pending_revenue');
+    const revenueEventsCol  = db.collection('revenue_events');
 
     const user = await usersCol.findOne({ phoneNumber: userId });
     if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
@@ -129,12 +132,46 @@ exports.handler = async (event, context) => {
     // Pro's price stacked on top of each other.
     const leftover = Math.round((verifiedDoc.amount - PRO_PRICE) * 100) / 100;
 
+    // The portion of the pending excess that's "spent" reaching Pro's tier
+    // price from Basic's tier price. This is what converts from pending
+    // balance into real, counted revenue.
+    const usedForUpgrade = Math.round((PRO_PRICE - (verifiedDoc.tierPrice || 49)) * 100) / 100;
+
     await verifiedCol.updateOne(
       { _id: verifiedDoc._id },
       { $set: { upgradeUsed: true, upgradedAt: new Date(), upgradeLeftover: leftover } }
     );
 
+    const notifId = crypto.randomUUID();
+
+    // Move `usedForUpgrade` out of pending_revenue and into revenue_events.
+    // Whatever's left in the pending doc (should equal `leftover`) stays
+    // pending, untouched, for a future refund/tip decision.
+    const pendingDoc = await pendingRevenueCol.findOne({
+      verifiedPaymentId: verifiedDoc._id.toString(),
+      sourceType:        'verified_excess',
+      status:            'pending'
+    });
+    if (pendingDoc) {
+      const remaining = Math.round((pendingDoc.amount - usedForUpgrade) * 100) / 100;
+      await pendingRevenueCol.updateOne(
+        { _id: pendingDoc._id },
+        { $set: { amount: Math.max(0, remaining), status: remaining > 0 ? 'pending' : 'resolved', updatedAt: new Date() } }
+      );
+    }
+    if (usedForUpgrade > 0) {
+      await revenueEventsCol.insertOne({
+        notificationId:    notifId,
+        userId,
+        amount:            usedForUpgrade,
+        reason:            'upgrade',
+        verifiedPaymentId: verifiedDoc._id.toString(),
+        createdAt:         new Date()
+      });
+    }
+
     await writeNotification(usersCol, userId, {
+      id:              notifId,
       type:            'plan_activated',
       plan:            'pro',
       upgradeFromBasic: true,
@@ -142,11 +179,10 @@ exports.handler = async (event, context) => {
       excess:          leftover,
       refundEligible:  leftover > 0,
       refundAmount:    leftover,
-      // FIX: was missing before — points refund requests back at the
-      // ORIGINAL verified payment (its _id doesn't change on upgrade), so
-      // a refund of this leftover can be correctly recognized as reducing
-      // already-counted revenue rather than being mistaken for a refund on
-      // money that was never counted.
+      // Points refund/tip requests back at the ORIGINAL verified payment
+      // (its _id doesn't change on upgrade), so they can be correctly
+      // linked to the pending_revenue balance and matched to the right
+      // sourceType for revenue accounting.
       verifiedPaymentId: verifiedDoc._id.toString(),
       expiry:          planExpiry,
       resolvedBy:      'system_auto'
