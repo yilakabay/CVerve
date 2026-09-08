@@ -6,6 +6,18 @@
 // 'complete' → admin has manually sent the money back via the user's chosen
 //              bank/wallet; marks the request refunded and notifies the user
 //              from "Payment Review Team".
+//
+// ── REVENUE MODEL (UPDATED) ───────────────────────────────────────────────
+// Every refund request is tied (via notificationId) to a pending_revenue
+// entry that was created when the excess/rejected amount first appeared —
+// whether it's sourceType 'verified_excess' (an outstanding excess above a
+// plan's tier price) or 'rejected_payment' (a genuine payment rejected for
+// being too small). In BOTH cases that money was never counted as revenue
+// while it sat in pending_revenue (revenue only counts tier prices, plus
+// anything explicitly tipped or used for an upgrade). So completing a
+// refund here simply removes the amount from pending_revenue — it never
+// touches admin-stats.js's revenue figures, exactly as it should for money
+// that was never counted as earned in the first place.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -55,9 +67,10 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db         = client.db('cverve');
-    const refundsCol = db.collection('refund_requests');
-    const usersCol   = db.collection('users');
+    const db                = client.db('cverve');
+    const refundsCol        = db.collection('refund_requests');
+    const usersCol          = db.collection('users');
+    const pendingRevenueCol = db.collection('pending_revenue');
 
     if (action === 'list') {
       const refunds = await refundsCol
@@ -80,6 +93,15 @@ exports.handler = async (event, context) => {
         { id: refundId },
         { $set: { status: 'refunded', resolvedAt: new Date() } }
       );
+
+      // Remove the corresponding pending_revenue balance — no effect on
+      // revenue either way, since this money was never counted as earned.
+      if (refund.notificationId) {
+        await pendingRevenueCol.updateOne(
+          { notificationId: refund.notificationId, status: 'pending' },
+          { $set: { amount: 0, status: 'resolved', updatedAt: new Date() } }
+        );
+      }
 
       await writeNotification(usersCol, refund.userId, {
         type:     'refund_completed',
