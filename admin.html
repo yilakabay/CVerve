@@ -206,6 +206,10 @@
     </div>
 
     <div class="sidebar-body">
+      <button class="sidebar-nav-item" onclick="openActionPage('stats')">
+        <svg class="w-4 h-4 text-indigo-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Statistics</span>
+      </button>
       <button class="sidebar-nav-item" onclick="openActionPage('override')">
         <svg class="w-4 h-4 text-purple-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
         <span>Manual Plan Override</span>
@@ -287,6 +291,60 @@
     </div>
 
     <div id="actionPageBody">
+
+      <!-- Statistics -->
+      <div id="page-stats" class="action-page-section">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-white rounded-xl border border-gray-200 p-3">
+            <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Total Users</p>
+            <p id="stat-totalUsers" class="text-2xl font-bold text-gray-800 mt-1">–</p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-3">
+            <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Active Users</p>
+            <p id="stat-activeUsers" class="text-2xl font-bold text-emerald-600 mt-1">–</p>
+            <p class="text-[10px] text-gray-400 mt-0.5">Last 30 days</p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-3">
+            <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Super Active</p>
+            <p id="stat-superActiveUsers" class="text-2xl font-bold text-orange-600 mt-1">–</p>
+            <p class="text-[10px] text-gray-400 mt-0.5">Upgraded, last 30 days</p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-3">
+            <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Inactive Users</p>
+            <p id="stat-inactiveUsers" class="text-2xl font-bold text-gray-500 mt-1">–</p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Revenue</p>
+            <select id="statsRevenuePeriod" onchange="loadStats()"
+              class="text-xs px-2 py-1 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month" selected>This Month</option>
+              <option value="3month">3 Months</option>
+              <option value="6month">6 Months</option>
+              <option value="year">This Year</option>
+            </select>
+          </div>
+          <p id="stat-revenueNet" class="text-2xl font-bold text-indigo-600">–</p>
+          <div class="flex gap-4 mt-1 text-xs text-gray-500">
+            <span>Gross: <strong id="stat-revenueGross">–</strong></span>
+            <span>Refunds: <strong id="stat-revenueRefunds" class="text-red-500">–</strong></span>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-gray-400 mt-3">
+          Active/Inactive is based on usage tracked from the day this feature
+          was deployed — it will read low until 30 days of activity have
+          accumulated.
+        </p>
+
+        <button onclick="loadStats()" class="w-full mt-4 py-2 rounded-full text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white">
+          ↻ Refresh
+        </button>
+      </div>
 
       <!-- Manual Plan Override -->
       <div id="page-override" class="action-page-section">
@@ -524,6 +582,7 @@
   // ── Action pages (Verify / Override / Lookup / Announce / Jobs / Refunds) ──
 
   const ACTION_PAGE_TITLES = {
+    stats:    'Statistics',
     override: 'Manual Plan Override',
     lookup:   'Lookup User',
     announce: 'Official Announcement',
@@ -541,6 +600,7 @@
     if (section) section.classList.add('active');
 
     // Load whatever data that page needs
+    if (key === 'stats')    loadStats();
     if (key === 'announce') loadAnnouncements();
     if (key === 'jobs')     { backToSourceStep(); loadPostedJobs(); }
     if (key === 'refunds')  loadRefunds();
@@ -560,6 +620,36 @@
     });
     if (tab === 'reports') loadReports();
     if (tab === 'sms')     loadSmsDetections();
+  }
+
+  // ── Statistics ────────────────────────────────────────────────────────
+
+  function formatETB(n) {
+    return (typeof n === 'number' ? n : 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ETB';
+  }
+
+  async function loadStats() {
+    const periodEl = document.getElementById('statsRevenuePeriod');
+    const revenuePeriod = periodEl ? periodEl.value : 'month';
+
+    try {
+      const { ok, data } = await api('admin-stats', { token: adminToken, revenuePeriod });
+      if (!ok) {
+        if (data.error && data.error.includes('Unauthorized')) { doLogout(); return; }
+        showToast(data.error || 'Failed to load statistics', 'error');
+        return;
+      }
+      document.getElementById('stat-totalUsers').textContent       = data.totalUsers;
+      document.getElementById('stat-activeUsers').textContent      = data.activeUsers;
+      document.getElementById('stat-superActiveUsers').textContent = data.superActiveUsers;
+      document.getElementById('stat-inactiveUsers').textContent    = data.inactiveUsers;
+
+      document.getElementById('stat-revenueNet').textContent     = formatETB(data.revenue.net);
+      document.getElementById('stat-revenueGross').textContent   = formatETB(data.revenue.gross);
+      document.getElementById('stat-revenueRefunds').textContent = formatETB(data.revenue.refunds);
+    } catch {
+      showToast('Failed to load statistics.', 'error');
+    }
   }
 
   // ── Results modal ────────────────────────────────────────────────────────
