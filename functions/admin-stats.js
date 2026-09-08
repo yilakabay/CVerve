@@ -7,7 +7,11 @@
 // Returns:
 //   {
 //     totalUsers, activeUsers, superActiveUsers, inactiveUsers,
-//     revenue: { period, gross, refundsDeducted, refundsExcluded, refundsUnclassified, net }
+//     revenue: {
+//       period, gross, tipsAndUpgrades, net,
+//       refundsOnPendingExcess, refundsOnRejected, refundsUnclassified
+//     },
+//     pendingRevenue
 //   }
 //
 // ── Definitions (per product spec) ──────────────────────────────────────
@@ -22,43 +26,50 @@
 //                    i.e. `planActivatedAt` within 30 days.
 // Inactive Users   = Total Users minus Active Users (by the definition above).
 //
-// ── Revenue — the part that needs real care ─────────────────────────────
-// Gross revenue = sum of `payments.amount` in the period. This collection
-// ONLY ever gets a row when a payment was actually verified (by admin,
-// by report-resolution, or by SMS auto-verify) — never for rejected
-// payments, never for admin overrides/comps (those go to `subscriptions`
-// with amount:null, not `payments`). So gross already correctly:
-//   - counts the FULL amount paid even when the user later upgrades
-//     Basic→Pro using the excess (activate-pro-upgrade.js keeps the same
-//     payments._id and the same `amount` field — it never creates a second
-//     payments row), and
-//   - excludes comps/gifts/manual overrides entirely.
+// ── Revenue — REVAMPED for the pending-revenue model ─────────────────────
+// Previously, gross revenue summed the FULL amount paid the moment a
+// payment was verified, and a small set of refund rules tried to patch
+// around the fact that some of that "revenue" wasn't actually earned yet.
 //
-// Refunds are where it gets tricky: a refund_requests doc can represent
-// TWO different situations that must be treated differently:
+// The new model is simpler and more accurate:
 //
-//   sourceType: 'verified_excess'  → refunding money that WAS counted in
-//     gross above (e.g. the leftover after a Basic→Pro upgrade, or excess
-//     above a plan's price). This SHOULD reduce net revenue — money that
-//     was counted as earned is being given back.
+//   gross = sum of each verified payment's TIER PRICE only (49 for Basic,
+//     79 for Pro) in the period — the part that's unambiguously earned the
+//     moment a plan is activated. Any amount above the tier price
+//     ("excess") is NOT included here — it starts life in the
+//     `pending_revenue` collection instead (see admin-verify.js,
+//     activate-basic-after-rejection.js), not as revenue.
 //
-//   sourceType: 'rejected_payment' → refunding a payment that was REJECTED
-//     and therefore was NEVER written to `payments` and NEVER counted in
-//     gross. Money physically came in and is going back out, but since it
-//     was never counted as revenue to begin with, refunding it should have
-//     ZERO effect on the revenue figure — subtracting it would incorrectly
-//     make revenue look lower than what was actually, verifiably earned.
+//   tipsAndUpgrades = sum of `revenue_events.amount` in the period — money
+//     that started as a pending excess and was converted into real revenue,
+//     either because the user tipped it (tip-payment.js) or used it to
+//     cover part of a Basic→Pro upgrade (activate-pro-upgrade.js).
 //
-//   sourceType: null (legacy / not yet sent by app.html) → cannot be
-//     classified. These are surfaced separately as `refundsUnclassified`
-//     rather than silently guessed at. See request-refund.js for the
-//     client-side change needed to start populating sourceType going
-//     forward — until that ships, refunds will show here as unclassified
-//     and will NOT be subtracted from gross (under-counting a refund is a
-//     safer failure than wrongly deflating true revenue).
+//   net = gross + tipsAndUpgrades
 //
-// net = gross - refundsDeducted   (refundsDeducted only includes
-//       sourceType: 'verified_excess' refunds completed in the period)
+// Refunds NEVER reduce net anymore, for either sourceType — because by the
+// time a refund is requested, the money being refunded was still sitting
+// in `pending_revenue`, not counted as revenue in the first place (that's
+// the whole point of the pending bucket). Completing a refund
+// (manage-refunds.js) only removes it from pending_revenue. The three
+// refund figures below are reported purely for admin visibility, not
+// subtracted from anything:
+//
+//   refundsOnPendingExcess — refunds completed on a 'verified_excess'
+//     pending balance (e.g. the leftover after an upgrade, or an unused
+//     excess). Zero revenue effect.
+//   refundsOnRejected      — refunds completed on a 'rejected_payment'
+//     pending balance (a genuine payment that was too small to activate
+//     any plan). Zero revenue effect.
+//   refundsUnclassified    — refund_requests with no sourceType at all
+//     (legacy data from before this feature, or a client that hasn't been
+//     updated). Also zero revenue effect; surfaced so it can be reviewed.
+//
+// ── pendingRevenue ────────────────────────────────────────────────────────
+// A live running total — NOT period-scoped, same as Active/Inactive Users
+// — of every pending_revenue doc still in status 'pending'. This is the
+// "how much outstanding excess money is currently sitting with us,
+// unresolved" figure for the new dashboard box.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -122,10 +133,12 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db          = client.db('cverve');
-    const usersCol     = db.collection('users');
-    const paymentsCol  = db.collection('payments');
-    const refundsCol   = db.collection('refund_requests');
+    const db                = client.db('cverve');
+    const usersCol          = db.collection('users');
+    const paymentsCol       = db.collection('payments');
+    const refundsCol        = db.collection('refund_requests');
+    const revenueEventsCol  = db.collection('revenue_events');
+    const pendingRevenueCol = db.collection('pending_revenue');
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -155,35 +168,38 @@ exports.handler = async (event, context) => {
     const period = revenuePeriod || 'month';
     const since  = periodStart(period);
 
-    // Gross: every verified payment counts its FULL amount, once — upgrades
-    // reuse the same payments._id so there's no double-counting risk here.
+    // Gross: sum of tierPrice only — the part earned immediately, the
+    // moment a plan is verified/activated. Excess is NOT included here.
     const grossAgg = await paymentsCol.aggregate([
       { $match: { verifiedAt: { $gte: since } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
+      { $group: { _id: null, total: { $sum: '$tierPrice' } } }
     ]).toArray();
     const grossRevenue = (grossAgg[0] && grossAgg[0].total) || 0;
 
-    // Refunds that DID reduce already-counted revenue.
-    const deductedAgg = await refundsCol.aggregate([
+    // Tips + upgrade-conversions in the period — pending excess that became
+    // real revenue.
+    const eventsAgg = await revenueEventsCol.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).toArray();
+    const tipsAndUpgrades = (eventsAgg[0] && eventsAgg[0].total) || 0;
+
+    const netRevenue = Math.round((grossRevenue + tipsAndUpgrades) * 100) / 100;
+
+    // Refund breakdowns — reported for visibility only, never subtracted.
+    const refundsOnPendingExcessAgg = await refundsCol.aggregate([
       { $match: { status: 'refunded', resolvedAt: { $gte: since }, sourceType: 'verified_excess' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]).toArray();
-    const refundsDeducted = (deductedAgg[0] && deductedAgg[0].total) || 0;
+    const refundsOnPendingExcess = (refundsOnPendingExcessAgg[0] && refundsOnPendingExcessAgg[0].total) || 0;
 
-    // Refunds that were correctly excluded because the underlying payment
-    // was never counted as revenue (rejected payments) — shown for
-    // transparency, not subtracted.
-    const excludedAgg = await refundsCol.aggregate([
+    const refundsOnRejectedAgg = await refundsCol.aggregate([
       { $match: { status: 'refunded', resolvedAt: { $gte: since }, sourceType: 'rejected_payment' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]).toArray();
-    const refundsExcluded = (excludedAgg[0] && excludedAgg[0].total) || 0;
+    const refundsOnRejected = (refundsOnRejectedAgg[0] && refundsOnRejectedAgg[0].total) || 0;
 
-    // Refunds with no sourceType at all — can't be classified yet (either
-    // completed before this feature shipped, or app.html hasn't been
-    // updated to send sourceType). Also shown for transparency; also not
-    // subtracted, since we can't verify they reduced counted revenue.
-    const unclassifiedAgg = await refundsCol.aggregate([
+    const refundsUnclassifiedAgg = await refundsCol.aggregate([
       {
         $match: {
           status: 'refunded',
@@ -193,9 +209,14 @@ exports.handler = async (event, context) => {
       },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]).toArray();
-    const refundsUnclassified = (unclassifiedAgg[0] && unclassifiedAgg[0].total) || 0;
+    const refundsUnclassified = (refundsUnclassifiedAgg[0] && refundsUnclassifiedAgg[0].total) || 0;
 
-    const netRevenue = Math.round((grossRevenue - refundsDeducted) * 100) / 100;
+    // ── Pending Revenue — a live running total, not period-scoped ──────────
+    const pendingAgg = await pendingRevenueCol.aggregate([
+      { $match: { status: 'pending' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).toArray();
+    const pendingRevenue = (pendingAgg[0] && pendingAgg[0].total) || 0;
 
     return {
       statusCode: 200,
@@ -207,12 +228,14 @@ exports.handler = async (event, context) => {
         inactiveUsers,
         revenue: {
           period,
-          gross:               grossRevenue,
-          refundsDeducted,     // reduced net — refunds on money that WAS counted
-          refundsExcluded,     // did not reduce net — refunds on rejected/never-counted payments
-          refundsUnclassified, // did not reduce net — unknown source, needs review
-          net: netRevenue
-        }
+          gross:                   grossRevenue,
+          tipsAndUpgrades,         // converted from pending — added to net
+          net:                     netRevenue,
+          refundsOnPendingExcess,  // informational only — zero revenue effect
+          refundsOnRejected,       // informational only — zero revenue effect
+          refundsUnclassified      // informational only — zero revenue effect
+        },
+        pendingRevenue
       })
     };
 
