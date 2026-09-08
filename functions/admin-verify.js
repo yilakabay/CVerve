@@ -28,6 +28,25 @@
 // Matching is name + amount only, everywhere — no transaction ID is ever
 // used for matching, only optionally stored on the pending record to block
 // resubmission of the exact same payment.
+//
+// ── REVENUE MODEL (UPDATED) ──────────────────────────────────────────────
+// Gross revenue (see admin-stats.js) now only ever counts a plan's TIER
+// PRICE (49 for Basic, 79 for Pro) the moment it's verified — never the
+// full amount paid. Any amount above the tier price ("excess") is NOT
+// revenue yet. Instead it's written to a new `pending_revenue` collection
+// as an outstanding balance. It only becomes real revenue if/when the user
+// tips it (tip-payment.js) or uses it to upgrade to Pro
+// (activate-pro-upgrade.js). If it's refunded instead (request-refund.js +
+// manage-refunds.js), it's simply removed from pending_revenue with zero
+// effect on revenue — because it was never counted as revenue in the first
+// place.
+//
+// The same applies to a rejected payment where the admin explicitly flags
+// "amount issue" (case: amount is genuine but too low to activate any
+// plan) — that whole amount goes to pending_revenue too, since real money
+// came in and the user might choose to tip it instead of asking for it
+// back. A rejection for any OTHER reason (suspected fraud, etc.) does NOT
+// touch pending_revenue at all — there's no refund/tip path for those.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
@@ -62,15 +81,34 @@ function verifyToken(token) {
   } catch { return false; }
 }
 
+// notification.id can be supplied by the caller (so it can be pre-linked to
+// a pending_revenue entry created in the same request); otherwise a fresh
+// one is generated here, same as before.
 async function writeNotification(usersCol, userId, notification) {
   try {
     await usersCol.updateOne(
       { phoneNumber: userId },
-      { $push: { notifications: { id: crypto.randomUUID(), read: false, ...notification, createdAt: new Date() } } }
+      { $push: { notifications: { read: false, ...notification, id: notification.id || crypto.randomUUID(), createdAt: new Date() } } }
     );
   } catch (e) {
     console.error('writeNotification error:', e.message);
   }
+}
+
+// Creates the pending_revenue entry that tracks an unresolved excess amount
+// until it's tipped, used for an upgrade, or refunded away.
+async function createPendingRevenue(pendingRevenueCol, { notificationId, userId, amount, sourceType, verifiedPaymentId }) {
+  if (!(amount > 0)) return;
+  await pendingRevenueCol.insertOne({
+    notificationId,
+    userId,
+    amount,
+    sourceType,          // 'verified_excess' | 'rejected_payment'
+    verifiedPaymentId:   verifiedPaymentId || null,
+    status:              'pending',
+    createdAt:           new Date(),
+    updatedAt:           new Date()
+  });
 }
 
 async function activatePlan(usersCol, userId, plan) {
@@ -107,10 +145,11 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db          = client.db('cverve');
-    const pendingCol  = db.collection('pending_payments');
-    const verifiedCol = db.collection('payments');
-    const usersCol    = db.collection('users');
+    const db               = client.db('cverve');
+    const pendingCol       = db.collection('pending_payments');
+    const verifiedCol      = db.collection('payments');
+    const usersCol         = db.collection('users');
+    const pendingRevenueCol = db.collection('pending_revenue');
 
     // ── list ──────────────────────────────────────────────────────────────────
     // Reported (30+ min, user clicked Report) entries surface first.
@@ -159,6 +198,10 @@ exports.handler = async (event, context) => {
       const plan       = pending.chosenPlan;
       const planExpiry = await activatePlan(usersCol, pending.userId, plan);
 
+      // Revenue-relevant: only tierPrice is ever "earned" immediately.
+      // The insert below still stores the FULL amount on the payments doc
+      // (needed for upgrade math / audit trail / refund linking) — but
+      // admin-stats.js now sums `tierPrice`, not `amount`, for gross.
       const insertResult = await verifiedCol.insertOne({
         userId: pending.userId, amount: pending.claimedAmount, senderName: pending.claimedSenderName,
         plan, tierPrice: outcome.tierPrice, excess: outcome.excess,
@@ -169,7 +212,20 @@ exports.handler = async (event, context) => {
       });
       await pendingCol.deleteOne({ _id: pending._id });
 
+      const notifId = crypto.randomUUID();
+
+      // Excess (if any) becomes an outstanding pending_revenue balance —
+      // NOT revenue yet — until tipped, used for a Pro upgrade, or refunded.
+      await createPendingRevenue(pendingRevenueCol, {
+        notificationId:    notifId,
+        userId:            pending.userId,
+        amount:            outcome.excess,
+        sourceType:        'verified_excess',
+        verifiedPaymentId: insertResult.insertedId.toString()
+      });
+
       await writeNotification(usersCol, pending.userId, {
+        id: notifId,
         type: 'plan_activated', plan, amount: pending.claimedAmount,
         excess: outcome.excess,
         refundEligible: outcome.excess > 0, refundAmount: outcome.excess,
@@ -192,11 +248,14 @@ exports.handler = async (event, context) => {
     // for Basic but not Pro). Same rule as computeVerifyOutcome.canVerify.
     //
     //   amountIssue: true  → standard "amount too low" message, full amount
-    //     refund-eligible, and — if the amount is enough to cover Basic while
-    //     Pro was chosen — an "Activate Basic" offer.
+    //     refund-eligible (and now also tracked in pending_revenue, since it
+    //     can be tipped instead of refunded), and — if the amount is enough
+    //     to cover Basic while Pro was chosen — an "Activate Basic" offer.
     //   amountIssue: false → admin-typed reason only, no refund/tip/upgrade
     //     buttons (covers suspected fraud / payment not on the bank statement
-    //     / any other non-amount reason).
+    //     / any other non-amount reason). Nothing is written to
+    //     pending_revenue for this branch — there's no path to turn it into
+    //     revenue or hand it back.
     if (action === 'reject') {
       const { pendingId, amountIssue, reason } = body;
       if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
@@ -230,7 +289,25 @@ exports.handler = async (event, context) => {
 
       await pendingCol.deleteOne({ _id: pending._id });
 
+      const notifId = crypto.randomUUID();
+
+      // This payment was never written to `payments` (it was rejected), so
+      // it was never counted as revenue. If it's genuinely a real payment
+      // that's just too small (amountIssue branch), it still goes into
+      // pending_revenue as sourceType 'rejected_payment' — refunding it
+      // later has zero revenue effect, but tipping it does add to revenue.
+      if (refundEligible) {
+        await createPendingRevenue(pendingRevenueCol, {
+          notificationId:    notifId,
+          userId:            pending.userId,
+          amount:            refundAmount,
+          sourceType:        'rejected_payment',
+          verifiedPaymentId: null
+        });
+      }
+
       await writeNotification(usersCol, pending.userId, {
+        id: notifId,
         type: 'payment_rejected',
         amount: pending.claimedAmount,
         chosenPlan: pending.chosenPlan,
