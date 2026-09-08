@@ -329,16 +329,22 @@
             </select>
           </div>
           <p id="stat-revenueNet" class="text-2xl font-bold text-indigo-600">–</p>
-          <div class="flex gap-4 mt-1 text-xs text-gray-500">
-            <span>Gross: <strong id="stat-revenueGross">–</strong></span>
-            <span>Refunds: <strong id="stat-revenueRefunds" class="text-red-500">–</strong></span>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+            <span>Gross: <strong id="stat-revenueGross" class="text-gray-700">–</strong></span>
+            <span>Refunded (deducted): <strong id="stat-revenueDeducted" class="text-red-500">–</strong></span>
+          </div>
+          <div id="stat-revenueNotesWrap" class="hidden mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+            <p id="stat-revenueExcludedRow" class="hidden text-[11px] text-gray-400">Refunded on rejected/never-counted payments (no effect on revenue): <strong id="stat-revenueExcluded" class="text-gray-500">–</strong></p>
+            <p id="stat-revenueUnclassifiedRow" class="hidden text-[11px] text-amber-600">Refunds not yet tagged — needs app update to classify: <strong id="stat-revenueUnclassified">–</strong></p>
           </div>
         </div>
 
         <p class="text-[11px] text-gray-400 mt-3">
           Active/Inactive is based on usage tracked from the day this feature
           was deployed — it will read low until 30 days of activity have
-          accumulated.
+          accumulated. Revenue only deducts refunds tagged as coming from an
+          already-counted (verified) payment — see the notes above the
+          number if any refunds couldn't be classified yet.
         </p>
 
         <button onclick="loadStats()" class="w-full mt-4 py-2 rounded-full text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white">
@@ -644,9 +650,32 @@
       document.getElementById('stat-superActiveUsers').textContent = data.superActiveUsers;
       document.getElementById('stat-inactiveUsers').textContent    = data.inactiveUsers;
 
-      document.getElementById('stat-revenueNet').textContent     = formatETB(data.revenue.net);
-      document.getElementById('stat-revenueGross').textContent   = formatETB(data.revenue.gross);
-      document.getElementById('stat-revenueRefunds').textContent = formatETB(data.revenue.refunds);
+      document.getElementById('stat-revenueNet').textContent       = formatETB(data.revenue.net);
+      document.getElementById('stat-revenueGross').textContent     = formatETB(data.revenue.gross);
+      document.getElementById('stat-revenueDeducted').textContent  = formatETB(data.revenue.refundsDeducted);
+
+      const excludedRow      = document.getElementById('stat-revenueExcludedRow');
+      const unclassifiedRow  = document.getElementById('stat-revenueUnclassifiedRow');
+      const notesWrap        = document.getElementById('stat-revenueNotesWrap');
+
+      const hasExcluded     = data.revenue.refundsExcluded > 0;
+      const hasUnclassified = data.revenue.refundsUnclassified > 0;
+
+      if (hasExcluded) {
+        document.getElementById('stat-revenueExcluded').textContent = formatETB(data.revenue.refundsExcluded);
+        excludedRow.classList.remove('hidden');
+      } else {
+        excludedRow.classList.add('hidden');
+      }
+
+      if (hasUnclassified) {
+        document.getElementById('stat-revenueUnclassified').textContent = formatETB(data.revenue.refundsUnclassified);
+        unclassifiedRow.classList.remove('hidden');
+      } else {
+        unclassifiedRow.classList.add('hidden');
+      }
+
+      notesWrap.classList.toggle('hidden', !hasExcluded && !hasUnclassified);
     } catch {
       showToast('Failed to load statistics.', 'error');
     }
