@@ -1,5 +1,4 @@
 // functions/admin-stats.js
-// NEW FILE — does not modify any existing function.
 //
 // POST body: { token, revenuePeriod? }
 //   revenuePeriod — 'today' | 'week' | 'month' | '3month' | '6month' | 'year'
@@ -8,7 +7,7 @@
 // Returns:
 //   {
 //     totalUsers, activeUsers, superActiveUsers, inactiveUsers,
-//     revenue: { period, amount, refunds, net }
+//     revenue: { period, gross, refundsDeducted, refundsExcluded, refundsUnclassified, net }
 //   }
 //
 // ── Definitions (per product spec) ──────────────────────────────────────
@@ -22,15 +21,44 @@
 // Super Active     = users who upgraded their plan in the last 30 days,
 //                    i.e. `planActivatedAt` within 30 days.
 // Inactive Users   = Total Users minus Active Users (by the definition above).
-// Revenue          = sum of verified `payments.amount` in the selected period
-//                    minus sum of `refund_requests.amount` where
-//                    status:'refunded' and resolvedAt falls in that period.
 //
-// IMPORTANT CAVEAT: `lastActiveAt` only exists on users going forward from
-// whenever increment-usage.js's new $set line is deployed — there is no
-// historical backfill, because no prior version of this system recorded a
-// per-action timestamp. Active/Inactive numbers will under-count until 30
-// days of real usage has accumulated after deploy.
+// ── Revenue — the part that needs real care ─────────────────────────────
+// Gross revenue = sum of `payments.amount` in the period. This collection
+// ONLY ever gets a row when a payment was actually verified (by admin,
+// by report-resolution, or by SMS auto-verify) — never for rejected
+// payments, never for admin overrides/comps (those go to `subscriptions`
+// with amount:null, not `payments`). So gross already correctly:
+//   - counts the FULL amount paid even when the user later upgrades
+//     Basic→Pro using the excess (activate-pro-upgrade.js keeps the same
+//     payments._id and the same `amount` field — it never creates a second
+//     payments row), and
+//   - excludes comps/gifts/manual overrides entirely.
+//
+// Refunds are where it gets tricky: a refund_requests doc can represent
+// TWO different situations that must be treated differently:
+//
+//   sourceType: 'verified_excess'  → refunding money that WAS counted in
+//     gross above (e.g. the leftover after a Basic→Pro upgrade, or excess
+//     above a plan's price). This SHOULD reduce net revenue — money that
+//     was counted as earned is being given back.
+//
+//   sourceType: 'rejected_payment' → refunding a payment that was REJECTED
+//     and therefore was NEVER written to `payments` and NEVER counted in
+//     gross. Money physically came in and is going back out, but since it
+//     was never counted as revenue to begin with, refunding it should have
+//     ZERO effect on the revenue figure — subtracting it would incorrectly
+//     make revenue look lower than what was actually, verifiably earned.
+//
+//   sourceType: null (legacy / not yet sent by app.html) → cannot be
+//     classified. These are surfaced separately as `refundsUnclassified`
+//     rather than silently guessed at. See request-refund.js for the
+//     client-side change needed to start populating sourceType going
+//     forward — until that ships, refunds will show here as unclassified
+//     and will NOT be subtracted from gross (under-counting a refund is a
+//     safer failure than wrongly deflating true revenue).
+//
+// net = gross - refundsDeducted   (refundsDeducted only includes
+//       sourceType: 'verified_excess' refunds completed in the period)
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -127,19 +155,47 @@ exports.handler = async (event, context) => {
     const period = revenuePeriod || 'month';
     const since  = periodStart(period);
 
-    const revenueAgg = await paymentsCol.aggregate([
+    // Gross: every verified payment counts its FULL amount, once — upgrades
+    // reuse the same payments._id so there's no double-counting risk here.
+    const grossAgg = await paymentsCol.aggregate([
       { $match: { verifiedAt: { $gte: since } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]).toArray();
-    const grossRevenue = (revenueAgg[0] && revenueAgg[0].total) || 0;
+    const grossRevenue = (grossAgg[0] && grossAgg[0].total) || 0;
 
-    const refundsAgg = await refundsCol.aggregate([
-      { $match: { status: 'refunded', resolvedAt: { $gte: since } } },
+    // Refunds that DID reduce already-counted revenue.
+    const deductedAgg = await refundsCol.aggregate([
+      { $match: { status: 'refunded', resolvedAt: { $gte: since }, sourceType: 'verified_excess' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]).toArray();
-    const totalRefunds = (refundsAgg[0] && refundsAgg[0].total) || 0;
+    const refundsDeducted = (deductedAgg[0] && deductedAgg[0].total) || 0;
 
-    const netRevenue = Math.round((grossRevenue - totalRefunds) * 100) / 100;
+    // Refunds that were correctly excluded because the underlying payment
+    // was never counted as revenue (rejected payments) — shown for
+    // transparency, not subtracted.
+    const excludedAgg = await refundsCol.aggregate([
+      { $match: { status: 'refunded', resolvedAt: { $gte: since }, sourceType: 'rejected_payment' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).toArray();
+    const refundsExcluded = (excludedAgg[0] && excludedAgg[0].total) || 0;
+
+    // Refunds with no sourceType at all — can't be classified yet (either
+    // completed before this feature shipped, or app.html hasn't been
+    // updated to send sourceType). Also shown for transparency; also not
+    // subtracted, since we can't verify they reduced counted revenue.
+    const unclassifiedAgg = await refundsCol.aggregate([
+      {
+        $match: {
+          status: 'refunded',
+          resolvedAt: { $gte: since },
+          $or: [ { sourceType: { $exists: false } }, { sourceType: null } ]
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).toArray();
+    const refundsUnclassified = (unclassifiedAgg[0] && unclassifiedAgg[0].total) || 0;
+
+    const netRevenue = Math.round((grossRevenue - refundsDeducted) * 100) / 100;
 
     return {
       statusCode: 200,
@@ -151,8 +207,10 @@ exports.handler = async (event, context) => {
         inactiveUsers,
         revenue: {
           period,
-          gross: grossRevenue,
-          refunds: totalRefunds,
+          gross:               grossRevenue,
+          refundsDeducted,     // reduced net — refunds on money that WAS counted
+          refundsExcluded,     // did not reduce net — refunds on rejected/never-counted payments
+          refundsUnclassified, // did not reduce net — unknown source, needs review
           net: netRevenue
         }
       })
