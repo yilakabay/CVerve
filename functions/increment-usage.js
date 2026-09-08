@@ -51,6 +51,15 @@
 //     Finder run is about to happen. Atomically verifies not in cooldown and
 //     records the run timestamp in the same operation, so two near-
 //     simultaneous requests can't both slip through.
+//
+// ── lastActiveAt (admin stats) ──────────────────────────────────────────────
+// Every successful usage increment below (unlimited path, combined-total
+// plan path, single-field limit path) also stamps `lastActiveAt` on the
+// user document. This is purely additive — it doesn't change any existing
+// field, response shape, or behavior — and is read by admin-stats.js to
+// compute "Active Users in the last 30 days" on the admin dashboard. It only
+// starts accumulating from the moment this file is deployed; there is no
+// historical backfill.
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -328,10 +337,15 @@ exports.handler = async (event, context) => {
 
     // ── Unlimited check ───────────────────────────────────────────────────────
     if (limit === -1) {
-      // Always allowed — increment counter for analytics
+      // Always allowed — increment counter for analytics, and stamp
+      // lastActiveAt so the admin dashboard can tell this was a real,
+      // successful action.
       await usersCol.updateOne(
         { phoneNumber: userId },
-        { $inc: { [`usageCounts.${field}`]: 1 } }
+        {
+          $inc: { [`usageCounts.${field}`]: 1 },
+          $set: { lastActiveAt: new Date() }
+        }
       );
       await mirrorIncrementToLedger(db, user.tgUserId, field);
       const updatedCounts = { ...usageCounts, [field]: currentUse + 1 };
@@ -366,11 +380,16 @@ exports.handler = async (event, context) => {
     // For combined-total plans (basic/pro letters) we can't rely on a single-field
     // Mongo query filter for the combined cap, so re-check just before incrementing
     // and accept the small race window (mirrors prior single-field behavior otherwise).
+    // Both branches also stamp lastActiveAt on a successful increment, so the
+    // admin dashboard can tell this was a real, successful action.
     let updateResult;
     if (isCombinedPlan) {
       updateResult = await usersCol.findOneAndUpdate(
         { phoneNumber: userId },
-        { $inc: { [`usageCounts.${field}`]: 1 } },
+        {
+          $inc: { [`usageCounts.${field}`]: 1 },
+          $set: { lastActiveAt: new Date() }
+        },
         { returnDocument: 'after' }
       );
     } else {
@@ -379,7 +398,10 @@ exports.handler = async (event, context) => {
           phoneNumber:                userId,
           [`usageCounts.${field}`]: { $lt: limit }
         },
-        { $inc: { [`usageCounts.${field}`]: 1 } },
+        {
+          $inc: { [`usageCounts.${field}`]: 1 },
+          $set: { lastActiveAt: new Date() }
+        },
         { returnDocument: 'after' }
       );
     }
