@@ -19,6 +19,16 @@
 //
 // Any leftover after Pro's own price (amount - 79) is reported back
 // so the app can offer Refund/Tip for the remainder.
+//
+// ── verifiedPaymentId on the resulting notification ─────────────────────────
+// FIX: the plan_activated notification written below now includes
+// `verifiedPaymentId` (pointing at the ORIGINAL Basic payments._id — the
+// underlying payment record doesn't change identity when upgraded in
+// place). Every other verify path (admin-verify.js, payment-report.js,
+// receive-sms.js) already includes this field; this one was missing it,
+// which meant a refund request for the leftover from an upgrade could never
+// be traced back to the real payment it came from. This is purely additive
+// — no existing field is removed or renamed.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -132,6 +142,12 @@ exports.handler = async (event, context) => {
       excess:          leftover,
       refundEligible:  leftover > 0,
       refundAmount:    leftover,
+      // FIX: was missing before — points refund requests back at the
+      // ORIGINAL verified payment (its _id doesn't change on upgrade), so
+      // a refund of this leftover can be correctly recognized as reducing
+      // already-counted revenue rather than being mistaken for a refund on
+      // money that was never counted.
+      verifiedPaymentId: verifiedDoc._id.toString(),
       expiry:          planExpiry,
       resolvedBy:      'system_auto'
     });
