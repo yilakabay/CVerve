@@ -23,6 +23,21 @@
 // The user is notified on activation. If there's a refund-eligible excess,
 // the notification carries enough info for the app to show Refund/Tip (and,
 // for Basic-with-large-excess, an "Activate Pro") buttons.
+//
+// ── FIX (revenue model) ──────────────────────────────────────────────────
+// This is the automatic counterpart to admin-verify.js's verify-one, but it
+// was never updated when the pending-revenue model was introduced: it
+// wrote the payments doc (tierPrice + excess) correctly, but NEVER created
+// the matching `pending_revenue` entry for the excess. That meant:
+//   - Any excess from an SMS-auto-verified payment was invisible to the
+//     Pending Revenue box on the dashboard — it just didn't exist anywhere.
+//   - Tipping or refunding that excess would always fail ("couldn't find
+//     or already resolved"), because tip-payment.js / manage-refunds.js
+//     look up a pending_revenue doc that was never created in the first
+//     place.
+// Fixed below by creating the pending_revenue entry exactly like
+// admin-verify.js does, tied to the same notification id that's shown to
+// the user (so Tip/Refund can find it).
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
@@ -109,11 +124,14 @@ ${smsText}`;
 }
 
 // ── Write notification to user document ──────────────────────────────────────
+// notification.id can be supplied by the caller (so it can be pre-linked to
+// a pending_revenue entry created in the same request); otherwise a fresh
+// one is generated here, same as before.
 async function writeNotification(usersCol, userId, notification) {
     try {
         await usersCol.updateOne(
             { phoneNumber: userId },
-            { $push: { notifications: { id: crypto.randomUUID(), read: false, ...notification, createdAt: new Date() } } }
+            { $push: { notifications: { read: false, ...notification, id: notification.id || crypto.randomUUID(), createdAt: new Date() } } }
         );
     } catch (e) {
         console.error('writeNotification error:', e.message);
@@ -141,9 +159,10 @@ async function activatePlan(usersCol, userId, plan) {
 
 // ── Verify a pending payment for exactly the plan it was submitted for ───────
 async function verifyPendingPayment(db, pending) {
-    const usersCol    = db.collection('users');
-    const verifiedCol = db.collection('payments');
-    const pendingCol  = db.collection('pending_payments');
+    const usersCol          = db.collection('users');
+    const verifiedCol       = db.collection('payments');
+    const pendingCol        = db.collection('pending_payments');
+    const pendingRevenueCol = db.collection('pending_revenue');
 
     const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
     if (!outcome.canVerify) return { status: 'insufficient' };
@@ -167,7 +186,27 @@ async function verifyPendingPayment(db, pending) {
     });
     await pendingCol.deleteOne({ _id: pending._id });
 
+    const notifId = crypto.randomUUID();
+
+    // Excess (if any) becomes an outstanding pending_revenue balance — NOT
+    // revenue yet — until tipped, used for a Pro upgrade, or refunded. This
+    // is the piece that was missing before: without it, Tip/Refund on this
+    // notification had nothing to find and always failed.
+    if (outcome.excess > 0) {
+        await pendingRevenueCol.insertOne({
+            notificationId:    notifId,
+            userId:            pending.userId,
+            amount:            outcome.excess,
+            sourceType:        'verified_excess',
+            verifiedPaymentId: insertResult.insertedId.toString(),
+            status:            'pending',
+            createdAt:         new Date(),
+            updatedAt:         new Date()
+        });
+    }
+
     await writeNotification(usersCol, pending.userId, {
+        id:                 notifId,
         type:               'plan_activated',
         plan,
         amount:             pending.claimedAmount,
