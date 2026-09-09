@@ -8,7 +8,7 @@
 //   {
 //     totalUsers, activeUsers, superActiveUsers, inactiveUsers,
 //     revenue: {
-//       period, gross, tipsAndUpgrades, net,
+//       period, gross, tipsAndUpgrades, manualAdjustments, net,
 //       refundsOnPendingExcess, refundsOnRejected, refundsUnclassified
 //     },
 //     pendingRevenue
@@ -26,50 +26,44 @@
 //                    i.e. `planActivatedAt` within 30 days.
 // Inactive Users   = Total Users minus Active Users (by the definition above).
 //
-// ── Revenue — REVAMPED for the pending-revenue model ─────────────────────
-// Previously, gross revenue summed the FULL amount paid the moment a
-// payment was verified, and a small set of refund rules tried to patch
-// around the fact that some of that "revenue" wasn't actually earned yet.
-//
-// The new model is simpler and more accurate:
-//
+// ── Revenue model ──────────────────────────────────────────────────────
 //   gross = sum of each verified payment's TIER PRICE only (49 for Basic,
 //     79 for Pro) in the period — the part that's unambiguously earned the
 //     moment a plan is activated. Any amount above the tier price
 //     ("excess") is NOT included here — it starts life in the
-//     `pending_revenue` collection instead (see admin-verify.js,
-//     activate-basic-after-rejection.js), not as revenue.
+//     `pending_revenue` collection instead.
 //
 //   tipsAndUpgrades = sum of `revenue_events.amount` in the period — money
-//     that started as a pending excess and was converted into real revenue,
-//     either because the user tipped it (tip-payment.js) or used it to
-//     cover part of a Basic→Pro upgrade (activate-pro-upgrade.js).
+//     that started as a pending excess and was converted into real revenue
+//     via a tip (tip-payment.js) or a Basic→Pro upgrade
+//     (activate-pro-upgrade.js).
 //
-//   net = gross + tipsAndUpgrades
+//   manualAdjustments = sum of `revenue_adjustments.amount` in the period —
+//     always stored as a negative number (see manage-revenue.js's
+//     'subtract' action). This is the only thing that reduces net revenue;
+//     it exists purely for the admin to manually correct a mistake or
+//     write something off, and never touches Pending Revenue.
 //
-// Refunds NEVER reduce net anymore, for either sourceType — because by the
-// time a refund is requested, the money being refunded was still sitting
-// in `pending_revenue`, not counted as revenue in the first place (that's
-// the whole point of the pending bucket). Completing a refund
-// (manage-refunds.js) only removes it from pending_revenue. The three
-// refund figures below are reported purely for admin visibility, not
-// subtracted from anything:
+//   net = gross + tipsAndUpgrades + manualAdjustments
 //
-//   refundsOnPendingExcess — refunds completed on a 'verified_excess'
-//     pending balance (e.g. the leftover after an upgrade, or an unused
-//     excess). Zero revenue effect.
-//   refundsOnRejected      — refunds completed on a 'rejected_payment'
-//     pending balance (a genuine payment that was too small to activate
-//     any plan). Zero revenue effect.
-//   refundsUnclassified    — refund_requests with no sourceType at all
-//     (legacy data from before this feature, or a client that hasn't been
-//     updated). Also zero revenue effect; surfaced so it can be reviewed.
+// Refunds never reduce net — by the time a refund is requested, the money
+// was still sitting in pending_revenue, never counted as revenue. The
+// three refund figures below are for admin visibility only:
+//   refundsOnPendingExcess, refundsOnRejected, refundsUnclassified
+//
+// ── Resets (manage-revenue.js 'reset' action) ────────────────────────────
+// A reset doesn't delete history — it stamps a `revenue_resets` doc with
+// the reset time. Every revenue figure here (gross, tipsAndUpgrades,
+// manualAdjustments, and the refund breakdowns) only counts records dated
+// AFTER the most recent reset, regardless of which period is selected —
+// so "This Year" reads 0 the instant after a reset, exactly like the other
+// numbers. Pending Revenue is a live total of currently-'pending'
+// pending_revenue docs, and a reset already resolves all of those, so it
+// naturally reads 0 right after a reset too — no extra filtering needed.
 //
 // ── pendingRevenue ────────────────────────────────────────────────────────
 // A live running total — NOT period-scoped, same as Active/Inactive Users
-// — of every pending_revenue doc still in status 'pending'. This is the
-// "how much outstanding excess money is currently sitting with us,
-// unresolved" figure for the new dashboard box.
+// — of every pending_revenue doc still in status 'pending'.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -133,12 +127,14 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db                = client.db('cverve');
-    const usersCol          = db.collection('users');
-    const paymentsCol       = db.collection('payments');
-    const refundsCol        = db.collection('refund_requests');
-    const revenueEventsCol  = db.collection('revenue_events');
-    const pendingRevenueCol = db.collection('pending_revenue');
+    const db                    = client.db('cverve');
+    const usersCol              = db.collection('users');
+    const paymentsCol           = db.collection('payments');
+    const refundsCol            = db.collection('refund_requests');
+    const revenueEventsCol      = db.collection('revenue_events');
+    const pendingRevenueCol     = db.collection('pending_revenue');
+    const revenueResetsCol      = db.collection('revenue_resets');
+    const revenueAdjustmentsCol = db.collection('revenue_adjustments');
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -166,7 +162,13 @@ exports.handler = async (event, context) => {
 
     // ── Revenue ──────────────────────────────────────────────────────────
     const period = revenuePeriod || 'month';
-    const since  = periodStart(period);
+    const requestedSince = periodStart(period);
+
+    // Find the most recent reset, if any, and never count anything older
+    // than it — regardless of which period the admin has selected.
+    const lastReset = await revenueResetsCol.find({}).sort({ resetAt: -1 }).limit(1).toArray();
+    const resetAt   = lastReset[0] ? new Date(lastReset[0].resetAt) : null;
+    const since      = resetAt && resetAt > requestedSince ? resetAt : requestedSince;
 
     // Gross: sum of tierPrice only — the part earned immediately, the
     // moment a plan is verified/activated. Excess is NOT included here.
@@ -184,7 +186,15 @@ exports.handler = async (event, context) => {
     ]).toArray();
     const tipsAndUpgrades = (eventsAgg[0] && eventsAgg[0].total) || 0;
 
-    const netRevenue = Math.round((grossRevenue + tipsAndUpgrades) * 100) / 100;
+    // Manual admin subtractions — always stored negative, only ever
+    // reduces net, never touches Pending Revenue.
+    const adjustmentsAgg = await revenueAdjustmentsCol.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).toArray();
+    const manualAdjustments = (adjustmentsAgg[0] && adjustmentsAgg[0].total) || 0; // negative or 0
+
+    const netRevenue = Math.round((grossRevenue + tipsAndUpgrades + manualAdjustments) * 100) / 100;
 
     // Refund breakdowns — reported for visibility only, never subtracted.
     const refundsOnPendingExcessAgg = await refundsCol.aggregate([
@@ -212,6 +222,8 @@ exports.handler = async (event, context) => {
     const refundsUnclassified = (refundsUnclassifiedAgg[0] && refundsUnclassifiedAgg[0].total) || 0;
 
     // ── Pending Revenue — a live running total, not period-scoped ──────────
+    // A reset already flips every open doc to 'resolved', so this naturally
+    // reads 0 right after a reset without any extra filtering here.
     const pendingAgg = await pendingRevenueCol.aggregate([
       { $match: { status: 'pending' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -230,6 +242,7 @@ exports.handler = async (event, context) => {
           period,
           gross:                   grossRevenue,
           tipsAndUpgrades,         // converted from pending — added to net
+          manualAdjustments,       // admin subtractions — always <= 0
           net:                     netRevenue,
           refundsOnPendingExcess,  // informational only — zero revenue effect
           refundsOnRejected,       // informational only — zero revenue effect
