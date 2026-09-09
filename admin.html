@@ -339,10 +339,15 @@
             <span>Gross (tier prices): <strong id="stat-revenueGross" class="text-gray-700">–</strong></span>
             <span>Tips + upgrades: <strong id="stat-revenueTipsUpgrades" class="text-emerald-600">–</strong></span>
           </div>
+          <div id="stat-manualAdjustmentsRow" class="hidden mt-1 text-xs text-red-500">Manual adjustments: <strong id="stat-manualAdjustments">–</strong></div>
           <div id="stat-revenueNotesWrap" class="hidden mt-2 pt-2 border-t border-gray-100 space-y-0.5">
             <p id="stat-revenueExcludedRow" class="hidden text-[11px] text-gray-400">Refunded from pending excess (no effect on revenue): <strong id="stat-revenueExcluded" class="text-gray-500">–</strong></p>
             <p id="stat-revenueRejectedRow" class="hidden text-[11px] text-gray-400">Refunded on rejected/never-counted payments (no effect on revenue): <strong id="stat-revenueRejected" class="text-gray-500">–</strong></p>
             <p id="stat-revenueUnclassifiedRow" class="hidden text-[11px] text-amber-600">Refunds not yet tagged — needs app update to classify: <strong id="stat-revenueUnclassified">–</strong></p>
+          </div>
+          <div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+            <button onclick="subtractRevenuePrompt()" class="flex-1 bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-3 py-2 rounded-lg hover:bg-red-100 transition-colors">− Subtract from Revenue</button>
+            <button onclick="resetRevenuePrompt()" class="flex-1 bg-gray-50 text-gray-600 border border-gray-200 text-xs font-bold px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors">🔄 Reset Revenue & Pending</button>
           </div>
         </div>
 
@@ -665,6 +670,14 @@
       document.getElementById('stat-revenueGross').textContent          = formatETB(data.revenue.gross);
       document.getElementById('stat-revenueTipsUpgrades').textContent   = formatETB(data.revenue.tipsAndUpgrades);
 
+      const manualAdjRow = document.getElementById('stat-manualAdjustmentsRow');
+      if (data.revenue.manualAdjustments < 0) {
+        document.getElementById('stat-manualAdjustments').textContent = formatETB(data.revenue.manualAdjustments);
+        manualAdjRow.classList.remove('hidden');
+      } else {
+        manualAdjRow.classList.add('hidden');
+      }
+
       const excludedRow      = document.getElementById('stat-revenueExcludedRow');
       const rejectedRow      = document.getElementById('stat-revenueRejectedRow');
       const unclassifiedRow  = document.getElementById('stat-revenueUnclassifiedRow');
@@ -698,6 +711,54 @@
       notesWrap.classList.toggle('hidden', !hasExcluded && !hasRejected && !hasUnclassified);
     } catch {
       showToast('Failed to load statistics.', 'error');
+    }
+  }
+
+  // ── Manual revenue subtraction ──────────────────────────────────────────
+  // Reduces Revenue ONLY (never touches Pending Revenue). Useful for
+  // correcting a mistake or writing off a chargeback.
+  async function subtractRevenuePrompt() {
+    const amountStr = prompt('How much should be subtracted from Revenue? (numbers only, ETB)');
+    if (amountStr === null) return;
+    const amount = Number(amountStr);
+    if (!amount || isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid positive amount.', 'error');
+      return;
+    }
+    const reason = prompt('Reason (optional, for your own records):') || '';
+    if (!confirm(`Subtract ${amount} ETB from Revenue? This cannot be undone from here.`)) return;
+
+    try {
+      const { ok, data } = await api('manage-revenue', { token: adminToken, action: 'subtract', amount, reason });
+      if (ok && data.success) {
+        showToast(data.message || 'Subtracted from revenue.', 'success');
+        loadStats();
+      } else {
+        showToast(data.error || 'Could not subtract from revenue.', 'error');
+      }
+    } catch {
+      showToast('Network error — please try again.', 'error');
+    }
+  }
+
+  // ── Reset Revenue & Pending Revenue ─────────────────────────────────────
+  // Does NOT delete any payment, refund, or notification history — it just
+  // stamps a reset time so every revenue figure starts counting from zero
+  // going forward, and closes out any currently-open pending balances.
+  async function resetRevenuePrompt() {
+    if (!confirm('This will reset BOTH Revenue and Pending Revenue to zero, starting fresh from right now. Existing payment/refund history is kept, just no longer counted. This cannot be undone. Continue?')) return;
+    if (!confirm('Are you absolutely sure? Type OK again to confirm the reset.')) return;
+
+    try {
+      const { ok, data } = await api('manage-revenue', { token: adminToken, action: 'reset' });
+      if (ok && data.success) {
+        showToast(data.message || 'Revenue and Pending Revenue have been reset.', 'success');
+        loadStats();
+      } else {
+        showToast(data.error || 'Could not reset revenue.', 'error');
+      }
+    } catch {
+      showToast('Network error — please try again.', 'error');
     }
   }
 
