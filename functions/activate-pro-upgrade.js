@@ -20,16 +20,28 @@
 // Any leftover after Pro's own price (amount - 79) is reported back
 // so the app can offer Refund/Tip for the remainder.
 //
-// ── REVENUE MODEL (UPDATED) ──────────────────────────────────────────────
+// ── REVENUE MODEL ──────────────────────────────────────────────────────
 // Basic's tier price (49) was already counted as revenue at verification
-// time (admin-verify.js). The excess above that (e.g. 51 for a 100 ETB
-// payment) has been sitting in `pending_revenue`, NOT counted as revenue.
-// Upgrading to Pro "spends" part of that pending balance — specifically
-// (79 - 49) = 30 — to reach Pro's tier price. That 30 is now real revenue
-// (written to `revenue_events`, summed by admin-stats.js) and is removed
-// from the pending_revenue balance. Whatever remains (leftover, e.g. 21)
-// stays in pending_revenue exactly as before, still awaiting a
-// refund/tip/decision from the user.
+// time. The excess above that has been sitting in `pending_revenue`, NOT
+// counted as revenue. Upgrading to Pro "spends" part of that pending
+// balance — (79 - 49) = 30 — to reach Pro's tier price. That 30 becomes
+// real revenue (written to `revenue_events`) and is removed from the
+// pending balance. Whatever remains (leftover) stays in `pending_revenue`,
+// still awaiting a refund/tip decision.
+//
+// ── FIX ───────────────────────────────────────────────────────────────
+// The pending_revenue doc for the original excess was created tied to the
+// notificationId of the ORIGINAL verify notification. This function writes
+// a BRAND NEW notification for the upgrade result (with its own new id),
+// which is the one the app actually shows Tip/Refund buttons on. The
+// pending_revenue doc's `notificationId` was previously left pointing at
+// the old, now-irrelevant notification — so tip-payment.js could never
+// find it (Tip always failed with "couldn't find or already resolved"),
+// and manage-refunds.js's 'complete' action could never find it either
+// (the refund itself still worked and notified the user, but Pending
+// Revenue was never actually decremented). Fixed by re-tagging the pending
+// doc with the NEW notification's id whenever leftover remains, so every
+// later action (tip, refund) correctly finds and resolves it.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -146,7 +158,10 @@ exports.handler = async (event, context) => {
 
     // Move `usedForUpgrade` out of pending_revenue and into revenue_events.
     // Whatever's left in the pending doc (should equal `leftover`) stays
-    // pending, untouched, for a future refund/tip decision.
+    // pending — and is now RE-TAGGED with the new notification's id, so
+    // it can actually be found by tip-payment.js / manage-refunds.js when
+    // the user acts on THIS notification (the old one it was tied to no
+    // longer has any buttons pointing at it).
     const pendingDoc = await pendingRevenueCol.findOne({
       verifiedPaymentId: verifiedDoc._id.toString(),
       sourceType:        'verified_excess',
@@ -154,10 +169,17 @@ exports.handler = async (event, context) => {
     });
     if (pendingDoc) {
       const remaining = Math.round((pendingDoc.amount - usedForUpgrade) * 100) / 100;
-      await pendingRevenueCol.updateOne(
-        { _id: pendingDoc._id },
-        { $set: { amount: Math.max(0, remaining), status: remaining > 0 ? 'pending' : 'resolved', updatedAt: new Date() } }
-      );
+      if (remaining > 0) {
+        await pendingRevenueCol.updateOne(
+          { _id: pendingDoc._id },
+          { $set: { amount: remaining, notificationId: notifId, status: 'pending', updatedAt: new Date() } }
+        );
+      } else {
+        await pendingRevenueCol.updateOne(
+          { _id: pendingDoc._id },
+          { $set: { amount: 0, status: 'resolved', updatedAt: new Date() } }
+        );
+      }
     }
     if (usedForUpgrade > 0) {
       await revenueEventsCol.insertOne({
@@ -181,8 +203,7 @@ exports.handler = async (event, context) => {
       refundAmount:    leftover,
       // Points refund/tip requests back at the ORIGINAL verified payment
       // (its _id doesn't change on upgrade), so they can be correctly
-      // linked to the pending_revenue balance and matched to the right
-      // sourceType for revenue accounting.
+      // linked to the right sourceType for revenue accounting.
       verifiedPaymentId: verifiedDoc._id.toString(),
       expiry:          planExpiry,
       resolvedBy:      'system_auto'
