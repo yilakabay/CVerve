@@ -3683,17 +3683,20 @@
             const activeSidebar = document.getElementById(sidebarIdFor[section]);
             if (activeSidebar) activeSidebar.classList.add('active');
 
-            // Bottom nav now doubles as the only navigation needed while inside the
-            // account or notifications panel — no back chevron required.
+            // Tapping the Home icon should always land on Home directly, no
+            // matter how deep the user is (a notification thread is two
+            // levels deep: tab -> notifications list -> thread). Previously
+            // this only unwound ONE level via history.back(), so from a
+            // thread it landed on the notifications list instead of Home.
             if (section === 'home') {
-                if (AppNav.level === 'overlay' || AppNav.level === 'thread') {
-                    AppNav.closeOverlayToHome(); // triggers popstate → one step back (thread→list, or list/account→tab)
-                    return;
-                }
                 const acc = document.getElementById('accountFullPage');
                 const nt  = document.getElementById('notificationFullPage');
                 if (acc) acc.classList.remove('open');
                 if (nt)  nt.classList.remove('open');
+                if (AppNav.level === 'overlay' || AppNav.level === 'thread') {
+                    localStorage.removeItem('cv_activeOverlay');
+                    switchTab(AppNav.lastMainTab || 'findjob'); // pushes a fresh 'tab' history state via AppNav.goToTab
+                }
             }
         }
 
