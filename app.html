@@ -3629,8 +3629,14 @@
         }
 
         window.switchTab = (tabName, silent) => {
-            // CV tab (contact-us placeholder) and Find Job tab (free job feed + gated
-            // Smart Finder sub-tab) are both freely accessible — no plan gate on entry.
+            // CV tab now redirects to its own dedicated page (cv.html) instead of
+            // showing an in-app placeholder. cv.html itself gates access while
+            // the feature is in development (see CV_DEV_ALLOWED_USER_ID there
+            // and in cv-chat.js) — everyone else sees a "coming soon" screen.
+            if (tabName === 'cv') {
+                window.location.href = 'cv.html';
+                return;
+            }
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             const content = document.getElementById(tabName + '-content');
             if (content) content.classList.remove('hidden');
