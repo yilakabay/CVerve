@@ -49,16 +49,16 @@
   html.dark body { background:#1e1e21; }
   #chatLog { scroll-behavior: smooth; }
   .msg-bubble { max-width: 82%; }
-  .typing-dot { animation: blink 1.2s infinite; }
-  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
   #cropperOverlay { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:200; display:none; align-items:center; justify-content:center; flex-direction:column; }
   #cropCanvas { touch-action:none; background:#111; border-radius:8px; }
 
-  /* Thinking indicator: draws the real brand logo outline, then erases it,
-     on a loop — same technique app.html uses for its loading animation. */
-  .logo-draw-path {
+  /* Brand logo mark — solid fill normally; switches to a self-drawing
+     outline while CVCase is thinking, via the .thinking class toggle. */
+  .logo-mark path { fill: #0088CC; stroke: none; transition: fill 0.2s; }
+  .logo-mark.thinking path {
+    fill: none;
+    stroke: #0088CC;
+    stroke-width: 6;
     stroke-dasharray: var(--logo-draw-len, 3000);
     stroke-dashoffset: var(--logo-draw-len, 3000);
     animation: logoDrawEraseCv 1.8s cubic-bezier(0.4,0,0.6,1) infinite;
@@ -163,33 +163,56 @@
   let photoBase64 = null;        // cropped circular photo, once confirmed
   let cropSourceImage = null;
   let cropZoom = 1, cropOffsetX = 0, cropOffsetY = 0, cropDragging = false, cropLastX = 0, cropLastY = 0;
-  let lastLogoMarkEl = null; // the logo mark lives only on the most recent finished reply
+  let lastLogoMarkEl = null; // the ONE logo element — moved and re-animated, never recreated
 
-  // Real brand logo (same shapes as app.html's loading animation), drawn as
-  // an outline stroke that traces itself in a loop while CVCase is
-  // "thinking" — replaces the plain three-dot indicator.
-  const LOGO_DRAW_SVG = `<svg viewBox="278 288 562 342" style="width:28px;height:auto;display:block;">
-    <path class="logo-draw-path" d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="none" stroke="#0088CC" stroke-width="6"/>
-    <path class="logo-draw-path" d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="none" stroke="#0088CC" stroke-width="6"/>
+  // Single brand mark used for BOTH states: solid (sitting under the latest
+  // finished reply) and animated (drawing itself while CVCase "thinks").
+  // Sending a new message pulls this same element down to the bottom of
+  // the chat and switches it into its drawing animation; when the reply
+  // arrives, it settles back to solid, right under the new reply.
+  const LOGO_MARK_SVG = `<svg class="logo-mark" viewBox="278 288 562 342" style="width:28px;height:auto;display:block;">
+    <path class="logo-mark-path" d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z"/>
+    <path class="logo-mark-path" d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z"/>
   </svg>`;
 
-  // Small static brand mark shown once, left-aligned, right after each
-  // finished assistant reply — not repeated as a persistent bar element.
-  const STATIC_LOGO_SVG = `<svg viewBox="278 288 562 342" style="width:28px;height:auto;display:block;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>`;
+  // Creates the single logo mark element the first time it's needed.
+  function ensureLogoMarkEl() {
+    if (lastLogoMarkEl) return lastLogoMarkEl;
+    const mark = document.createElement('div');
+    mark.className = 'flex justify-start mt-1 mb-1';
+    mark.innerHTML = LOGO_MARK_SVG;
+    lastLogoMarkEl = mark;
+    return mark;
+  }
+
+  // Moves the logo mark to the bottom of the chat (pulling it down past
+  // whatever was just sent) and switches it into the drawing animation.
+  function pullLogoDownAndAnimate() {
+    const log = document.getElementById('chatLog');
+    const mark = ensureLogoMarkEl();
+    log.appendChild(mark); // appendChild on an existing node MOVES it
+    mark.querySelector('.logo-mark').classList.add('thinking');
+    initLogoDrawLength();
+    scrollChatToBottom();
+  }
+
+  // Reply has arrived — stop the animation so the mark settles back to solid.
+  function settleLogoMark() {
+    if (lastLogoMarkEl) lastLogoMarkEl.querySelector('.logo-mark').classList.remove('thinking');
+  }
 
   // Measure the real path length once so the dash animation traces the
-  // exact outline instead of a rough guess.
+  // exact outline instead of a rough guess (only needs to run once ever).
+  let logoDrawLenSet = false;
   function initLogoDrawLength() {
-    const p = document.querySelector('.logo-draw-path');
+    if (logoDrawLenSet) return;
+    const p = document.querySelector('.logo-mark-path');
     if (p) {
       const len = p.getTotalLength();
       document.documentElement.style.setProperty('--logo-draw-len', len + 'px');
-    } else {
-      // No instance in the DOM yet (nothing has "thought" so far) — try again shortly.
-      setTimeout(initLogoDrawLength, 300);
+      logoDrawLenSet = true;
     }
   }
-  initLogoDrawLength();
 
   function scrollChatToBottom() {
     const log = document.getElementById('chatLog');
@@ -203,7 +226,7 @@
     el.style.height = el.scrollHeight + 'px';
   }
 
-  function addBubble(role, text, isTyping) {
+  function addBubble(role, text) {
     const log = document.getElementById('chatLog');
     const wrap = document.createElement('div');
 
@@ -217,36 +240,17 @@
       wrap.appendChild(box);
     } else {
       // Claude-style: assistant turns are plain text, flush to the left
-      // edge, full width — no avatar repeated per message. A small brand
-      // mark sits below the text once the reply is finished (left-aligned,
-      // not centered) — the "signature" for that reply.
-      wrap.className = 'flex flex-col items-start';
+      // edge, full width — no avatar repeated per message.
+      wrap.className = 'flex items-start';
       const textEl = document.createElement('div');
       textEl.className = 'text-[15px] leading-relaxed text-gray-800 dark:text-gray-100 whitespace-pre-wrap w-full';
-      if (isTyping) {
-        textEl.innerHTML = LOGO_DRAW_SVG;
-        textEl.id = 'typingBubble';
-      } else {
-        textEl.textContent = text;
-        wrap.appendChild(textEl);
-        if (lastLogoMarkEl) lastLogoMarkEl.remove(); // only the latest reply keeps the mark
-        const mark = document.createElement('div');
-        mark.className = 'mt-2';
-        mark.innerHTML = STATIC_LOGO_SVG;
-        wrap.appendChild(mark);
-        lastLogoMarkEl = mark;
-      }
-      if (isTyping) wrap.appendChild(textEl);
+      textEl.textContent = text;
+      wrap.appendChild(textEl);
     }
 
     log.appendChild(wrap);
     scrollChatToBottom();
     return wrap;
-  }
-
-  function removeTypingBubble() {
-    const el = document.getElementById('typingBubble');
-    if (el) el.closest('.flex').remove();
   }
 
   // ── File handling ─────────────────────────────────────────────────────
@@ -379,7 +383,7 @@
     renderPendingFiles();
 
     document.getElementById('sendBtn').disabled = true;
-    addBubble('assistant', '', true);
+    pullLogoDownAndAnimate();
 
     try {
       const res = await fetch('/.netlify/functions/cv-chat', {
@@ -394,7 +398,7 @@
         })
       });
       const data = await res.json();
-      removeTypingBubble();
+      settleLogoMark();
 
       if (!res.ok || !data.success) {
         addBubble('assistant', 'Sorry, something went wrong: ' + (data.error || 'unknown error'));
@@ -408,7 +412,7 @@
       if (data.finalPdfBase64) showPdfBar(data.finalPdfBase64, 'Your CV is ready 🎉', 'cv_final.pdf');
 
     } catch (e) {
-      removeTypingBubble();
+      settleLogoMark();
       addBubble('assistant', 'Network error — please check your connection and try again.');
     } finally {
       document.getElementById('sendBtn').disabled = false;
