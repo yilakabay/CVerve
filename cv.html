@@ -249,6 +249,11 @@
     }
 
     log.appendChild(wrap);
+    // The logo mark (if it already exists from a previous turn) was moved
+    // to the bottom BEFORE this reply arrived (see pullLogoDownAndAnimate),
+    // so it's currently sitting above the text we just added. Move it
+    // again now so it settles back below the newest reply, where it belongs.
+    if (role === 'assistant' && lastLogoMarkEl) log.appendChild(lastLogoMarkEl);
     scrollChatToBottom();
     return wrap;
   }
