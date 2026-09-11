@@ -84,7 +84,7 @@
   </div>
 
   <!-- ── Chat log ────────────────────────────────────────────────────── -->
-  <div id="chatLog" class="flex-1 overflow-y-auto px-4 py-4 space-y-3"></div>
+  <div id="chatLog" class="flex-1 overflow-y-auto px-4 py-6 space-y-6 max-w-2xl w-full mx-auto"></div>
 
   <!-- ── PDF preview strip (shown once a preview/final PDF exists) ──── -->
   <div id="pdfPreviewBar" class="hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 flex items-center gap-3">
@@ -94,19 +94,21 @@
   </div>
 
   <!-- ── Composer ────────────────────────────────────────────────────── -->
-  <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2.5 flex-shrink-0">
-    <div id="pendingFilesRow" class="hidden flex-wrap gap-2 mb-2"></div>
-    <div class="flex items-end gap-2">
-      <button onclick="document.getElementById('fileInput').click()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200" title="Attach document or photo">
-        <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+  <div class="bg-white dark:bg-gray-900 px-3 pb-3 pt-2 flex-shrink-0">
+    <div class="max-w-2xl w-full mx-auto">
+    <div id="pendingFilesRow" class="hidden flex-wrap gap-2 mb-2 px-1"></div>
+    <div class="flex items-end gap-2 border border-gray-200 dark:border-gray-700 rounded-3xl px-2 py-2 bg-white dark:bg-gray-800 shadow-sm focus-within:border-indigo-300">
+      <button onclick="document.getElementById('fileInput').click()" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" title="Attach document or photo" aria-label="Attach">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
       </button>
       <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf" multiple onchange="handleFilesSelected(event)">
       <textarea id="composerInput" rows="1" placeholder="Message CVCase…"
-        class="flex-1 resize-none border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        class="flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm focus:outline-none dark:text-gray-100"
         onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendMessage();}"></textarea>
-      <button onclick="sendMessage()" id="sendBtn" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40" title="Send">
-        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2.94 2.94a1.5 1.5 0 011.66-.32l13 5.5a1.5 1.5 0 010 2.76l-13 5.5A1.5 1.5 0 012 14.94l1.2-4.8a1 1 0 01.8-.75L9 9l-5-.4a1 1 0 01-.8-.75L2 2.94z"/></svg>
+      <button onclick="sendMessage()" id="sendBtn" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Send" aria-label="Send">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
       </button>
+    </div>
     </div>
   </div>
 
@@ -154,17 +156,34 @@
   function addBubble(role, text, isTyping) {
     const log = document.getElementById('chatLog');
     const wrap = document.createElement('div');
-    wrap.className = 'flex ' + (role === 'user' ? 'justify-end' : 'justify-start');
-    const bubble = document.createElement('div');
-    bubble.className = 'msg-bubble rounded-2xl px-4 py-2.5 text-sm leading-relaxed ' +
-      (role === 'user' ? 'bg-indigo-600 text-white rounded-br-md' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-100 rounded-bl-md');
-    if (isTyping) {
-      bubble.innerHTML = '<span class="typing-dot">●</span> <span class="typing-dot">●</span> <span class="typing-dot">●</span>';
-      bubble.id = 'typingBubble';
+
+    if (role === 'user') {
+      // Claude-style: user turns are a light, right-aligned rounded block —
+      // not a big colored "chat bubble".
+      wrap.className = 'flex justify-end';
+      const box = document.createElement('div');
+      box.className = 'msg-bubble bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap';
+      box.textContent = text;
+      wrap.appendChild(box);
     } else {
-      bubble.textContent = text;
+      // Claude-style: assistant turns are plain text, full width, no bubble
+      // background — just a small avatar and the message.
+      wrap.className = 'flex gap-3 items-start';
+      const avatar = document.createElement('div');
+      avatar.className = 'w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5';
+      avatar.textContent = 'CV';
+      const textEl = document.createElement('div');
+      textEl.className = 'text-[15px] leading-relaxed text-gray-800 dark:text-gray-100 whitespace-pre-wrap pt-0.5';
+      if (isTyping) {
+        textEl.innerHTML = '<span class="typing-dot">●</span> <span class="typing-dot">●</span> <span class="typing-dot">●</span>';
+        textEl.id = 'typingBubble';
+      } else {
+        textEl.textContent = text;
+      }
+      wrap.appendChild(avatar);
+      wrap.appendChild(textEl);
     }
-    wrap.appendChild(bubble);
+
     log.appendChild(wrap);
     scrollChatToBottom();
     return wrap;
