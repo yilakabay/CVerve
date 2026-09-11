@@ -251,6 +251,49 @@
   }
   setInterval(refreshAllTimestamps, 30000); // labels like "1 minute ago" stay accurate over time
 
+  // Small icon buttons shown under every message: copy (always active) and
+  // retry (wired up afterward via setRetryHandler, since it needs to know
+  // which "turn" — i.e. which original user input — to resend).
+  const COPY_ICON = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></svg>';
+  const COPIED_ICON = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+  const RETRY_ICON = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+
+  function buildActionRow(text, align) {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 mt-1 ' + (align === 'end' ? 'justify-end mr-1' : 'ml-0.5');
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-200';
+    copyBtn.innerHTML = COPY_ICON;
+    copyBtn.title = 'Copy';
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.innerHTML = COPIED_ICON;
+        setTimeout(() => { copyBtn.innerHTML = COPY_ICON; }, 1500);
+      } catch (e) { /* clipboard unavailable — silently ignore */ }
+    };
+
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'retry-btn hidden w-6 h-6 items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-200';
+    retryBtn.innerHTML = RETRY_ICON;
+    retryBtn.title = 'Retry';
+
+    row.appendChild(copyBtn);
+    row.appendChild(retryBtn);
+    return row;
+  }
+
+  // Reveals and wires up the retry button on a message wrap created by addBubble.
+  function setRetryHandler(wrapEl, handler) {
+    if (!wrapEl) return;
+    const btn = wrapEl.querySelector('.retry-btn');
+    if (!btn) return;
+    btn.classList.remove('hidden');
+    btn.classList.add('flex');
+    btn.onclick = handler;
+  }
+
   function addBubble(role, text) {
     const log = document.getElementById('chatLog');
     const wrap = document.createElement('div');
@@ -264,11 +307,14 @@
       box.className = 'msg-bubble bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap';
       box.textContent = text;
       wrap.appendChild(box);
+      const metaRow = document.createElement('div');
+      metaRow.className = 'flex items-center gap-2';
       const ts = document.createElement('div');
       ts.className = 'msg-timestamp text-[11px] text-gray-400 mt-1 mr-1';
       ts.dataset.ts = String(now);
       ts.textContent = formatRelativeTime(now);
       wrap.appendChild(ts);
+      wrap.appendChild(buildActionRow(text, 'end'));
     } else {
       // Claude-style: assistant turns are plain text, flush to the left
       // edge, full width — no avatar repeated per message.
@@ -282,6 +328,7 @@
       ts.dataset.ts = String(now);
       ts.textContent = formatRelativeTime(now);
       wrap.appendChild(ts);
+      wrap.appendChild(buildActionRow(text, 'start'));
     }
 
     log.appendChild(wrap);
@@ -410,54 +457,91 @@
   }
 
   // ── Sending messages to cv-chat.js ──────────────────────────────────────
-  async function sendMessage() {
-    const input = document.getElementById('composerInput');
-    const text = input.value.trim();
-    if (!text && !pendingFiles.length) return;
+  // ── Turns — one per user input, so "Retry" can resend the EXACT same
+  // original input against the conversation state as it was BEFORE that
+  // turn, rather than guessing from whatever text is currently on screen.
+  let turns = [];
 
-    if (text) addBubble('user', text);
-    pendingFiles.forEach(f => addBubble('user', `📄 ${f.filename}`));
-    input.value = '';
-    input.style.height = 'auto';
-    const filesToSend = pendingFiles.slice();
-    pendingFiles = [];
-    renderPendingFiles();
-
-    document.getElementById('sendBtn').disabled = true;
+  async function performTurn(turn, idx) {
     pullLogoDownAndAnimate();
-
+    document.getElementById('sendBtn').disabled = true;
     try {
       const res = await fetch('/.netlify/functions/cv-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentUserId, // checked again server-side — see cv-chat.js
-          messages: conversationMessages,
-          newUserText: text || undefined,
-          newUserFiles: filesToSend.length ? filesToSend : undefined,
-          photoBase64: photoBase64 || undefined
+          messages: turn.beforeMessages,
+          newUserText: turn.userText || undefined,
+          newUserFiles: turn.userFiles && turn.userFiles.length ? turn.userFiles : undefined,
+          photoBase64: turn.photoBase64 || undefined
         })
       });
       const data = await res.json();
       settleLogoMark();
 
+      let replyWrap;
       if (!res.ok || !data.success) {
-        addBubble('assistant', 'Sorry, something went wrong: ' + (data.error || 'unknown error'));
-        return;
+        replyWrap = addBubble('assistant', 'Sorry, something went wrong: ' + (data.error || 'unknown error'));
+      } else {
+        conversationMessages = data.messages;
+        replyWrap = addBubble('assistant', data.reply || '(no reply)');
+        if (data.previewPdfBase64) showPdfBar(data.previewPdfBase64, 'Preview ready', 'cv_preview.pdf');
+        if (data.finalPdfBase64) showPdfBar(data.finalPdfBase64, 'Your CV is ready 🎉', 'cv_final.pdf');
       }
-
-      conversationMessages = data.messages;
-      addBubble('assistant', data.reply || '(no reply)');
-
-      if (data.previewPdfBase64) showPdfBar(data.previewPdfBase64, 'Preview ready', 'cv_preview.pdf');
-      if (data.finalPdfBase64) showPdfBar(data.finalPdfBase64, 'Your CV is ready 🎉', 'cv_final.pdf');
+      turn.assistantWrapEl = replyWrap;
+      setRetryHandler(replyWrap, () => retryTurn(idx));
 
     } catch (e) {
       settleLogoMark();
-      addBubble('assistant', 'Network error — please check your connection and try again.');
+      const replyWrap = addBubble('assistant', 'Network error — please check your connection and try again.');
+      turn.assistantWrapEl = replyWrap;
+      setRetryHandler(replyWrap, () => retryTurn(idx));
     } finally {
       document.getElementById('sendBtn').disabled = false;
     }
+  }
+
+  // Retrying ANY turn (the user's message or the assistant's reply — both
+  // buttons do the same thing) discards that reply and any later turns
+  // (their conversation state no longer applies, since we're rewinding to
+  // before this turn), then resends the exact same original input fresh.
+  async function retryTurn(idx) {
+    const turn = turns[idx];
+    if (!turn) return;
+    for (let i = turns.length - 1; i > idx; i--) {
+      if (turns[i].userWrapEl) turns[i].userWrapEl.remove();
+      if (turns[i].assistantWrapEl) turns[i].assistantWrapEl.remove();
+    }
+    turns.length = idx + 1;
+    if (turn.assistantWrapEl) { turn.assistantWrapEl.remove(); turn.assistantWrapEl = null; }
+    conversationMessages = turn.beforeMessages.slice();
+    await performTurn(turn, idx);
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('composerInput');
+    const text = input.value.trim();
+    if (!text && !pendingFiles.length) return;
+
+    const filesToSend = pendingFiles.slice();
+    const photoAtSend = photoBase64;
+    pendingFiles = [];
+    renderPendingFiles();
+    input.value = '';
+    input.style.height = 'auto';
+
+    const beforeMessages = conversationMessages.slice();
+    let userWrapEl = null;
+    if (text) userWrapEl = addBubble('user', text);
+    filesToSend.forEach(f => addBubble('user', `📄 ${f.filename}`));
+
+    const idx = turns.length;
+    const turn = { beforeMessages, userText: text, userFiles: filesToSend, photoBase64: photoAtSend, userWrapEl, assistantWrapEl: null };
+    turns.push(turn);
+    if (userWrapEl) setRetryHandler(userWrapEl, () => retryTurn(idx));
+
+    await performTurn(turn, idx);
   }
 
   function showPdfBar(base64, label, filename) {
