@@ -226,26 +226,62 @@
     el.style.height = el.scrollHeight + 'px';
   }
 
+  // Relative time labels ("Just now", "1 minute ago", "2 hours ago", ...)
+  // — never a real clock time/date, per spec.
+  function formatRelativeTime(ts) {
+    const diffMs = Date.now() - ts;
+    const sec = Math.floor(diffMs / 1000);
+    if (sec < 60) return 'Just now';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + ' minute' + (min > 1 ? 's' : '') + ' ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + ' hour' + (hr > 1 ? 's' : '') + ' ago';
+    const day = Math.floor(hr / 24);
+    if (day < 7) return day + ' day' + (day > 1 ? 's' : '') + ' ago';
+    if (day < 30) { const wk = Math.floor(day / 7); return wk + ' week' + (wk > 1 ? 's' : '') + ' ago'; }
+    if (day < 365) { const mo = Math.floor(day / 30); return mo + ' month' + (mo > 1 ? 's' : '') + ' ago'; }
+    const yr = Math.floor(day / 365);
+    return yr + ' year' + (yr > 1 ? 's' : '') + ' ago';
+  }
+
+  function refreshAllTimestamps() {
+    document.querySelectorAll('.msg-timestamp').forEach(el => {
+      el.textContent = formatRelativeTime(Number(el.dataset.ts));
+    });
+  }
+  setInterval(refreshAllTimestamps, 30000); // labels like "1 minute ago" stay accurate over time
+
   function addBubble(role, text) {
     const log = document.getElementById('chatLog');
     const wrap = document.createElement('div');
+    const now = Date.now();
 
     if (role === 'user') {
       // Claude-style: user turns are a light, right-aligned rounded block —
       // not a big colored "chat bubble".
-      wrap.className = 'flex justify-end';
+      wrap.className = 'flex flex-col items-end';
       const box = document.createElement('div');
       box.className = 'msg-bubble bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap';
       box.textContent = text;
       wrap.appendChild(box);
+      const ts = document.createElement('div');
+      ts.className = 'msg-timestamp text-[11px] text-gray-400 mt-1 mr-1';
+      ts.dataset.ts = String(now);
+      ts.textContent = formatRelativeTime(now);
+      wrap.appendChild(ts);
     } else {
       // Claude-style: assistant turns are plain text, flush to the left
       // edge, full width — no avatar repeated per message.
-      wrap.className = 'flex items-start';
+      wrap.className = 'flex flex-col items-start';
       const textEl = document.createElement('div');
       textEl.className = 'text-[15px] leading-relaxed text-gray-800 dark:text-gray-100 whitespace-pre-wrap w-full';
       textEl.textContent = text;
       wrap.appendChild(textEl);
+      const ts = document.createElement('div');
+      ts.className = 'msg-timestamp text-[11px] text-gray-400 mt-1 ml-0.5';
+      ts.dataset.ts = String(now);
+      ts.textContent = formatRelativeTime(now);
+      wrap.appendChild(ts);
     }
 
     log.appendChild(wrap);
