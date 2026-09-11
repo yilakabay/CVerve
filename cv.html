@@ -103,9 +103,11 @@
       </button>
       <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf" multiple onchange="handleFilesSelected(event)">
       <textarea id="composerInput" rows="1" placeholder="Message CVCase…"
-        class="flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm focus:outline-none dark:text-gray-100"
+        class="flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm focus:outline-none dark:text-gray-100 max-h-40 overflow-y-auto"
+        style="height:auto;"
+        oninput="autoGrowComposer(this)"
         onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendMessage();}"></textarea>
-      <button onclick="sendMessage()" id="sendBtn" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Send" aria-label="Send">
+      <button onclick="sendMessage()" id="sendBtn" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Send" aria-label="Send">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
       </button>
     </div>
@@ -151,6 +153,13 @@
   function scrollChatToBottom() {
     const log = document.getElementById('chatLog');
     log.scrollTop = log.scrollHeight;
+  }
+
+  // Textarea grows with content (up to max-h-40 set in its class) instead
+  // of clipping/hiding text on new lines.
+  function autoGrowComposer(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
   }
 
   function addBubble(role, text, isTyping) {
@@ -318,6 +327,7 @@
     if (text) addBubble('user', text);
     pendingFiles.forEach(f => addBubble('user', `📄 ${f.filename}`));
     input.value = '';
+    input.style.height = 'auto';
     const filesToSend = pendingFiles.slice();
     pendingFiles = [];
     renderPendingFiles();
