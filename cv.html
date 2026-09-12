@@ -308,7 +308,7 @@
 
       if (files && files.length) {
         const grid = document.createElement('div');
-        grid.className = 'grid grid-cols-2 gap-2 mb-2 justify-items-end';
+        grid.className = 'grid grid-cols-3 gap-2 mb-2 justify-items-end';
         files.forEach(entry => grid.appendChild(buildFileCard(entry, { removable: false, retryable: false })));
         wrap.appendChild(grid);
       }
@@ -417,12 +417,31 @@
     return '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path stroke-linecap="round" stroke-linejoin="round" d="M14 2v6h6"/></svg>';
   }
 
+  // Short label badge for the top-left corner of each card — PDF, JPG,
+  // PNG, DOC, etc., derived from the mime type / filename extension.
+  function fileTypeLabel(entry) {
+    const mt = entry.mediaType || '';
+    if (mt === 'application/pdf') return 'PDF';
+    if (mt.startsWith('image/')) {
+      const sub = mt.split('/')[1] || '';
+      if (sub) return sub.replace('jpeg', 'jpg').toUpperCase().slice(0, 4);
+      return 'IMG';
+    }
+    const ext = (entry.filename || '').split('.').pop();
+    return ext ? ext.toUpperCase().slice(0, 4) : 'DOC';
+  }
+
   // Builds one square file card — reused both for the composer's pending
   // row (with a remove button + retry-on-fail) and for the sent message's
   // static grid (no remove button, status frozen at whatever it was when sent).
   function buildFileCard(entry, opts = {}) {
     const card = document.createElement('div');
     card.className = 'relative w-20 h-20 flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex flex-col items-center justify-center gap-1 px-1.5 overflow-hidden';
+
+    const typeLabel = document.createElement('div');
+    typeLabel.className = 'absolute top-1 left-1 text-[8px] font-bold tracking-wide text-white bg-gray-500/80 dark:bg-gray-600/90 rounded px-1 py-0.5 leading-none z-10';
+    typeLabel.textContent = fileTypeLabel(entry);
+    card.appendChild(typeLabel);
 
     const iconWrap = document.createElement('div');
     iconWrap.className = entry.status === 'failed' ? 'text-red-400' : 'text-gray-400';
