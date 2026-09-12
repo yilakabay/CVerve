@@ -48,7 +48,7 @@ const CV_DEV_ALLOWED_USER_ID = '0985576139';
 const SYSTEM_PROMPT = `You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "Minimal / Scandinavian" template.
 
 ## Your job, step by step
-1. Greet the user briefly and ask them to describe themselves OR upload documents (certificates, transcripts, old CV) — either is fine. If they upload documents, you'll receive their extracted text as part of the conversation (already extracted for you — you do not need a tool for this in v1; just read the text you're given).
+1. Greet the user briefly and ask them to describe themselves OR upload documents (certificates, transcripts, old CV) — either is fine. If they upload documents (including image files — certificate photos, transcript scans, etc.), you'll receive their extracted text/content as part of the conversation already. IMPORTANT: any image the user sends BEFORE you've called request_photo_upload is a DOCUMENT to read for information, never a profile photo — do not treat it as one, and do not comment on it as if it were a photo.
 2. Build a content object matching this exact schema:
    {
      name, subtitle, contact: {phone,email,location},
@@ -63,18 +63,25 @@ const SYSTEM_PROMPT = `You are "CVCase", a friendly, efficient AI that builds a 
 4. Before you EVER tell the user their CV "fits" or "is too long", call check_template_fit with your current best content object. Trust ONLY its numbers — never estimate this yourself.
    - If it reports overflow: summarize what's over budget in plain terms, propose a SPECIFIC trim (what you'd cut/shorten and why), show the user a quick before/after, and only apply it after they're OK with it (or say "go ahead, you decide" — in which case proceed).
    - If it reports large underflow after all real content is gathered: that's fine, the renderer automatically spaces things out — you don't need to pad content just to fill space. Do not invent extra content purely to fill space.
-5. Once the user confirms the content looks right, call render_preview with the final content object and tell the user a preview is ready.
-6. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph).
-7. When the user is happy, call finalize_pdf with the final content object and let them know their CV is ready to download.
+5. Once the user explicitly confirms the ORGANIZED CONTENT looks right (text/sections, not the visual PDF yet), call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step — the app only shows the photo-cropping frame after you call this tool, so asking sooner would confuse the user (they'd attach an image and nothing special would happen). If the user has no photo or doesn't want one, that's fine — proceed without it.
+6. Once you have the photo (or the user said to skip it), call render_preview with the final content object and tell the user a preview is ready.
+7. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph).
+8. When the user is happy, call finalize_pdf with the final content object and let them know their CV is ready to download.
 
 ## Hard rules
 - Never call render_preview or finalize_pdf without having called check_template_fit at least once on that same content first, unless the content is trivially short (e.g. a one-field edit unrelated to length).
 - Never state a fit/overflow judgment without a check_template_fit tool result to back it up.
 - Never invent specific factual claims (employers, dates, grades, certificate names). Only ever suggest generic, clearly-labeled filler for skills or soft-skill phrasing.
 - Keep messages short and conversational — this is a chat, not a form.
-- The user's photo is handled entirely by the app's own cropping UI, not by you — never ask the user to describe or upload a photo yourself; if photoBase64 is present in context, just pass it through in the content object unchanged.`;
+- Never ask the user for their photo, and never assume an uploaded image is a photo, until AFTER you've called request_photo_upload (step 5). Before that point, treat every image as a document to read. The app's photo-cropping frame ONLY appears right after that tool call — asking earlier or treating an earlier image as a photo will not work as the user expects.
+- If photoBase64 is present in context, just pass it through in the content object unchanged — you never process or edit the photo yourself.`;
 
 const TOOLS = [
+  {
+    name: 'request_photo_upload',
+    description: 'Call this ONLY once the user has explicitly confirmed the organized CV content (sections/text) looks right, and you are ready to ask them for their profile photo. Calling this tells the app to show the photo-cropping frame the next time the user attaches an image — before this call, any image the user sends is treated as a document, not a photo. Takes no meaningful input.',
+    input_schema: { type: 'object', properties: {} }
+  },
   {
     name: 'check_template_fit',
     description: 'Runs the REAL layout measurement for the Minimal CV template against a candidate content object. Returns exact per-section line counts, and whether the content fits one page (overflowLines/underflowLines). Always call this before judging fit or before rendering.',
@@ -106,6 +113,12 @@ const TOOLS = [
 
 function executeTool(name, input) {
   try {
+    if (name === 'request_photo_upload') {
+      // No real work to do — this tool exists purely as a signal. Its
+      // occurrence in the tool-call stream is detected in the handler
+      // below and turned into `awaitingPhoto: true` for the client.
+      return { ok: true, message: 'The app will now show the photo-cropping frame the next time the user attaches an image.' };
+    }
     if (name === 'check_template_fit') {
       const result = cvTemplate.measure(input.content || {});
       return { ok: true, result };
@@ -187,6 +200,7 @@ exports.handler = async (event, context) => {
 
   let previewPdfBase64 = null;
   let finalPdfBase64 = null;
+  let awaitingPhoto = false;
 
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
@@ -194,12 +208,14 @@ exports.handler = async (event, context) => {
       messages.push({ role: 'assistant', content: data.content });
 
       const toolUses = data.content.filter(b => b.type === 'tool_use');
+      if (toolUses.some(tu => tu.name === 'request_photo_upload')) awaitingPhoto = true;
+
       if (toolUses.length === 0) {
         // Plain text turn — done for this round.
         const text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: text, messages, previewPdfBase64, finalPdfBase64 })
+          body: JSON.stringify({ success: true, reply: text, messages, previewPdfBase64, finalPdfBase64, awaitingPhoto })
         };
       }
 
@@ -229,7 +245,7 @@ exports.handler = async (event, context) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, previewPdfBase64, finalPdfBase64 })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, previewPdfBase64, finalPdfBase64, awaitingPhoto })
     };
 
   } catch (error) {
