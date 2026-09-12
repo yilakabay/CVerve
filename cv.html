@@ -350,15 +350,27 @@
     });
   }
 
+  // Set to true only when CVCase calls request_photo_upload (after the user
+  // has approved the organized CV content). Until then, ANY image the user
+  // attaches (a certificate photo, a transcript scan, etc.) must be treated
+  // as a document, not a profile photo — opening the crop frame for those
+  // would be confusing and wrong.
+  let awaitingPhotoUpload = false;
+
   async function handleFilesSelected(event) {
     const files = Array.from(event.target.files || []);
     for (const file of files) {
-      if (file.type.startsWith('image/')) {
-        // Any image attached is treated as a potential profile photo — open
-        // the cropper sized to the Minimal template's exact circle so what
-        // the user frames is a 1:1 match, no AI reinterpretation involved.
+      if (file.type.startsWith('image/') && awaitingPhotoUpload) {
+        // CVCase just asked for the photo — open the cropper sized to the
+        // Minimal template's exact circle so what the user frames is a 1:1
+        // match, no AI reinterpretation involved. Only one photo is needed,
+        // so turn the flag back off once this happens.
+        awaitingPhotoUpload = false;
         openCropper(file);
       } else {
+        // Either a non-image document, OR an image sent before CVCase asked
+        // for a photo — in both cases, send it as a document for CVCase to
+        // read (certificates/transcripts are very often photos too).
         const base64 = await fileToBase64(file);
         pendingFiles.push({ filename: file.name, mediaType: file.type || 'application/pdf', base64 });
         renderPendingFiles();
@@ -453,6 +465,7 @@
   function cancelCrop() {
     document.getElementById('cropperOverlay').style.display = 'none';
     cropSourceImage = null;
+    awaitingPhotoUpload = true; // let them try attaching a photo again
   }
 
   // ── Sending messages to cv-chat.js ──────────────────────────────────────
@@ -485,6 +498,7 @@
       } else {
         conversationMessages = data.messages;
         replyWrap = addBubble('assistant', data.reply || '(no reply)');
+        if (data.awaitingPhoto) awaitingPhotoUpload = true;
         if (data.previewPdfBase64) showPdfBar(data.previewPdfBase64, 'Preview ready', 'cv_preview.pdf');
         if (data.finalPdfBase64) showPdfBar(data.finalPdfBase64, 'Your CV is ready 🎉', 'cv_final.pdf');
       }
