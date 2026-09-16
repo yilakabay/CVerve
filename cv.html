@@ -763,15 +763,18 @@
     if (session.titleManual) return;
     for (let i = session.messages.length - 1; i >= 0; i--) {
       const msg = session.messages[i];
-      if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
-      for (const block of msg.content) {
-        if (block.type === 'tool_use' && block.input && block.input.content && block.input.content.name) {
-          const firstName = String(block.input.content.name).trim().split(/\s+/)[0];
-          if (firstName) {
-            session.title = firstName + ' - CV (' + TEMPLATE_NAME + ')';
-            return;
+      if (msg.role !== 'assistant' || !Array.isArray(msg.tool_calls)) continue;
+      for (const tc of msg.tool_calls) {
+        try {
+          const args = JSON.parse(tc.function.arguments || '{}');
+          if (args.content && args.content.name) {
+            const firstName = String(args.content.name).trim().split(/\s+/)[0];
+            if (firstName) {
+              session.title = firstName + ' - CV (' + TEMPLATE_NAME + ')';
+              return;
+            }
           }
-        }
+        } catch (e) { /* malformed arguments — skip */ }
       }
     }
   }
