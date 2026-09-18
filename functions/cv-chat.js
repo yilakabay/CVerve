@@ -51,7 +51,23 @@
 // render_preview, or finalize_pdf is called — the model just needs to
 // build the rest of the content object; the photo is handled for it.
 
-const cvTemplate = require('./lib/cv-template-minimal');
+// ── Template registry ──────────────────────────────────────────────────
+// Each entry maps a templateId (chosen by the user in the gallery, sent by
+// the client with every request) to its measure()/render() module. Adding
+// a new template later is just one more line here plus a new lib file.
+const TEMPLATES = {
+  minimal:          { name: 'Minimal / Scandinavian', mod: require('./lib/cv-template-minimal') },
+  'navy-sidebar':   { name: 'Navy Sidebar',            mod: require('./lib/cv-template-navy-sidebar') },
+  'gold-header':    { name: 'Corporate Minimal Gold',  mod: require('./lib/cv-template-gold-header') },
+  'teal-gold':      { name: 'Teal & Gold',             mod: require('./lib/cv-template-teal-gold') },
+  'copper-diagonal':{ name: 'Diagonal Navy & Copper',  mod: require('./lib/cv-template-copper-diagonal') },
+  'emerald-hex':    { name: 'Emerald & Gold Hexagon',  mod: require('./lib/cv-template-emerald-hex') }
+};
+const DEFAULT_TEMPLATE_ID = 'minimal';
+
+function resolveTemplate(templateId) {
+  return TEMPLATES[templateId] || TEMPLATES[DEFAULT_TEMPLATE_ID];
+}
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -67,7 +83,8 @@ const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop
 // bypassed, so the server must independently refuse everyone else here.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
-const SYSTEM_PROMPT = `You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "Minimal / Scandinavian" template.
+function buildSystemPrompt(templateName) {
+  return `You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "${templateName}" template — this is the ONE template for this whole conversation; the user already picked it in the gallery before you started talking, so never ask them to choose a template again.
 
 ## Your job, step by step
 1. Greet the user briefly and ask them to describe themselves OR upload documents (certificates, transcripts, old CV) — either is fine. Any document or image the user attaches has ALREADY been read for you and appears in the conversation as extracted text labelled with its filename — read that text as the source of information, you never see the raw file yourself.
@@ -97,6 +114,7 @@ const SYSTEM_PROMPT = `You are "CVCase", a friendly, efficient AI that builds a 
 - Keep messages short and conversational — this is a chat, not a form.
 - Never ask the user for their photo, and never treat an uploaded document's extracted text as a description of a "photo" — until AFTER you've called request_photo_upload (step 5), any attachment is a document to read for information.
 - You never need to include a photoBase64 field — the app handles the photo automatically when rendering.`;
+}
 
 // OpenAI-style function-calling schema (DeepSeek is OpenAI-API-compatible).
 const TOOLS = [
@@ -170,17 +188,18 @@ function withPhoto(content, latestPhotoBase64) {
   return merged;
 }
 
-async function callTool(name, args, latestPhotoBase64) {
+async function callTool(name, args, latestPhotoBase64, templateId) {
   try {
+    const template = resolveTemplate(templateId).mod;
     if (name === 'request_photo_upload') {
       return { ok: true, message: 'The app will now show the photo-cropping frame the next time the user attaches an image.' };
     }
     if (name === 'check_template_fit') {
-      const result = cvTemplate.measure(withPhoto(args.content, latestPhotoBase64));
+      const result = template.measure(withPhoto(args.content, latestPhotoBase64));
       return { ok: true, result };
     }
     if (name === 'render_preview' || name === 'finalize_pdf') {
-      const buf = await cvTemplate.render(withPhoto(args.content, latestPhotoBase64));
+      const buf = await template.render(withPhoto(args.content, latestPhotoBase64));
       return { ok: true, pdfBase64: buf.toString('base64'), kind: name === 'finalize_pdf' ? 'final' : 'preview' };
     }
     return { ok: false, error: 'Unknown tool: ' + name };
@@ -225,10 +244,11 @@ exports.handler = async (event, context) => {
     return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
   }
 
-  let { messages, newUserText, newUserFiles, photoBase64 } = body;
+  let { messages, newUserText, newUserFiles, photoBase64, templateId } = body;
+  const template = resolveTemplate(templateId);
   messages = Array.isArray(messages) ? messages.slice() : [];
   if (!messages.length || messages[0].role !== 'system') {
-    messages.unshift({ role: 'system', content: SYSTEM_PROMPT });
+    messages.unshift({ role: 'system', content: buildSystemPrompt(template.name) });
   }
 
   // Any attached file is read via Gemini FIRST (DeepSeek is text-only) and
@@ -267,7 +287,7 @@ exports.handler = async (event, context) => {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
 
-        const result = await callTool(tc.function.name, args, photoBase64);
+        const result = await callTool(tc.function.name, args, photoBase64, templateId);
         let toolContent;
         if (result && result.pdfBase64) {
           if (result.kind === 'final') finalPdfBase64 = result.pdfBase64;
