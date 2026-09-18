@@ -50,6 +50,18 @@
 // it into content.photoBase64 itself, every time check_template_fit,
 // render_preview, or finalize_pdf is called — the model just needs to
 // build the rest of the content object; the photo is handled for it.
+//
+// ── FIX: file delivery inside the Telegram Mini App ──────────────────────
+// Telegram's in-app browser has no filesystem access at all — a blob: URL
+// or <a download> silently does nothing there. So the moment
+// render_preview/finalize_pdf produce a PDF buffer, this file now pushes
+// it straight into the user's Telegram chat as a real document via the
+// bot (same sendDocument logic send-telegram-file.js uses, shared from
+// lib/telegram-send.js). The base64 is still also returned to the client
+// so the in-app chat log can show a card for it — but the actual, reliable
+// delivery path is the Telegram push, not the in-app Open/Download links.
+// A failed push (e.g. Telegram not linked yet) is non-fatal: the
+// conversation continues either way.
 
 // ── Template registry ──────────────────────────────────────────────────
 // Each entry maps a templateId (chosen by the user in the gallery, sent by
@@ -69,6 +81,7 @@ function resolveTemplate(templateId) {
   return TEMPLATES[templateId] || TEMPLATES[DEFAULT_TEMPLATE_ID];
 }
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { sendPdfDocument } = require('./lib/telegram-send');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
@@ -103,9 +116,9 @@ function buildSystemPrompt(templateName) {
    - If it reports overflow: summarize what's over budget in plain terms, propose a SPECIFIC trim (what you'd cut/shorten and why), show the user a quick before/after, and only apply it after they're OK with it (or say "go ahead, you decide" — in which case proceed).
    - If it reports large underflow after all real content is gathered: that's fine, the renderer automatically spaces things out — you don't need to pad content just to fill space. Do not invent extra content purely to fill space.
 5. Once the user explicitly confirms the ORGANIZED CONTENT looks right (text/sections, not the visual PDF yet), call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step — the app only shows the photo-cropping frame after you call this tool, so asking sooner would confuse the user. If the user has no photo or doesn't want one, that's fine — proceed without it.
-6. Once the user has attached a photo (or said to skip it), call render_preview with the final content object and tell the user a preview is ready. You do NOT need to include a photo field yourself — the app attaches the user's photo automatically whenever you render; just build the rest of the content.
+6. Once the user has attached a photo (or said to skip it), call render_preview with the final content object and tell the user a preview is ready — it will be sent to them as a file in this Telegram chat. You do NOT need to include a photo field yourself — the app attaches the user's photo automatically whenever you render; just build the rest of the content.
 7. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph).
-8. When the user is happy, call finalize_pdf with the final content object and let them know their CV is ready to download.
+8. When the user is happy, call finalize_pdf with the final content object and let them know their finished CV has been sent to them as a file in this chat.
 
 ## Hard rules
 - Never call render_preview or finalize_pdf without having called check_template_fit at least once on that same content first, unless the content is trivially short (e.g. a one-field edit unrelated to length).
@@ -113,7 +126,8 @@ function buildSystemPrompt(templateName) {
 - Never invent specific factual claims (employers, dates, grades, certificate names). Only ever suggest generic, clearly-labeled filler for skills or soft-skill phrasing.
 - Keep messages short and conversational — this is a chat, not a form.
 - Never ask the user for their photo, and never treat an uploaded document's extracted text as a description of a "photo" — until AFTER you've called request_photo_upload (step 5), any attachment is a document to read for information.
-- You never need to include a photoBase64 field — the app handles the photo automatically when rendering.`;
+- You never need to include a photoBase64 field — the app handles the photo automatically when rendering.
+- The PDF is delivered to the user as a real file message in this Telegram chat, not as an in-app download link — always phrase it that way ("I've sent it to you here in the chat"), never "click download" or "open the link".`;
 }
 
 // OpenAI-style function-calling schema (DeepSeek is OpenAI-API-compatible).
@@ -142,7 +156,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'render_preview',
-      description: 'Renders the current content object into an actual PDF for the user to look at (not yet final). The app shows this to the user directly — you do not need to include a photo field.',
+      description: 'Renders the current content object into an actual PDF and delivers it to the user as a file message in this Telegram chat (not an in-app download link). Not yet final.',
       parameters: {
         type: 'object',
         properties: { content: { type: 'object' } },
@@ -154,7 +168,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'finalize_pdf',
-      description: 'Renders the FINAL, user-approved CV as a downloadable PDF. Only call this after the user has confirmed they are happy with a preview.',
+      description: 'Renders the FINAL, user-approved CV and delivers it to the user as a file message in this Telegram chat (not an in-app download link). Only call this after the user has confirmed they are happy with a preview.',
       parameters: {
         type: 'object',
         properties: { content: { type: 'object' } },
@@ -188,7 +202,7 @@ function withPhoto(content, latestPhotoBase64) {
   return merged;
 }
 
-async function callTool(name, args, latestPhotoBase64, templateId) {
+async function callTool(name, args, latestPhotoBase64, templateId, userId) {
   try {
     const template = resolveTemplate(templateId).mod;
     if (name === 'request_photo_upload') {
@@ -200,7 +214,15 @@ async function callTool(name, args, latestPhotoBase64, templateId) {
     }
     if (name === 'render_preview' || name === 'finalize_pdf') {
       const buf = await template.render(withPhoto(args.content, latestPhotoBase64));
-      return { ok: true, pdfBase64: buf.toString('base64'), kind: name === 'finalize_pdf' ? 'final' : 'preview' };
+      const kind = name === 'finalize_pdf' ? 'final' : 'preview';
+      const filename = kind === 'final' ? 'CV_Final.pdf' : 'CV_Preview.pdf';
+      const caption = kind === 'final' ? 'Your finished CV 🎉' : 'CV preview';
+
+      // The actual delivery path — see the FIX note at the top of this file.
+      const tgResult = await sendPdfDocument({ userId, fileBuffer: buf, filename, caption });
+      if (!tgResult.ok) console.error('cv-chat: failed to deliver PDF via Telegram:', tgResult.error);
+
+      return { ok: true, pdfBase64: buf.toString('base64'), kind, telegramDelivered: tgResult.ok };
     }
     return { ok: false, error: 'Unknown tool: ' + name };
   } catch (e) {
@@ -264,6 +286,7 @@ exports.handler = async (event, context) => {
 
   let previewPdfBase64 = null;
   let finalPdfBase64 = null;
+  let telegramDelivered = null; // null = no PDF rendered this turn; true/false once one is
   let awaitingPhoto = false;
 
   try {
@@ -279,7 +302,7 @@ exports.handler = async (event, context) => {
       if (toolCalls.length === 0) {
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content || '', messages, previewPdfBase64, finalPdfBase64, awaitingPhoto })
+          body: JSON.stringify({ success: true, reply: msg.content || '', messages, previewPdfBase64, finalPdfBase64, telegramDelivered, awaitingPhoto })
         };
       }
 
@@ -287,14 +310,18 @@ exports.handler = async (event, context) => {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
 
-        const result = await callTool(tc.function.name, args, photoBase64, templateId);
+        const result = await callTool(tc.function.name, args, photoBase64, templateId, body.userId);
         let toolContent;
         if (result && result.pdfBase64) {
           if (result.kind === 'final') finalPdfBase64 = result.pdfBase64;
           else previewPdfBase64 = result.pdfBase64;
+          telegramDelivered = !!result.telegramDelivered;
           // Don't send the full PDF back into the model's context — just
           // confirm success, to avoid burning tokens on binary data.
-          toolContent = JSON.stringify({ ok: result.ok, kind: result.kind, message: result.ok ? 'Rendered successfully. It has been shown to the user already — do not re-describe the raw PDF, just comment on it conversationally.' : result.error });
+          const deliveryNote = result.telegramDelivered
+            ? "It has already been sent to the user as a file in this Telegram chat — do not re-describe the raw PDF, just comment on it conversationally and tell them to check the chat for the file."
+            : "The file could NOT be delivered to the user's Telegram chat automatically (Telegram may not be linked yet). Let the user know their CV was generated but couldn't be delivered, and suggest they link their Telegram account with the bot, then ask you to render again.";
+          toolContent = JSON.stringify({ ok: result.ok, kind: result.kind, message: result.ok ? deliveryNote : result.error });
         } else {
           toolContent = JSON.stringify(result);
         }
@@ -305,7 +332,7 @@ exports.handler = async (event, context) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, previewPdfBase64, finalPdfBase64, awaitingPhoto })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, previewPdfBase64, finalPdfBase64, telegramDelivered, awaitingPhoto })
     };
 
   } catch (error) {
