@@ -1,0 +1,270 @@
+// functions/lib/cv-template-navy-sidebar.js
+//
+// "Navy Sidebar" CV template — ported from the original ReportLab (Python)
+// design: a full-height navy left sidebar (contact, education, skills,
+// languages), a circular photo crossing a horizontal navy accent bar, and
+// a white content column (profile, experience, achievement, certification,
+// reference). Same measure()/render() contract as every other template in
+// this project — see cv-template-minimal.js for the full explanation of
+// why these two functions must share their measurement logic exactly.
+
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+
+const PAGE_W = 595.28, PAGE_H = 841.89;
+
+const NAVY = '#1A3560', CONTENT_BG = '#EEF2F7', LIGHT_BLUE = '#8AB4D8';
+const BODY_GRAY = '#364457', WHITE = '#FFFFFF', BULLET_BLUE = '#6AAEE0';
+
+const SIDEBAR_W = 217.44, SIDEBAR_MARGIN = 38.9, SIDEBAR_TEXT_W = 158.0;
+const SIDEBAR_INDENT2 = 55.1, BULLET_DOT_DX = 3.2, BULLET_TEXT_DX = 9.7;
+const CONTENT_LEFT = SIDEBAR_W + 24.0;
+const CONTENT_RIGHT = PAGE_W - 24.0;
+const CONTENT_W = CONTENT_RIGHT - CONTENT_LEFT;
+const AVAILABLE_BOTTOM = PAGE_H - 30;
+
+function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
+  const sections = [];
+  function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
+
+  if (draw) {
+    doc.rect(0, 0, PAGE_W, PAGE_H).fill(CONTENT_BG);
+    doc.rect(0, 0, SIDEBAR_W, PAGE_H).fill(NAVY);
+  }
+
+  const cx = 113.9, cyTop = 121.3, r = 70.7;
+  const BAR_H = 26.0;
+  if (draw) {
+    doc.rect(0, cyTop - BAR_H / 2, PAGE_W, BAR_H).fill(NAVY);
+    if (content.photoBase64) {
+      try {
+        const buf = Buffer.from(content.photoBase64, 'base64');
+        doc.save();
+        doc.circle(cx, cyTop, r + 5).fill(WHITE);
+        doc.circle(cx, cyTop, r).clip();
+        doc.image(buf, cx - r, cyTop - r, { width: r * 2, height: r * 2, cover: [r * 2, r * 2] });
+        doc.restore();
+      } catch (e) { console.error('navy-sidebar photo error:', e.message); }
+    } else {
+      doc.circle(cx, cyTop, r + 5).fill(WHITE);
+      doc.circle(cx, cyTop, r).fill('#D5D9E0');
+    }
+  }
+
+  function sidebarHeading(label, yTop) {
+    if (!draw) return;
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(LIGHT_BLUE);
+    doc.text(label, SIDEBAR_MARGIN, yTop, { lineBreak: false });
+    doc.strokeColor(LIGHT_BLUE).lineWidth(0.75)
+      .moveTo(SIDEBAR_MARGIN, yTop + 16.5).lineTo(SIDEBAR_MARGIN + SIDEBAR_TEXT_W, yTop + 16.5).stroke();
+  }
+  function sidebarText(text, yTop, opts = {}) {
+    if (!draw) return;
+    doc.font(opts.font || 'Helvetica-Bold').fontSize(opts.size || 10.5).fillColor(opts.color || WHITE);
+    doc.text(text, opts.x ?? SIDEBAR_MARGIN, yTop, { lineBreak: false });
+  }
+
+  sidebarHeading('CONTACT', 225.7);
+  sidebarText(content.contact?.phone || '', 252.4);
+  sidebarText(content.contact?.email || '', 273.6);
+  sidebarText(content.contact?.location || '', 295.2);
+
+  sidebarHeading('EDUCATION', 329.8);
+  const eduList = normalizeEducation(content.education);
+  let eduY = 355.0;
+  eduList.slice(0, 2).forEach((edu, i) => {
+    const label = edu.level || (i === 0 ? 'HIGHER EDUCATION' : 'SECONDARY EDUCATION');
+    sidebarText(`${label} ${edu.dateRange || ''}`, eduY, { font: 'Helvetica-Bold', size: 9, color: LIGHT_BLUE });
+    eduY += 15.5;
+    const schoolLines = wrapLines(doc, (edu.school || '').toUpperCase(), 'Helvetica-Bold', 10.5, SIDEBAR_TEXT_W);
+    schoolLines.forEach(ln => { sidebarText(ln, eduY, { size: 10.5 }); eduY += 13; });
+    if (edu.degree) {
+      const lines = draw ? wrapLines(doc, edu.degree, 'Helvetica', 9.5, SIDEBAR_TEXT_W - (SIDEBAR_INDENT2 - SIDEBAR_MARGIN)) : [edu.degree];
+      lines.forEach(ln => { sidebarText(ln, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 13; });
+    }
+    if (edu.extra) { sidebarText(edu.extra, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 15; }
+    eduY += 10;
+  });
+  const eduEnd = eduY - 10;
+
+  const SECTION_GAP = 16.6 + stretchPerGap;
+  const skillsHeadingTop = eduEnd + SECTION_GAP;
+  sidebarHeading('SKILLS', skillsHeadingTop);
+
+  const textW = SIDEBAR_TEXT_W - BULLET_TEXT_DX;
+  let cursor = skillsHeadingTop + 28.8;
+  let skillLines = 0;
+  (content.skills || []).forEach(skill => {
+    const lines = wrapLines(doc, skill, 'Helvetica', 10, textW);
+    if (draw) {
+      doc.fillColor(BULLET_BLUE).circle(SIDEBAR_MARGIN + BULLET_DOT_DX, cursor + 10 * 0.72, 1.6).fill();
+      doc.font('Helvetica').fontSize(10).fillColor(WHITE);
+      lines.forEach(ln => { doc.text(ln, SIDEBAR_MARGIN + BULLET_TEXT_DX, cursor, { lineBreak: false }); cursor += 12.0; });
+    } else {
+      cursor += lines.length * 12.0;
+    }
+    cursor += 4.5;
+    skillLines += lines.length;
+  });
+  const skillsEnd = cursor - 4.5;
+  track('skills', skillLines, (content.skills || []).length > 0);
+
+  const langHeadingTop = skillsEnd + SECTION_GAP;
+  sidebarHeading('LANGUAGES', langHeadingTop);
+  (content.languages || []).slice(0, 2).forEach((l, i) => {
+    sidebarText(`${l.name}     (${l.level})`, langHeadingTop + 26.0 + i * 13.6, { font: 'Helvetica', size: 10 });
+  });
+
+  function contentHeading(label, yTop) {
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(NAVY);
+      doc.text(label, CONTENT_LEFT, yTop, { lineBreak: false });
+      doc.strokeColor(NAVY).lineWidth(1).moveTo(CONTENT_LEFT, yTop + 17).lineTo(CONTENT_RIGHT, yTop + 17).stroke();
+    }
+    return yTop + 24;
+  }
+  function contentParagraph(text, yTop, opts = {}) {
+    const size = opts.size || 10, leading = opts.leading || 14.2;
+    const lines = wrapLines(doc, text, 'Helvetica', size, opts.width || CONTENT_W);
+    if (draw) {
+      doc.font('Helvetica').fontSize(size).fillColor(opts.color || BODY_GRAY);
+      let cur = yTop;
+      lines.forEach(ln => { doc.text(ln, opts.x ?? CONTENT_LEFT, cur, { lineBreak: false }); cur += leading; });
+    }
+    return { y: yTop + lines.length * leading, lines: lines.length };
+  }
+  function contentBullets(items, yTop, opts = {}) {
+    const size = opts.size || 10, leading = opts.leading || 14.2, indent = opts.indent ?? 14;
+    let cur = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, item, 'Helvetica', size, CONTENT_W - indent);
+      if (draw) {
+        doc.fillColor(NAVY).circle(CONTENT_LEFT + 4, cur + size * 0.72, 1.8).fill();
+        doc.font('Helvetica').fontSize(size).fillColor(BODY_GRAY);
+        let ly = cur;
+        lines.forEach(ln => { doc.text(ln, CONTENT_LEFT + indent, ly, { lineBreak: false }); ly += leading; });
+      }
+      cur += lines.length * leading + 3.5;
+      total += lines.length;
+    });
+    return { y: cur, lines: total };
+  }
+
+  if (draw) {
+    const whiteCenter = (SIDEBAR_W + PAGE_W) / 2;
+    doc.font('Helvetica-Bold').fontSize(28).fillColor(NAVY);
+    const nameW = doc.widthOfString((content.name || '').toUpperCase());
+    doc.text((content.name || '').toUpperCase(), whiteCenter - nameW / 2, 81.4, { lineBreak: false });
+    doc.font('Helvetica').fontSize(10.5).fillColor(WHITE);
+    const subtitle = (content.subtitle || '').split('').join(' ').toUpperCase();
+    const subW = doc.widthOfString(subtitle);
+    doc.text(subtitle, whiteCenter - subW / 2, cyTop + 3.7, { lineBreak: false });
+  }
+
+  let y = 160.2;
+  const GAP_SECTION = 9 + stretchPerGap;
+
+  if (content.profile) {
+    y = contentHeading('PROFILE', y);
+    const r1 = contentParagraph(content.profile, y);
+    track('profile', r1.lines, true);
+    y = r1.y;
+  } else track('profile', 0, false);
+
+  if (content.experience && content.experience.length) {
+    y = contentHeading('EXPERIENCE', y + GAP_SECTION);
+    let linesUsed = 0;
+    content.experience.forEach(exp => {
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
+        doc.text(exp.org || '', CONTENT_LEFT, y + 1, { lineBreak: false });
+        doc.font('Helvetica-Oblique').fontSize(10).fillColor(LIGHT_BLUE);
+        const dw = doc.widthOfString(exp.dateRange || '');
+        doc.text(exp.dateRange || '', CONTENT_RIGHT - dw, y + 1, { lineBreak: false });
+      }
+      y += 16.5;
+      if (draw) {
+        doc.font('Helvetica-Oblique').fontSize(10).fillColor(BODY_GRAY);
+        doc.text(exp.role || '', CONTENT_LEFT, y, { lineBreak: false });
+      }
+      y += 15.5;
+      const r2 = contentBullets(exp.bullets || [], y);
+      linesUsed += 3 + r2.lines;
+      y = r2.y;
+    });
+    track('experience', linesUsed, true);
+  } else track('experience', 0, false);
+
+  if (content.achievements && content.achievements.length) {
+    y = contentHeading('ACHIEVEMENT', y + GAP_SECTION);
+    const r3 = contentBullets(content.achievements, y);
+    track('achievements', r3.lines, true);
+    y = r3.y;
+  } else track('achievements', 0, false);
+
+  if (content.certifications && content.certifications.length) {
+    y = contentHeading('CERTIFICATION AND RECOGNITION', y + GAP_SECTION);
+    let linesUsed = 0;
+    content.certifications.forEach((cert, i) => {
+      const bodyLines = wrapLines(doc, `${cert.title} | ${cert.issuer}`, 'Helvetica', 10, CONTENT_W - 16);
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(NAVY);
+        doc.text(`${i + 1}.`, CONTENT_LEFT, y, { lineBreak: false });
+        let cy2 = y;
+        bodyLines.forEach(ln => { doc.font('Helvetica').fontSize(10).fillColor(BODY_GRAY); doc.text(ln, CONTENT_LEFT + 16, cy2, { lineBreak: false }); cy2 += 14.2; });
+        y = cy2 + 4;
+      } else {
+        y += bodyLines.length * 14.2 + 4;
+      }
+      linesUsed += bodyLines.length;
+    });
+    track('certifications', linesUsed, true);
+  } else track('certifications', 0, false);
+
+  if (content.reference && content.reference.name) {
+    y = contentHeading('REFERENCE', y + GAP_SECTION);
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
+      doc.text(content.reference.name, CONTENT_LEFT, y + 1, { lineBreak: false });
+      doc.font('Helvetica').fontSize(10).fillColor(BODY_GRAY);
+      doc.text(content.reference.role || '', CONTENT_LEFT, y + 18, { lineBreak: false });
+      doc.text(`Email: ${content.reference.email || ''}`, CONTENT_LEFT, y + 35.5, { lineBreak: false });
+      doc.text(`Phone: ${content.reference.phone || ''}`, CONTENT_LEFT, y + 50, { lineBreak: false });
+    }
+    track('reference', 4, true);
+    y += 64;
+  } else track('reference', 0, false);
+
+  return { finalY: y, sections };
+}
+
+function measure(content) {
+  const doc = measureDoc();
+  const { finalY, sections } = layout(doc, content, { draw: false });
+  const available = AVAILABLE_BOTTOM;
+  const overflowPt = Math.max(0, finalY - available);
+  const underflowPt = Math.max(0, available - finalY);
+  return {
+    fits: overflowPt === 0,
+    finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 14.2),
+    underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 14.2),
+    sections
+  };
+}
+
+function render(content) {
+  const m = measure(content);
+  const presentSections = m.sections.filter(s => s.present).length;
+  const numGaps = Math.max(1, presentSections);
+  const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
+
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
+  const chunks = [];
+  doc.on('data', c => chunks.push(c));
+  const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  layout(doc, content, { draw: true, stretchPerGap });
+  doc.end();
+  return done;
+}
+
+module.exports = { measure, render, PAGE_W, PAGE_H };
