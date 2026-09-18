@@ -42,6 +42,17 @@
 
 const PDFDocument = require('pdfkit');
 
+// Accepts education as EITHER the old single-object shape
+// { degree, school, extra } OR the newer array shape
+// [{ dateRange, school, degree, extra }, ...] (first entry = higher
+// education, used for this template's single meta-row slot). Always
+// returns an array so every template can rely on one shape internally.
+function normalizeEducation(education) {
+  if (!education) return [];
+  if (Array.isArray(education)) return education;
+  return [education];
+}
+
 const PAGE_W = 595.28; // A4 in points
 const PAGE_H = 841.89;
 
@@ -158,9 +169,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   metaLine(content.contact?.location || '', col1, META_TOP + 41, { color: BODY_GRY });
 
   metaLabel('Education', col2, META_TOP);
-  metaLine(content.education?.degree || '', col2, META_TOP + 15);
-  metaLine(content.education?.school || '', col2, META_TOP + 28, { color: BODY_GRY });
-  metaLine(content.education?.extra || '', col2, META_TOP + 41, { color: BODY_GRY });
+  const eduList = normalizeEducation(content.education);
+  const edu0 = eduList[0] || {};
+  metaLine(edu0.degree || '', col2, META_TOP + 15);
+  metaLine(edu0.school || '', col2, META_TOP + 28, { color: BODY_GRY });
+  metaLine(edu0.extra || '', col2, META_TOP + 41, { color: BODY_GRY });
 
   metaLabel('Languages', col3, META_TOP);
   (content.languages || []).slice(0, 2).forEach((l, i) => {
