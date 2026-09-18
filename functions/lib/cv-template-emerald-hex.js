@@ -1,0 +1,315 @@
+// functions/lib/cv-template-emerald-hex.js
+//
+// "Emerald & Gold Hexagon" CV template — ported from the original
+// ReportLab design: an emerald sidebar, a dark-emerald header with a
+// diagonal cream cut and decorative hexagons, a hexagon-framed photo, and
+// a timeline-styled experience section. Same measure()/render() contract
+// as every other template.
+
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+
+const PAGE_W = 595.28, PAGE_H = 841.89;
+const EMERALD = '#0D5447', EM_DARK = '#082E25', EM_MID = '#155B4E';
+const CREAM = '#FAF2E0', GOLD = '#D1A633', GOLD_LT = '#F5E8B8';
+const BODY = '#2E3339', MID = '#7A828C', WHITE = '#FFFFFF';
+
+const HEADER_H = 185.0, SIDEBAR_W = 205.0, L_PAD = 20.0;
+const R_START = SIDEBAR_W + 20.0, R_END = PAGE_W - 18.0, RIGHT_W = R_END - R_START;
+const PHOTO_R = 58.0;
+const AVAILABLE_BOTTOM = PAGE_H - 30;
+
+function hexPoints(cx, cy, r) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const ang = (Math.PI / 180) * (60 * i - 30);
+    pts.push([cx + r * Math.cos(ang), cy + r * Math.sin(ang)]);
+  }
+  return pts;
+}
+function hexagon(doc, cx, cy, r, color) {
+  doc.polygon(...hexPoints(cx, cy, r)).fill(color);
+}
+
+function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
+  const sections = [];
+  function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
+
+  if (draw) {
+    doc.rect(0, 0, PAGE_W, PAGE_H).fill(CREAM);
+    doc.rect(0, 0, SIDEBAR_W, PAGE_H).fill(EMERALD);
+    doc.rect(0, 0, PAGE_W, HEADER_H).fill(EM_DARK);
+    doc.polygon([SIDEBAR_W, 0], [PAGE_W, 55], [PAGE_W, 0]).fill(CREAM);
+    doc.rect(0, 0, SIDEBAR_W, HEADER_H).fill(EMERALD);
+    doc.polygon([SIDEBAR_W, 0], [SIDEBAR_W + 6, 0], [PAGE_W, 59], [PAGE_W, 65]).fill(GOLD);
+
+    hexagon(doc, PAGE_W - 38, 28, 22, EM_MID);
+    hexagon(doc, PAGE_W - 22, 54, 14, EMERALD);
+    hexagon(doc, PAGE_W - 58, 52, 12, '#0F6154');
+
+    const photoCx = SIDEBAR_W / 2, photoCy = HEADER_H / 2 - 4;
+    hexagon(doc, photoCx, photoCy, PHOTO_R + 10, GOLD);
+    hexagon(doc, photoCx, photoCy, PHOTO_R + 6, WHITE);
+    if (content.photoBase64) {
+      try {
+        const buf = Buffer.from(content.photoBase64, 'base64');
+        doc.save();
+        doc.circle(photoCx, photoCy, PHOTO_R).clip();
+        doc.image(buf, photoCx - PHOTO_R, photoCy - PHOTO_R, { width: PHOTO_R * 2, height: PHOTO_R * 2, cover: [PHOTO_R * 2, PHOTO_R * 2] });
+        doc.restore();
+      } catch (e) { console.error('emerald-hex photo error:', e.message); }
+    } else {
+      doc.fillColor('#D5D9E0').circle(photoCx, photoCy, PHOTO_R).fill();
+    }
+
+    const hx = SIDEBAR_W + 24;
+    doc.font('Helvetica-Bold').fontSize(32).fillColor(WHITE);
+    doc.text((content.name || '').toUpperCase(), hx, 24, { lineBreak: false });
+    doc.strokeColor(GOLD).lineWidth(2).moveTo(hx, 64).lineTo(PAGE_W - 80, 64).stroke();
+    doc.font('Helvetica').fontSize(10.5).fillColor(GOLD_LT);
+    doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), hx, 74, { lineBreak: false });
+
+    let cx = hx, cy2 = 98;
+    doc.font('Helvetica').fontSize(8.5);
+    [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
+      const tw = doc.widthOfString(txt);
+      hexagon(doc, cx + 4, cy2 - 2, 3.5, GOLD);
+      doc.fillColor(WHITE).text(txt, cx + 12, cy2 - 5, { lineBreak: false });
+      cx += tw + 24;
+    });
+  }
+
+  function lsec(label, yTop) {
+    if (draw) {
+      hexagon(doc, L_PAD + 4, yTop + 5, 5, GOLD);
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(WHITE);
+      doc.text(label, L_PAD + 14, yTop + 1, { lineBreak: false });
+      doc.strokeColor(GOLD).lineWidth(0.8).moveTo(L_PAD, yTop + 14).lineTo(SIDEBAR_W - L_PAD, yTop + 14).stroke();
+    }
+    return yTop + 22;
+  }
+  function lbold(text, yTop) {
+    const size = 9;
+    const lines = wrapLines(doc, text, 'Helvetica-Bold', size, SIDEBAR_W - L_PAD * 2);
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(size).fillColor(WHITE);
+      let cur = yTop;
+      lines.forEach(ln => { doc.text(ln, L_PAD, cur, { lineBreak: false }); cur += size * 1.4; });
+    }
+    return yTop + lines.length * size * 1.4;
+  }
+  function lnorm(text, yTop, indent = 0) {
+    const size = 8.5;
+    const lines = wrapLines(doc, text, 'Helvetica', size, SIDEBAR_W - L_PAD * 2 - indent);
+    if (draw) {
+      doc.font('Helvetica').fontSize(size).fillColor(GOLD_LT);
+      let cur = yTop;
+      lines.forEach(ln => { doc.text(ln, L_PAD + indent, cur, { lineBreak: false }); cur += size * 1.4; });
+    }
+    return yTop + lines.length * size * 1.4;
+  }
+
+  let y = HEADER_H + 16;
+  y = lsec('EDUCATION', y) + 2;
+  const eduList = normalizeEducation(content.education);
+  eduList.slice(0, 2).forEach(edu => {
+    if (draw) { doc.font('Helvetica-Bold').fontSize(8).fillColor(GOLD); doc.text(edu.dateRange || '', L_PAD, y + 7, { lineBreak: false }); }
+    y += 12;
+    y = lbold((edu.school || '').toUpperCase(), y);
+    if (edu.degree) y = lnorm(edu.degree, y, 6);
+    if (edu.extra) y = lnorm(edu.extra, y, 6);
+    y += 10;
+  });
+  y += 4;
+
+  y = lsec('SKILLS', y) + 4;
+  let skillLines = 0;
+  (content.skills || []).forEach(sk => {
+    const lines = wrapLines(doc, sk, 'Helvetica', 8.8, SIDEBAR_W - L_PAD * 2 - 12);
+    if (draw) {
+      hexagon(doc, L_PAD + 4, y + 5, 3, GOLD);
+      doc.font('Helvetica').fontSize(8.8).fillColor(WHITE);
+      let cur = y;
+      lines.forEach(ln => { doc.text(ln, L_PAD + 13, cur, { lineBreak: false }); cur += 12.5; });
+      y = cur;
+    } else { y += lines.length * 12.5; }
+    y += 2;
+    skillLines += lines.length;
+  });
+  track('skills', skillLines, (content.skills || []).length > 0);
+  y += 8 + stretchPerGap;
+
+  y = lsec('LANGUAGES', y) + 4;
+  (content.languages || []).forEach((l, i) => {
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(WHITE);
+      doc.text(l.name, L_PAD, y + 7.5, { lineBreak: false });
+      const lw = doc.widthOfString(l.name);
+      doc.font('Helvetica').fontSize(8).fillColor(GOLD_LT);
+      doc.text(`(${l.level})`, L_PAD + lw + 5, y + 7, { lineBreak: false });
+    }
+    y += 13;
+    const fillPct = i === 0 ? 1.0 : 0.75;
+    if (draw) {
+      const bw = SIDEBAR_W - L_PAD * 2;
+      doc.roundedRect(L_PAD, y + 5, bw, 5.5, 2.5).fill('#0A3F35');
+      doc.roundedRect(L_PAD, y + 5, bw * fillPct, 5.5, 2.5).fill(GOLD);
+    }
+    y += 16;
+  });
+
+  function rsec(label, yTop) {
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(EMERALD);
+      doc.text(label, R_START, yTop + 1, { lineBreak: false });
+      doc.strokeColor(GOLD).lineWidth(1.5).moveTo(R_START, yTop + 14).lineTo(R_END, yTop + 14).stroke();
+    }
+    return yTop + 24;
+  }
+  function rpara(text, yTop, opts = {}) {
+    const size = opts.size || 9.5, leading = opts.leading || 14.5;
+    const lines = wrapLines(doc, text, 'Helvetica', size, RIGHT_W);
+    if (draw) {
+      doc.font('Helvetica').fontSize(size).fillColor(BODY);
+      let cur = yTop;
+      lines.forEach(ln => { doc.text(ln, R_START, cur, { lineBreak: false }); cur += leading; });
+    }
+    return { y: yTop + lines.length * leading, lines: lines.length };
+  }
+  function rbullets(items, yTop, opts = {}) {
+    const size = opts.size || 9.5, leading = opts.leading || 13.5;
+    let cur = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, item, 'Helvetica', size, RIGHT_W - 14);
+      if (draw) {
+        hexagon(doc, R_START + 4, cur + size * 0.35, 3.5, EMERALD);
+        doc.font('Helvetica').fontSize(size).fillColor(BODY);
+        let ly = cur;
+        lines.forEach(ln => { doc.text(ln, R_START + 14, ly, { lineBreak: false }); ly += leading; });
+      }
+      cur += lines.length * leading + 3.5;
+      total += lines.length;
+    });
+    return { y: cur, lines: total };
+  }
+
+  let ry = HEADER_H + 18;
+  const GS = stretchPerGap;
+
+  if (content.profile) {
+    ry = rsec('PROFILE', ry);
+    if (draw) doc.fillColor(EMERALD).rect(R_START - 8, ry - 2, 3, 54).fill();
+    const r = rpara(content.profile, ry);
+    track('profile', r.lines, true);
+    ry = r.y + 14 + GS;
+  } else track('profile', 0, false);
+
+  if (content.experience && content.experience.length) {
+    ry = rsec('EXPERIENCE', ry);
+    let linesUsed = 0;
+    content.experience.forEach(exp => {
+      if (draw) {
+        doc.fillColor(GOLD).circle(R_START - 3, ry + 9, 4.5).fill();
+        doc.strokeColor(GOLD).lineWidth(1).dash(2, { space: 3 }).moveTo(R_START - 3, ry + 14).lineTo(R_START - 3, ry + 50).stroke();
+        doc.undash();
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
+        doc.text(exp.org || '', R_START + 8, ry + 1, { lineBreak: false });
+        doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MID);
+        const dw = doc.widthOfString(exp.dateRange || '');
+        doc.text(exp.dateRange || '', R_END - dw, ry + 1, { lineBreak: false });
+      }
+      ry += 13;
+      if (draw) { doc.font('Helvetica-Oblique').fontSize(9).fillColor(GOLD); doc.text(exp.role || '', R_START + 8, ry, { lineBreak: false }); }
+      ry += 13;
+      const r2 = rbullets(exp.bullets || [], ry);
+      linesUsed += 2 + r2.lines;
+      ry = r2.y;
+    });
+    track('experience', linesUsed, true);
+    ry += 12 + GS;
+  } else track('experience', 0, false);
+
+  if (content.achievements && content.achievements.length) {
+    ry = rsec('ACHIEVEMENT', ry);
+    const r3 = rbullets(content.achievements, ry);
+    track('achievements', r3.lines, true);
+    ry = r3.y + 12 + GS;
+  } else track('achievements', 0, false);
+
+  if (content.certifications && content.certifications.length) {
+    ry = rsec('CERTIFICATIONS & RECOGNITION', ry);
+    let linesUsed = 0;
+    content.certifications.forEach((cert, i) => {
+      const full = `${cert.title} | ${cert.issuer}`;
+      const lines = wrapLines(doc, full, 'Helvetica', 9.5, RIGHT_W - 16);
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(GOLD);
+        doc.text(`${i + 1}.`, R_START, ry + 1, { lineBreak: false });
+        doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+        let ly = ry;
+        lines.forEach(ln => { doc.text(ln, R_START + 16, ly, { lineBreak: false }); ly += 13.5; });
+        ry = ly;
+      } else { ry += lines.length * 13.5; }
+      linesUsed += lines.length;
+      ry += 5;
+    });
+    track('certifications', linesUsed, true);
+    ry += 8 + GS;
+  } else track('certifications', 0, false);
+
+  if (content.reference && content.reference.name) {
+    ry = rsec('REFERENCE', ry);
+    if (draw) {
+      const cardH = 58;
+      doc.roundedRect(R_START - 8, ry - 4, RIGHT_W + 8, cardH + 4, 5).fill(WHITE);
+      doc.roundedRect(R_START - 8, ry - 4, RIGHT_W + 8, cardH + 4, 5).lineWidth(0.6).stroke(EMERALD);
+      doc.roundedRect(R_START - 8, ry - 4, 5, cardH + 4, 3).fill(EMERALD);
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
+      doc.text(content.reference.name, R_START + 4, ry + 1, { lineBreak: false });
+      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+      doc.text(content.reference.role || '', R_START + 4, ry + 15, { lineBreak: false });
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(EMERALD);
+      doc.text('Email:', R_START + 4, ry + 29, { lineBreak: false });
+      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+      doc.text(content.reference.email || '', R_START + 40, ry + 29, { lineBreak: false });
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(EMERALD);
+      doc.text('Phone:', R_START + 4, ry + 42, { lineBreak: false });
+      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+      doc.text(content.reference.phone || '', R_START + 42, ry + 42, { lineBreak: false });
+    }
+    track('reference', 4, true);
+    ry += 60;
+  } else track('reference', 0, false);
+
+  return { finalY: Math.max(y, ry), sections };
+}
+
+function measure(content) {
+  const doc = measureDoc();
+  const { finalY, sections } = layout(doc, content, { draw: false });
+  const available = AVAILABLE_BOTTOM;
+  const overflowPt = Math.max(0, finalY - available);
+  const underflowPt = Math.max(0, available - finalY);
+  return {
+    fits: overflowPt === 0, finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 13.5),
+    underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 13.5),
+    sections
+  };
+}
+
+function render(content) {
+  const m = measure(content);
+  const presentSections = m.sections.filter(s => s.present).length;
+  const numGaps = Math.max(1, presentSections);
+  const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
+
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
+  const chunks = [];
+  doc.on('data', c => chunks.push(c));
+  const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  layout(doc, content, { draw: true, stretchPerGap });
+  doc.end();
+  return done;
+}
+
+module.exports = { measure, render, PAGE_W, PAGE_H };
