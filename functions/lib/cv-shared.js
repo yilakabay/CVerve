@@ -173,9 +173,33 @@ function columnItems(doc, items, x, yTop, totalWidth, opts = {}) {
   return { y: yTop + rowCount * rowGap, rows: rowCount, lines: rowCount };
 }
 
+// ── Fit-recovery recommendation ──────────────────────────────────────────
+// Called ONLY when a template's most compact layout still overflows the
+// page (see each template's measure()). Picks the single most useful,
+// concrete thing to cut — the largest trimmable section — rather than a
+// vague "your CV is too long". This is what lets the AI give the user a
+// confident, specific recommendation ("cut ~2 lines from Experience — the
+// Beta Inc role has the longest bullets") instead of an open-ended
+// "what do you want to remove?" question.
+const TRIMMABLE_SECTIONS = ['experience', 'achievements', 'certifications', 'skills', 'profile'];
+
+function buildFitRecommendation(sections, overflowLines) {
+  const trimmable = (sections || [])
+    .filter(s => s.present && TRIMMABLE_SECTIONS.includes(s.name) && s.linesUsed > 0)
+    .sort((a, b) => b.linesUsed - a.linesUsed);
+
+  if (!trimmable.length) {
+    return `Content is about ${overflowLines} line(s) too long for one page, but there's no single large section to trim — consider shortening the profile summary or the longest bullet points across sections.`;
+  }
+  const target = trimmable[0];
+  const cutCount = Math.min(overflowLines, target.linesUsed);
+  return `Content is about ${overflowLines} line(s) too long for one page even after tightening the layout. The "${target.name}" section is the largest (${target.linesUsed} lines) — recommend cutting or shortening about ${cutCount} line(s) there, e.g. the least relevant bullet point or entry, rather than trimming a little from everywhere.`;
+}
+
 module.exports = {
   PDFDocument, measureDoc, wrapLines,
   normalizeEducation, normalizeReferences,
   proficiencyToFill,
-  flowItems, columnItems
+  flowItems, columnItems,
+  buildFitRecommendation
 };
