@@ -6,7 +6,7 @@
 // double ring, and a timeline-styled experience section on the right.
 // Same measure()/render() contract as every other template.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const NAVY = '#141F45', COPPER = '#BF6125', COPPER_LT = '#F5E1C7';
@@ -37,6 +37,10 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.text((content.subtitle || '').toUpperCase(), hx, 62, { lineBreak: false });
     doc.strokeColor(COPPER).lineWidth(0.8).moveTo(hx, 78).lineTo(R_END, 78).stroke();
 
+    // Contact row: any missing field (phone/email/location) is simply
+    // absent from content.contact, so .filter(Boolean) already drops it
+    // and no orphan label/icon is drawn for it. Nothing else to do here —
+    // this already flexes to however many of the 3 the user actually has.
     let cx = hx, rowY = 90;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
@@ -121,8 +125,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   track('skills', skillLines, (content.skills || []).length > 0);
   y += 8 + stretchPerGap;
 
+  // Languages: bars are keyed off each language's OWN proficiency label
+  // (via proficiencyToFill), never off array position. This also already
+  // flexes to any number of languages — no hardcoded cap, no slice(0, N).
   y = lsection('LANGUAGES', y) + 4;
-  (content.languages || []).forEach((l, i) => {
+  (content.languages || []).forEach((l) => {
     if (draw) {
       doc.font('Helvetica-Bold').fontSize(9).fillColor(WHITE);
       doc.text(l.name, L_PAD, y + 7.5, { lineBreak: false });
@@ -131,7 +138,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       doc.text(`(${l.level})`, L_PAD + lw + 4, y + 7, { lineBreak: false });
     }
     y += 13;
-    const fillPct = i === 0 ? 1.0 : 0.75;
+    const fillPct = proficiencyToFill(l.level);
     if (draw) {
       const bw = SIDEBAR_W - L_PAD * 2;
       doc.roundedRect(L_PAD, y + 4.5, bw, 5, 2.5).fill('#293D67');
@@ -241,27 +248,45 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     ry += 8 + GS;
   } else track('certifications', 0, false);
 
-  if (content.reference && content.reference.name) {
-    ry = rsection('REFERENCE', ry);
-    if (draw) {
-      doc.roundedRect(R_START - 6, ry - 4, RIGHT_W + 6, 60, 4).fill(COPPER_LT);
-      doc.roundedRect(R_START - 6, ry - 4, RIGHT_W + 6, 60, 4).lineWidth(0.8).stroke(COPPER);
-      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-      doc.text(content.reference.name, R_START + 4, ry + 1, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.role || '', R_START + 4, ry + 15, { lineBreak: false });
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
-      doc.text('Email:', R_START + 4, ry + 29, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.email || '', R_START + 40, ry + 29, { lineBreak: false });
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(NAVY);
-      doc.text('Phone:', R_START + 4, ry + 42, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.phone || '', R_START + 42, ry + 42, { lineBreak: false });
-    }
-    track('reference', 4, true);
-    ry += 60;
-  } else track('reference', 0, false);
+  // References: content.references is now an array (1, 2, 3+ — no cap).
+  // Boxes are laid out side by side and their own width divides evenly by
+  // count, so 1 reference gets one full-width box, 3 references get three
+  // narrower boxes on the same row, rather than assuming there's only
+  // ever one. Falls back to the old singular content.reference shape via
+  // normalizeReferences() so existing conversations/content don't break.
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    ry = rsection('REFERENCE' + (refList.length > 1 ? 'S' : ''), ry);
+    const gap = 8;
+    const boxW = (RIGHT_W - gap * (refList.length - 1)) / refList.length;
+    const boxH = 60;
+    refList.forEach((ref, i) => {
+      const bx = R_START + i * (boxW + gap);
+      if (draw) {
+        doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).fill(COPPER_LT);
+        doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).lineWidth(0.8).stroke(COPPER);
+        const nameLines = wrapLines(doc, ref.name, 'Helvetica-Bold', 10.5, boxW - 8);
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
+        doc.text(nameLines[0] || '', bx + 4, ry + 1, { lineBreak: false });
+        doc.font('Helvetica').fontSize(9).fillColor(BODY);
+        doc.text(ref.role || '', bx + 4, ry + 15, { lineBreak: false, width: boxW - 8, ellipsis: true });
+        if (ref.email) {
+          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY);
+          doc.text('Email:', bx + 4, ry + 29, { lineBreak: false });
+          doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
+          doc.text(ref.email, bx + 34, ry + 29, { lineBreak: false, width: boxW - 38, ellipsis: true });
+        }
+        if (ref.phone) {
+          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY);
+          doc.text('Phone:', bx + 4, ry + 42, { lineBreak: false });
+          doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
+          doc.text(ref.phone, bx + 36, ry + 42, { lineBreak: false });
+        }
+      }
+    });
+    track('references', 4, true);
+    ry += boxH;
+  } else track('references', 0, false);
 
   return { finalY: Math.max(y, ry), sections };
 }
