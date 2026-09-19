@@ -5,7 +5,7 @@
 // below it (education, skills, languages), and a wide right content
 // column. Same measure()/render() contract as every other template.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const TEAL = '#173F52', GOLD = '#BC9138', GOLD_LIGHT = '#F0E1AD';
@@ -36,6 +36,9 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), nameX, 51, { lineBreak: false });
     doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, 62).lineTo(PAGE_W - 18, 62).stroke();
 
+    // Contact row: any missing field (phone/email/location) is simply
+    // absent from content.contact, so .filter(Boolean) already drops it
+    // and no orphan dot/label is drawn for it.
     let ix = nameX, rowY = 79;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
@@ -119,8 +122,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   track('skills', skillLines, (content.skills || []).length > 0);
   y += 6 + stretchPerGap;
 
+  // Languages: bar fill is keyed off each language's OWN proficiency label
+  // (via proficiencyToFill), never off array position. Already flexes to
+  // any number of languages — no hardcoded cap here.
   y = lhead('LANGUAGES', y);
-  (content.languages || []).forEach((l, i) => {
+  (content.languages || []).forEach((l) => {
     if (draw) {
       doc.font('Helvetica-Bold').fontSize(9).fillColor(WHITE);
       doc.text(l.name, L_PAD, y + 7.5, { lineBreak: false });
@@ -129,7 +135,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       doc.text(`(${l.level})`, L_PAD + lw + 4, y + 7, { lineBreak: false });
     }
     y += 13;
-    const fillPct = i === 0 ? 1.0 : 0.75;
+    const fillPct = proficiencyToFill(l.level);
     if (draw) {
       const bw = LEFT_W - L_PAD * 2;
       doc.fillColor('#3A6A7C').rect(L_PAD, y + 3.5, bw, 4).fill();
@@ -232,26 +238,37 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     ry += 8 + GS;
   } else track('certifications', 0, false);
 
-  if (content.reference && content.reference.name) {
-    ry = rhead('REFERENCE', ry);
-    if (draw) {
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(TEAL);
-      doc.text(content.reference.name, R_LEFT, ry + 1, { lineBreak: false });
-      ry += 14;
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.role || '', R_LEFT, ry, { lineBreak: false });
-      ry += 14;
-      [['Email', content.reference.email], ['Phone', content.reference.phone]].forEach(([label, val]) => {
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(TEAL);
-        doc.text(label + ':', R_LEFT, ry, { lineBreak: false });
-        const lw = doc.widthOfString(label + ': ');
+  // References: content.references is now a flexible array (0, 1, 2, 3+),
+  // stacked one after another, each only printing the fields it has.
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    ry = rhead(refList.length > 1 ? 'REFERENCES' : 'REFERENCE', ry);
+    let linesUsed = 0;
+    refList.forEach((ref, i) => {
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(TEAL);
+        doc.text(ref.name, R_LEFT, ry + 1, { lineBreak: false });
+        ry += 14;
         doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-        doc.text(val || '', R_LEFT + lw, ry, { lineBreak: false });
-        ry += 13;
-      });
-    } else { ry += 40; }
-    track('reference', 4, true);
-  } else track('reference', 0, false);
+        doc.text(ref.role || '', R_LEFT, ry, { lineBreak: false });
+        ry += 14;
+        [['Email', ref.email], ['Phone', ref.phone]].forEach(([label, val]) => {
+          if (!val) return;
+          doc.font('Helvetica-Bold').fontSize(9.5).fillColor(TEAL);
+          doc.text(label + ':', R_LEFT, ry, { lineBreak: false });
+          const lw = doc.widthOfString(label + ': ');
+          doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+          doc.text(val, R_LEFT + lw, ry, { lineBreak: false });
+          ry += 13;
+        });
+      } else {
+        ry += 14 + 14 + (ref.email ? 13 : 0) + (ref.phone ? 13 : 0);
+      }
+      linesUsed += 4;
+      if (i < refList.length - 1) ry += 6;
+    });
+    track('references', linesUsed, true);
+  } else track('references', 0, false);
 
   return { finalY: Math.max(y, ry), sections };
 }
