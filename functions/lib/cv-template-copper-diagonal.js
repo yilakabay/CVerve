@@ -17,7 +17,7 @@ const PHOTO_CX = SIDEBAR_W / 2, PHOTO_CY = HEADER_H / 2 + 6;
 const L_PAD = 18.0, R_START = SIDEBAR_W + 18.0, R_END = PAGE_W - 18.0, RIGHT_W = R_END - R_START;
 const AVAILABLE_BOTTOM = PAGE_H - 30;
 
-function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
+function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false } = {}) {
   const sections = [];
   function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
 
@@ -108,20 +108,40 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   });
   y += 3;
 
-  // Skills now flow side-by-side (like flex-wrap) instead of one per line —
-  // several short skills share a row, only wrapping to a new line when the
-  // next one wouldn't fit. This alone often recovers real vertical space
-  // versus the old one-item-per-line layout, which helps borderline-overflow
-  // CVs fit without trimming actual content.
+  // Skills: one-per-line by default (the template's normal look). Only
+  // when compactSkills is true — which measure() sets ONLY after the
+  // normal layout has already been found to overflow the page — do
+  // skills switch to flowing side-by-side rows (flex-wrap style) to
+  // recover vertical space. This is a last-resort space-saving step the
+  // renderer takes automatically, tried BEFORE ever asking the user to
+  // cut real content; it never changes the layout when everything
+  // already fits normally.
   y = lsection('SKILLS', y) + 4;
-  const skillsResult = flowItems(doc, content.skills || [], L_PAD + 8, y, SIDEBAR_W - L_PAD * 2 - 8, {
-    font: 'Helvetica', size: 8.8, color: WHITE,
-    gapX: 10, gapY: 13,
-    bulletColor: COPPER, bulletSize: 4, bulletGap: 6,
-    draw
-  });
-  y = skillsResult.y;
-  track('skills', skillsResult.lines, (content.skills || []).length > 0);
+  if (compactSkills) {
+    const skillsResult = flowItems(doc, content.skills || [], L_PAD + 8, y, SIDEBAR_W - L_PAD * 2 - 8, {
+      font: 'Helvetica', size: 8.8, color: WHITE,
+      gapX: 10, gapY: 13,
+      bulletColor: COPPER, bulletSize: 4, bulletGap: 6,
+      draw
+    });
+    y = skillsResult.y;
+    track('skills', skillsResult.lines, (content.skills || []).length > 0);
+  } else {
+    let skillLines = 0;
+    (content.skills || []).forEach(sk => {
+      const lines = wrapLines(doc, sk, 'Helvetica', 8.8, SIDEBAR_W - L_PAD * 2 - 12);
+      if (draw) {
+        doc.fillColor(COPPER).rect(L_PAD, y + 5.5, 5, 2).fill();
+        doc.font('Helvetica').fontSize(8.8).fillColor(WHITE);
+        let cur = y;
+        lines.forEach(ln => { doc.text(ln, L_PAD + 12, cur, { lineBreak: false }); cur += 12.5; });
+        y = cur;
+      } else { y += lines.length * 12.5; }
+      y += 2;
+      skillLines += lines.length;
+    });
+    track('skills', skillLines, (content.skills || []).length > 0);
+  }
   y += 4 + stretchPerGap;
 
   // Languages: bars are keyed off each language's OWN proficiency label
@@ -291,16 +311,44 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
 }
 
 function measure(content) {
-  const doc = measureDoc();
-  const { finalY, sections } = layout(doc, content, { draw: false });
+  // Pass 1: normal layout (one skill per line — the template's default
+  // look). If this already fits, use it as-is; compaction is never
+  // applied just because it's available.
+  const doc1 = measureDoc();
+  const normal = layout(doc1, content, { draw: false, compactSkills: false });
   const available = AVAILABLE_BOTTOM;
-  const overflowPt = Math.max(0, finalY - available);
-  const underflowPt = Math.max(0, available - finalY);
+
+  if (normal.finalY <= available) {
+    return {
+      fits: true, finalY: normal.finalY, availableHeight: available,
+      overflowPoints: 0, overflowLines: 0,
+      underflowPoints: Math.round(available - normal.finalY), underflowLines: Math.round((available - normal.finalY) / 13.5),
+      sections: normal.sections,
+      compactionApplied: false
+    };
+  }
+
+  // Pass 2: normal layout overflowed. Before asking the user to cut any
+  // content, automatically retry with skills packed into flowing rows
+  // (compactSkills: true) to recover vertical space. This is a rendering
+  // technique, not a content change — nothing the user wrote is altered
+  // or removed.
+  const doc2 = measureDoc();
+  const compact = layout(doc2, content, { draw: false, compactSkills: true });
+  const overflowPt = Math.max(0, compact.finalY - available);
+  const underflowPt = Math.max(0, available - compact.finalY);
+
   return {
-    fits: overflowPt === 0, finalY, availableHeight: available,
+    fits: overflowPt === 0, finalY: compact.finalY, availableHeight: available,
     overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 13.5),
     underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 13.5),
-    sections
+    sections: compact.sections,
+    // Tells the caller (cv-chat.js / the AI) that a space-saving layout
+    // change was already applied automatically. If fits is now true, the
+    // AI should tell the user their content fit WITHOUT needing to cut
+    // anything. If fits is still false, real trimming is genuinely needed
+    // even after this automatic recovery step.
+    compactionApplied: true
   };
 }
 
@@ -314,7 +362,10 @@ function render(content) {
   const chunks = [];
   doc.on('data', c => chunks.push(c));
   const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
-  layout(doc, content, { draw: true, stretchPerGap });
+  // compactSkills must match whatever measure() actually decided (m.compactionApplied),
+  // never re-derived independently — otherwise the drawn PDF could disagree
+  // with the fit numbers the AI already showed the user.
+  layout(doc, content, { draw: true, stretchPerGap, compactSkills: m.compactionApplied });
   doc.end();
   return done;
 }
