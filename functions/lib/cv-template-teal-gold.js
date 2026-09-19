@@ -4,8 +4,14 @@
 // full-width teal header with circular photo, a dark-teal left sidebar
 // below it (education, skills, languages), and a wide right content
 // column. Same measure()/render() contract as every other template.
+//
+// ── Fit escalation ladder ─────────────────────────────────────────────
+// See cv-template-copper-diagonal.js for the full explanation. Same three
+// levels here: normal → compact-skills (flow-wrap) → +tight-leading, with
+// render() refusing to draw (throwing) if even the most compact level
+// still overflows past a small, genuinely-crowded threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const TEAL = '#173F52', GOLD = '#BC9138', GOLD_LIGHT = '#F0E1AD';
@@ -17,9 +23,16 @@ const R_LEFT = LEFT_W + R_PAD + 2, R_RIGHT = PAGE_W - 20.0, RIGHT_W = R_RIGHT - 
 const PHOTO_R = 50.0, PHOTO_CX = LEFT_W / 2, PHOTO_CY = HEADER_H / 2;
 const AVAILABLE_BOTTOM = PAGE_H - 30;
 
-function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
+function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, tightLeading = false } = {}) {
   const sections = [];
   function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
+
+  const tighten = (leading, size) => {
+    if (!tightLeading) return leading;
+    const floor = size + 2.2;
+    return Math.max(floor, Math.round(leading * 0.86 * 10) / 10);
+  };
+  const tightenGap = (gap) => tightLeading ? Math.round(gap * 0.6) : gap;
 
   if (draw) {
     doc.rect(0, 0, PAGE_W, PAGE_H).fill(PALE_BG);
@@ -36,9 +49,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), nameX, 51, { lineBreak: false });
     doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, 62).lineTo(PAGE_W - 18, 62).stroke();
 
-    // Contact row: any missing field (phone/email/location) is simply
-    // absent from content.contact, so .filter(Boolean) already drops it
-    // and no orphan dot/label is drawn for it.
     let ix = nameX, rowY = 79;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
@@ -106,25 +116,33 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   y += 6;
 
   y = lhead('SKILLS', y);
-  let skillLines = 0;
-  (content.skills || []).forEach(sk => {
-    const lines = wrapLines(doc, sk, 'Helvetica', 8.8, LEFT_W - L_PAD * 2 - 10);
-    if (draw) {
-      doc.fillColor(GOLD).rect(L_PAD, y + 6.2, 3.5, 3.5).fill();
-      doc.font('Helvetica').fontSize(8.8).fillColor(WHITE);
-      let cur = y;
-      lines.forEach(ln => { doc.text(ln, L_PAD + 10, cur + 1.3, { lineBreak: false }); cur += 12; });
-      y = cur;
-    } else { y += lines.length * 12; }
-    y += 2.5;
-    skillLines += lines.length;
-  });
-  track('skills', skillLines, (content.skills || []).length > 0);
-  y += 6 + stretchPerGap;
+  if (compactSkills) {
+    const skillsResult = flowItems(doc, content.skills || [], L_PAD + 6, y, LEFT_W - L_PAD * 2 - 6, {
+      font: 'Helvetica', size: 8.8, color: WHITE,
+      gapX: 10, gapY: 12.5,
+      bulletColor: GOLD, bulletSize: 3.5, bulletGap: 5,
+      draw
+    });
+    y = skillsResult.y;
+    track('skills', skillsResult.lines, (content.skills || []).length > 0);
+  } else {
+    let skillLines = 0;
+    (content.skills || []).forEach(sk => {
+      const lines = wrapLines(doc, sk, 'Helvetica', 8.8, LEFT_W - L_PAD * 2 - 10);
+      if (draw) {
+        doc.fillColor(GOLD).rect(L_PAD, y + 6.2, 3.5, 3.5).fill();
+        doc.font('Helvetica').fontSize(8.8).fillColor(WHITE);
+        let cur = y;
+        lines.forEach(ln => { doc.text(ln, L_PAD + 10, cur + 1.3, { lineBreak: false }); cur += 12; });
+        y = cur;
+      } else { y += lines.length * 12; }
+      y += 2.5;
+      skillLines += lines.length;
+    });
+    track('skills', skillLines, (content.skills || []).length > 0);
+  }
+  y += 4 + stretchPerGap;
 
-  // Languages: bar fill is keyed off each language's OWN proficiency label
-  // (via proficiencyToFill), never off array position. Already flexes to
-  // any number of languages — no hardcoded cap here.
   y = lhead('LANGUAGES', y);
   (content.languages || []).forEach((l) => {
     if (draw) {
@@ -153,7 +171,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     return yTop + 23;
   }
   function rpara(text, yTop, opts = {}) {
-    const size = opts.size || 9.5, leading = opts.leading || 14.0;
+    const size = opts.size || 9.5, leading = tighten(opts.leading || 14.0, size);
     const lines = wrapLines(doc, text, 'Helvetica', size, RIGHT_W);
     if (draw) {
       doc.font('Helvetica').fontSize(size).fillColor(BODY);
@@ -163,7 +181,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     return { y: yTop + lines.length * leading, lines: lines.length };
   }
   function rbullets(items, yTop, opts = {}) {
-    const size = opts.size || 9.5, leading = opts.leading || 13.5;
+    const size = opts.size || 9.5, leading = tighten(opts.leading || 13.5, size);
     let cur = yTop, total = 0;
     (items || []).forEach(item => {
       const lines = wrapLines(doc, item, 'Helvetica', size, RIGHT_W - 12);
@@ -173,7 +191,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
         let ly = cur;
         lines.forEach(ln => { doc.text(ln, R_LEFT + 12, ly, { lineBreak: false }); ly += leading; });
       }
-      cur += lines.length * leading + 3.5;
+      cur += lines.length * leading + (tightLeading ? 1.5 : 3.5);
       total += lines.length;
     });
     return { y: cur, lines: total };
@@ -186,7 +204,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     ry = rhead('PROFILE', ry);
     const r = rpara(content.profile, ry);
     track('profile', r.lines, true);
-    ry = r.y + 10 + GS;
+    ry = r.y + tightenGap(10) + GS;
   } else track('profile', 0, false);
 
   if (content.experience && content.experience.length) {
@@ -208,19 +226,20 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       ry = r2.y;
     });
     track('experience', linesUsed, true);
-    ry += 10 + GS;
+    ry += tightenGap(10) + GS;
   } else track('experience', 0, false);
 
   if (content.achievements && content.achievements.length) {
     ry = rhead('ACHIEVEMENT', ry);
     const r3 = rbullets(content.achievements, ry);
     track('achievements', r3.lines, true);
-    ry = r3.y + 10 + GS;
+    ry = r3.y + tightenGap(10) + GS;
   } else track('achievements', 0, false);
 
   if (content.certifications && content.certifications.length) {
     ry = rhead('CERTIFICATIONS & RECOGNITION', ry);
     let linesUsed = 0;
+    const certLeading = tighten(13.5, 9.5);
     content.certifications.forEach((cert, i) => {
       const full = `${cert.title} | ${cert.issuer}`;
       const lines = wrapLines(doc, full, 'Helvetica', 9.5, RIGHT_W - 14);
@@ -229,17 +248,15 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
         doc.text(`${i + 1}.`, R_LEFT, ry + 1, { lineBreak: false });
         doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
         let ly = ry;
-        lines.forEach(ln => { doc.text(ln, R_LEFT + 14, ly, { lineBreak: false }); ly += 13.5; });
+        lines.forEach(ln => { doc.text(ln, R_LEFT + 14, ly, { lineBreak: false }); ly += certLeading; });
         ry = ly;
-      } else { ry += lines.length * 13.5; }
+      } else { ry += lines.length * certLeading; }
       linesUsed += lines.length;
     });
     track('certifications', linesUsed, true);
-    ry += 8 + GS;
+    ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
 
-  // References: content.references is now a flexible array (0, 1, 2, 3+),
-  // stacked one after another, each only printing the fields it has.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     ry = rhead(refList.length > 1 ? 'REFERENCES' : 'REFERENCE', ry);
@@ -273,22 +290,58 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   return { finalY: Math.max(y, ry), sections };
 }
 
+const FIT_LEVELS = [
+  { name: 'normal', opts: { compactSkills: false, tightLeading: false } },
+  { name: 'compact-skills', opts: { compactSkills: true, tightLeading: false } },
+  { name: 'compact-skills+tight-leading', opts: { compactSkills: true, tightLeading: true } }
+];
+const HARD_OVERFLOW_LINE_THRESHOLD = 3;
+
 function measure(content) {
-  const doc = measureDoc();
-  const { finalY, sections } = layout(doc, content, { draw: false });
   const available = AVAILABLE_BOTTOM;
-  const overflowPt = Math.max(0, finalY - available);
-  const underflowPt = Math.max(0, available - finalY);
+  let last = null;
+
+  for (const level of FIT_LEVELS) {
+    const doc = measureDoc();
+    const { finalY, sections } = layout(doc, content, { draw: false, ...level.opts });
+    last = { finalY, sections, level: level.name };
+    if (finalY <= available) {
+      return {
+        fits: true, finalY, availableHeight: available,
+        overflowPoints: 0, overflowLines: 0,
+        underflowPoints: Math.round(available - finalY), underflowLines: Math.round((available - finalY) / 13.5),
+        sections, appliedLevel: level.name, hardOverflow: false
+      };
+    }
+  }
+
+  const overflowPt = last.finalY - available;
+  const overflowLines = Math.round(overflowPt / 13.5);
+  const hardOverflow = overflowLines > HARD_OVERFLOW_LINE_THRESHOLD;
+
   return {
-    fits: overflowPt === 0, finalY, availableHeight: available,
-    overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 13.5),
-    underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 13.5),
-    sections
+    fits: false, finalY: last.finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines,
+    underflowPoints: 0, underflowLines: 0,
+    sections: last.sections, appliedLevel: last.level, hardOverflow,
+    recommendation: buildFitRecommendation(last.sections, overflowLines)
   };
 }
 
 function render(content) {
   const m = measure(content);
+
+  if (m.hardOverflow) {
+    const err = new Error(
+      `Content is too long to render legibly on this template even at maximum compaction ` +
+      `(about ${m.overflowLines} line(s) over one page). ${m.recommendation}`
+    );
+    err.hardOverflow = true;
+    err.recommendation = m.recommendation;
+    throw err;
+  }
+
+  const level = FIT_LEVELS.find(l => l.name === m.appliedLevel) || FIT_LEVELS[0];
   const presentSections = m.sections.filter(s => s.present).length;
   const numGaps = Math.max(1, presentSections);
   const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
@@ -297,7 +350,7 @@ function render(content) {
   const chunks = [];
   doc.on('data', c => chunks.push(c));
   const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
-  layout(doc, content, { draw: true, stretchPerGap });
+  layout(doc, content, { draw: true, stretchPerGap, ...level.opts });
   doc.end();
   return done;
 }
