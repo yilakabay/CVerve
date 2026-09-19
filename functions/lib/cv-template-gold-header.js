@@ -6,7 +6,7 @@
 // wide content column). Same measure()/render() contract as every other
 // template — see cv-template-minimal.js for the full explanation.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const CHARCOAL = '#1C1C1E', GOLD = '#B8962E', GOLD_LITE = '#E6D199';
@@ -50,6 +50,10 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
     doc.text((content.subtitle || '').toUpperCase(), 18, 126, { lineBreak: false });
 
+    // Contact rows: missing phone/email/location fields are simply absent
+    // from content.contact, so .filter(Boolean) already drops that row
+    // (no dot/orphan label drawn for it), and the remaining rows stack
+    // up from the top rather than leaving a gap.
     doc.font('Helvetica').fontSize(10);
     const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
     contacts.forEach((ct, i) => {
@@ -202,28 +206,37 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     y += 4 + GS;
   } else track('languages', 0, false);
 
-  if (content.reference && content.reference.name) {
-    y = section('REFERENCE', y);
-    if (draw) {
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.name, CONTENT_X, y, { lineBreak: false });
-      y += 13;
-      doc.font('Helvetica').fontSize(9).fillColor(MUTED);
-      doc.text(content.reference.role || '', CONTENT_X, y, { lineBreak: false });
-      y += 13;
-      [['Email', content.reference.email], ['Phone', content.reference.phone]].forEach(([label, val]) => {
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(MUTED);
-        doc.text(label + ':', CONTENT_X, y, { lineBreak: false });
-        const lw = doc.widthOfString(label + ':  ');
-        doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
-        doc.text(val || '', CONTENT_X + lw, y, { lineBreak: false });
+  // References: content.references is now a flexible array (1, 2, 3+),
+  // stacked vertically one after another (this template's reference block
+  // is a simple label/value list, so stacking reads more naturally here
+  // than side-by-side boxes).
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    y = section('REFERENCE' + (refList.length > 1 ? 'S' : ''), y);
+    refList.forEach((ref, i) => {
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(9.5).fillColor(BODY);
+        doc.text(ref.name, CONTENT_X, y, { lineBreak: false });
         y += 13;
-      });
-    } else {
-      y += 39;
-    }
-    track('reference', 4, true);
-  } else track('reference', 0, false);
+        doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+        doc.text(ref.role || '', CONTENT_X, y, { lineBreak: false });
+        y += 13;
+        [['Email', ref.email], ['Phone', ref.phone]].forEach(([label, val]) => {
+          if (!val) return;
+          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(MUTED);
+          doc.text(label + ':', CONTENT_X, y, { lineBreak: false });
+          const lw = doc.widthOfString(label + ':  ');
+          doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
+          doc.text(val, CONTENT_X + lw, y, { lineBreak: false });
+          y += 13;
+        });
+      } else {
+        y += 13 + 13 + (ref.email ? 13 : 0) + (ref.phone ? 13 : 0);
+      }
+      if (i < refList.length - 1) y += 8;
+    });
+    track('references', 4 * refList.length, true);
+  } else track('references', 0, false);
 
   return { finalY: y, sections };
 }
