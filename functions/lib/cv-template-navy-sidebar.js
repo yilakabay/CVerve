@@ -8,7 +8,7 @@
 // this project — see cv-template-minimal.js for the full explanation of
 // why these two functions must share their measurement logic exactly.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 
@@ -63,10 +63,12 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.text(text, opts.x ?? SIDEBAR_MARGIN, yTop, { lineBreak: false });
   }
 
+  // Contact: any missing field (phone/email/location) is simply skipped so
+  // the remaining lines stack up from the top instead of leaving a blank
+  // row where the missing one would have been.
   sidebarHeading('CONTACT', 225.7);
-  sidebarText(content.contact?.phone || '', 252.4);
-  sidebarText(content.contact?.email || '', 273.6);
-  sidebarText(content.contact?.location || '', 295.2);
+  const contactRows = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
+  contactRows.forEach((txt, i) => sidebarText(txt, 252.4 + i * 21.6));
 
   sidebarHeading('EDUCATION', 329.8);
   const eduList = normalizeEducation(content.education);
@@ -220,19 +222,29 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
-  if (content.reference && content.reference.name) {
-    y = contentHeading('REFERENCE', y + GAP_SECTION);
-    if (draw) {
-      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-      doc.text(content.reference.name, CONTENT_LEFT, y + 1, { lineBreak: false });
-      doc.font('Helvetica').fontSize(10).fillColor(BODY_GRAY);
-      doc.text(content.reference.role || '', CONTENT_LEFT, y + 18, { lineBreak: false });
-      doc.text(`Email: ${content.reference.email || ''}`, CONTENT_LEFT, y + 35.5, { lineBreak: false });
-      doc.text(`Phone: ${content.reference.phone || ''}`, CONTENT_LEFT, y + 50, { lineBreak: false });
-    }
-    track('reference', 4, true);
-    y += 64;
-  } else track('reference', 0, false);
+  // References: content.references is now a flexible array (0, 1, 2, 3+),
+  // stacked one after another; each reference only prints the contact
+  // lines it actually has instead of always printing Email/Phone rows.
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    y = contentHeading(refList.length > 1 ? 'REFERENCES' : 'REFERENCE', y + GAP_SECTION);
+    let linesUsed = 0;
+    refList.forEach((ref, i) => {
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
+        doc.text(ref.name, CONTENT_LEFT, y + 1, { lineBreak: false });
+        doc.font('Helvetica').fontSize(10).fillColor(BODY_GRAY);
+        doc.text(ref.role || '', CONTENT_LEFT, y + 18, { lineBreak: false });
+        let ly = y + 35.5;
+        if (ref.email) { doc.text(`Email: ${ref.email}`, CONTENT_LEFT, ly, { lineBreak: false }); ly += 14.5; }
+        if (ref.phone) { doc.text(`Phone: ${ref.phone}`, CONTENT_LEFT, ly, { lineBreak: false }); }
+      }
+      y += 64;
+      linesUsed += 4;
+      if (i < refList.length - 1) y += 6;
+    });
+    track('references', linesUsed, true);
+  } else track('references', 0, false);
 
   return { finalY: y, sections };
 }
