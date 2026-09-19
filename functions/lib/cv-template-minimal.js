@@ -1,46 +1,32 @@
 // functions/lib/cv-template-minimal.js
 //
-// "Minimal / Scandinavian" CV template, ported from the original ReportLab
-// (Python) script to JS/pdfkit so it can run inside this project's Node.js
-// backend (Netlify Functions) without needing a second language runtime.
-//
-// This module is the ONLY place that knows how this specific template is
-// laid out. It exposes two functions that share the exact same measurement
-// logic, so "will this fit?" and "how it actually renders" can never
-// disagree with each other:
-//
-//   measure(content)  → no PDF produced. Returns, per section, how many
-//     lines the content needs vs. how much room is available, plus a
-//     verdict on whether the whole thing fits one page. This is what
-//     cv-chat.js calls BEFORE generating anything, so the AI is reasoning
-//     from real numbers instead of guessing whether something is "too long".
-//
-//   render(content)   → produces the actual PDF (Buffer). If the content is
-//     shorter than the page, it automatically stretches the gaps between
-//     sections so the page doesn't end up looking top-heavy/half-blank.
-//     Any section with no data (empty array / missing) is skipped
-//     entirely — the next section naturally moves up to fill the gap,
-//     since every section function returns the y-position the next one
-//     should start at (same "chaining" approach as the original Python).
+// "Minimal / Scandinavian" CV template. Same measure()/render() contract
+// as every other template — see cv-shared.js for the shared helpers.
 //
 // ── CONTENT SCHEMA ─────────────────────────────────────────────────────
 // {
-//   name: string,
-//   subtitle: string,                          // e.g. "MANAGEMENT GRADUATE"
-//   photoBase64: string | null,                 // raw base64, no data: prefix
+//   name, subtitle, photoBase64,
 //   contact: { phone, email, location },        // any field may be omitted
-//   education: { degree, school, years, extra },// extra e.g. "CGPA 3.41 | Exit Exam 82%"
+//   education: { degree, school, years, extra },
 //   languages: [{ name, level }],
-//   profile: string,
-//   skills: string[],
+//   profile, skills: string[],
 //   experience: [{ org, role, dateRange, bullets: string[] }],
 //   achievements: string[],
 //   certifications: [{ title, issuer }],
-//   references: [{ name, role, email, phone }] | []   // 0, 1, or many
+//   references: [{ name, role, email, phone }]   // 0, 1, or many
 // }
-// Any array can be empty ([]) or omitted — that section is simply skipped.
+//
+// ── Fit escalation ladder ─────────────────────────────────────────────
+// Skills here are already joined into a single wrapped paragraph
+// ("JS · Python · SQL"), which is already a fairly dense layout — there's
+// no separate "compact skills" step to add on top of that. The ladder is
+// just two levels: normal → tight-leading (tighter paragraph/bullet
+// leading and smaller inter-section gaps). See
+// cv-template-copper-diagonal.js for the full explanation of why render()
+// refuses (throws) rather than drawing overlapping/clipped text if even
+// the tightened layout still overflows past a small threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28; // A4 in points
 const PAGE_H = 841.89;
@@ -55,25 +41,27 @@ const LABEL_COL_W = 108;
 const TEXT_COL_X = CONTENT_LEFT + LABEL_COL_W;
 const TEXT_COL_W = CONTENT_RIGHT - TEXT_COL_X;
 
-// ---------- Colors ----------
 const INK      = '#232326';
 const BODY_GRY = '#5A5C62';
 const MUTED    = '#96989E';
 const HAIRLINE = '#DADBDE';
 const ACCENT   = '#B08456';
 
-// Runs the FULL layout using only measurement calls (no drawing) and
-// records per-section line counts + final y. Both measure() and render()
-// call this with a flag controlling whether drawing actually happens.
-function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
-  const sections = []; // { name, linesUsed, present }
+function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } = {}) {
+  const sections = [];
   let y = 0;
 
   function track(name, linesUsed, present) {
     sections.push({ name, linesUsed, present });
   }
 
-  // ---- Header ----
+  const tighten = (leading, size) => {
+    if (!tightLeading) return leading;
+    const floor = size + 2.2;
+    return Math.max(floor, Math.round(leading * 0.86 * 10) / 10);
+  };
+  const tightenGap = (gap) => tightLeading ? Math.round(gap * 0.6) : gap;
+
   const TOP = 58;
   if (draw) {
     doc.font('Helvetica').fontSize(30).fillColor(INK);
@@ -84,7 +72,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.text((content.subtitle || '').toUpperCase(), CONTENT_LEFT, TOP + 44, { lineBreak: false });
   }
 
-  // ---- Photo (small circle, top-right) ----
   const PHOTO_R = 32;
   const photoCx = CONTENT_RIGHT - PHOTO_R;
   const photoCy = TOP + 14 + PHOTO_R;
@@ -110,7 +97,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       .moveTo(CONTENT_LEFT, HEAD_BOTTOM).lineTo(ruleEndX, HEAD_BOTTOM).stroke();
   }
 
-  // ---- Meta row: contact / education / languages ----
   const META_TOP = HEAD_BOTTOM + 20;
   const colW = CONTENT_W / 3;
   const col1 = CONTENT_LEFT, col2 = CONTENT_LEFT + colW, col3 = CONTENT_LEFT + 2 * colW;
@@ -127,9 +113,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     if (opts.link) doc.link(x, yTop - 2, doc.widthOfString(text), 11, opts.link);
   }
 
-  // Contact: any missing field (phone/email/location) is simply skipped —
-  // the remaining ones stack up from the top of the column instead of
-  // leaving a blank line where the missing one would have been.
   metaLabel('Contact', col1, META_TOP);
   const contactRows = [
     content.contact?.phone ? { text: content.contact.phone, link: `tel:${content.contact.phone.replace(/\s+/g, '')}` } : null,
@@ -156,7 +139,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       .moveTo(CONTENT_LEFT, META_BOTTOM).lineTo(CONTENT_RIGHT, META_BOTTOM).stroke();
   }
 
-  y = META_BOTTOM + 16 + stretchPerGap * 0.6; // a little breathing room before section 1 too
+  y = META_BOTTOM + tightenGap(16) + stretchPerGap * 0.6;
 
   let sectionNum = 0;
   function sectionHeading(label, yTop) {
@@ -167,11 +150,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       doc.font('Helvetica').fontSize(11.5).fillColor(INK);
       doc.text(label.toUpperCase(), CONTENT_LEFT + 22, yTop + 1, { lineBreak: false });
     }
-    return yTop + 24;
+    return yTop + (tightLeading ? 20 : 24);
   }
 
   function bodyParagraph(text, yTop, opts = {}) {
-    const size = opts.size || 9.7, leading = opts.leading || 13.8;
+    const size = opts.size || 9.7, leading = tighten(opts.leading || 13.8, size);
     const width = opts.width || TEXT_COL_W, x = opts.x ?? TEXT_COL_X;
     const lines = wrapLines(doc, text, 'Helvetica', size, width);
     if (draw) {
@@ -183,7 +166,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   }
 
   function bodyBullets(items, yTop, opts = {}) {
-    const size = opts.size || 9.7, leading = opts.leading || 13.8;
+    const size = opts.size || 9.7, leading = tighten(opts.leading || 13.8, size);
     const width = opts.width || TEXT_COL_W, x = opts.x ?? TEXT_COL_X;
     let cur = yTop, totalLines = 0;
     for (const item of (items || [])) {
@@ -194,15 +177,14 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
         let ly = cur;
         for (const ln of lines) { doc.text(ln, x + 10, ly, { lineBreak: false }); ly += leading; }
       }
-      cur += lines.length * leading + 2.2;
+      cur += lines.length * leading + (tightLeading ? 1.2 : 2.2);
       totalLines += lines.length;
     }
     return { y: cur, lines: totalLines };
   }
 
-  const GAP = 14 + stretchPerGap;
+  const GAP = tightenGap(14) + stretchPerGap;
 
-  // ---- 01 Profile ----
   if (content.profile) {
     y = sectionHeading('Profile', y);
     const r = bodyParagraph(content.profile, y);
@@ -210,15 +192,13 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     y = r.y;
   } else track('profile', 0, false);
 
-  // ---- 02 Skills ----
   if (content.skills && content.skills.length) {
     y = sectionHeading('Skills', y + GAP);
-    const r = bodyParagraph(content.skills.join('   ·   '), y, { leading: 15.5 });
+    const r = bodyParagraph(content.skills.join('   ·   '), y, { leading: tighten(15.5, 9.7) });
     track('skills', r.lines, true);
     y = r.y;
   } else track('skills', 0, false);
 
-  // ---- 03 Experience ----
   if (content.experience && content.experience.length) {
     y = sectionHeading('Experience', y + GAP);
     let linesUsed = 0;
@@ -230,13 +210,12 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
         doc.text(`${exp.role || ''} — ${exp.dateRange || ''}`, TEXT_COL_X, y + 14, { lineBreak: false });
       }
       const r = bodyBullets(exp.bullets || [], y + 26);
-      linesUsed += 3 + r.lines; // org line + role line + bullets
+      linesUsed += 3 + r.lines;
       y = r.y;
     }
     track('experience', linesUsed, true);
   } else track('experience', 0, false);
 
-  // ---- 04 Achievements ----
   if (content.achievements && content.achievements.length) {
     y = sectionHeading('Achievements', y + GAP);
     const r = bodyBullets(content.achievements, y);
@@ -244,23 +223,17 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     y = r.y;
   } else track('achievements', 0, false);
 
-  // ---- 05 Certifications ----
   if (content.certifications && content.certifications.length) {
     y = sectionHeading('Certifications', y + GAP);
     let linesUsed = 0;
     for (const cert of content.certifications) {
-      const r = bodyParagraph(`${cert.title} — ${cert.issuer}`, y, { leading: 13.8 });
+      const r = bodyParagraph(`${cert.title} — ${cert.issuer}`, y, { leading: tighten(13.8, 9.7) });
       linesUsed += r.lines;
-      y = r.y + 4;
+      y = r.y + (tightLeading ? 2.5 : 4);
     }
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
-  // ---- 06 Reference(s) ----
-  // content.references is now a flexible array (0, 1, 2, 3+ entries) —
-  // stacked one after another, each only showing the fields it actually
-  // has (a reference given without a phone number just skips that line
-  // instead of printing "PHONE" next to nothing).
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = sectionHeading(refList.length > 1 ? 'References' : 'Reference', y + GAP);
@@ -285,9 +258,9 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
           doc.text(ref.phone, TEXT_COL_X + 272, lineY, { lineBreak: false });
         }
       }
-      y += 46;
+      y += tightLeading ? 38 : 46;
       linesUsed += 3;
-      if (i < refList.length - 1) y += 6;
+      if (i < refList.length - 1) y += tightLeading ? 4 : 6;
     });
     track('references', linesUsed, true);
   } else track('references', 0, false);
@@ -295,38 +268,60 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   return { finalY: y, sections };
 }
 
-// Usable page height below the meta row, before things start overflowing
-// onto a second page (this template is designed to always be one page).
-const AVAILABLE_BOTTOM = PAGE_H - 40; // small bottom margin
+const FIT_LEVELS = [
+  { name: 'normal', opts: { tightLeading: false } },
+  { name: 'tight-leading', opts: { tightLeading: true } }
+];
+const HARD_OVERFLOW_LINE_THRESHOLD = 3;
+const AVAILABLE_BOTTOM = PAGE_H - 40;
 
 function measure(content) {
-  const doc = measureDoc();
-  const { finalY, sections } = layout(doc, content, { draw: false });
   const available = AVAILABLE_BOTTOM;
-  const overflowPt = Math.max(0, finalY - available);
-  const underflowPt = Math.max(0, available - finalY);
-  // ~13.8pt average leading → rough line-count equivalent, useful for the AI
-  // to reason about "how much to trim" in familiar terms.
+  let last = null;
+
+  for (const level of FIT_LEVELS) {
+    const doc = measureDoc();
+    const { finalY, sections } = layout(doc, content, { draw: false, ...level.opts });
+    last = { finalY, sections, level: level.name };
+    if (finalY <= available) {
+      return {
+        fits: true, finalY, availableHeight: available,
+        overflowPoints: 0, overflowLines: 0,
+        underflowPoints: Math.round(available - finalY), underflowLines: Math.round((available - finalY) / 13.8),
+        sections, appliedLevel: level.name, hardOverflow: false
+      };
+    }
+  }
+
+  const overflowPt = last.finalY - available;
   const overflowLines = Math.round(overflowPt / 13.8);
-  const underflowLines = Math.round(underflowPt / 13.8);
+  const hardOverflow = overflowLines > HARD_OVERFLOW_LINE_THRESHOLD;
+
   return {
-    fits: overflowPt === 0,
-    finalY,
-    availableHeight: available,
-    overflowPoints: Math.round(overflowPt),
-    overflowLines,
-    underflowPoints: Math.round(underflowPt),
-    underflowLines,
-    sections
+    fits: false, finalY: last.finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines,
+    underflowPoints: 0, underflowLines: 0,
+    sections: last.sections, appliedLevel: last.level, hardOverflow,
+    recommendation: buildFitRecommendation(last.sections, overflowLines)
   };
 }
 
 function render(content) {
   const m = measure(content);
-  // If content is shorter than the page, spread the extra space across the
-  // gaps BETWEEN sections instead of leaving it all blank at the bottom.
+
+  if (m.hardOverflow) {
+    const err = new Error(
+      `Content is too long to render legibly on this template even at maximum compaction ` +
+      `(about ${m.overflowLines} line(s) over one page). ${m.recommendation}`
+    );
+    err.hardOverflow = true;
+    err.recommendation = m.recommendation;
+    throw err;
+  }
+
+  const level = FIT_LEVELS.find(l => l.name === m.appliedLevel) || FIT_LEVELS[0];
   const presentSections = m.sections.filter(s => s.present).length;
-  const numGaps = Math.max(1, presentSections); // includes the gap before section 1
+  const numGaps = Math.max(1, presentSections);
   const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
 
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
@@ -334,7 +329,7 @@ function render(content) {
   doc.on('data', c => chunks.push(c));
   const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
 
-  layout(doc, content, { draw: true, stretchPerGap });
+  layout(doc, content, { draw: true, stretchPerGap, ...level.opts });
   doc.end();
   return done;
 }
