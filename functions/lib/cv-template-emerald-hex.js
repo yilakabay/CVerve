@@ -6,7 +6,7 @@
 // a timeline-styled experience section. Same measure()/render() contract
 // as every other template.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const EMERALD = '#0D5447', EM_DARK = '#082E25', EM_MID = '#155B4E';
@@ -68,6 +68,9 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.font('Helvetica').fontSize(10.5).fillColor(GOLD_LT);
     doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), hx, 74, { lineBreak: false });
 
+    // Contact row: any missing field (phone/email/location) is simply
+    // absent from content.contact, so .filter(Boolean) already drops it
+    // and no orphan label/hexagon is drawn for it.
     let cx = hx, cy2 = 98;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
@@ -138,8 +141,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   track('skills', skillLines, (content.skills || []).length > 0);
   y += 8 + stretchPerGap;
 
+  // Languages: bar fill is keyed off each language's OWN proficiency label
+  // (via proficiencyToFill), never off array position. Already flexes to
+  // any number of languages — no hardcoded cap or slice() here.
   y = lsec('LANGUAGES', y) + 4;
-  (content.languages || []).forEach((l, i) => {
+  (content.languages || []).forEach((l) => {
     if (draw) {
       doc.font('Helvetica-Bold').fontSize(9).fillColor(WHITE);
       doc.text(l.name, L_PAD, y + 7.5, { lineBreak: false });
@@ -148,7 +154,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       doc.text(`(${l.level})`, L_PAD + lw + 5, y + 7, { lineBreak: false });
     }
     y += 13;
-    const fillPct = i === 0 ? 1.0 : 0.75;
+    const fillPct = proficiencyToFill(l.level);
     if (draw) {
       const bw = SIDEBAR_W - L_PAD * 2;
       doc.roundedRect(L_PAD, y + 5, bw, 5.5, 2.5).fill('#0A3F35');
@@ -256,29 +262,43 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     ry += 8 + GS;
   } else track('certifications', 0, false);
 
-  if (content.reference && content.reference.name) {
-    ry = rsec('REFERENCE', ry);
-    if (draw) {
-      const cardH = 58;
-      doc.roundedRect(R_START - 8, ry - 4, RIGHT_W + 8, cardH + 4, 5).fill(WHITE);
-      doc.roundedRect(R_START - 8, ry - 4, RIGHT_W + 8, cardH + 4, 5).lineWidth(0.6).stroke(EMERALD);
-      doc.roundedRect(R_START - 8, ry - 4, 5, cardH + 4, 3).fill(EMERALD);
-      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
-      doc.text(content.reference.name, R_START + 4, ry + 1, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.role || '', R_START + 4, ry + 15, { lineBreak: false });
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(EMERALD);
-      doc.text('Email:', R_START + 4, ry + 29, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.email || '', R_START + 40, ry + 29, { lineBreak: false });
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(EMERALD);
-      doc.text('Phone:', R_START + 4, ry + 42, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-      doc.text(content.reference.phone || '', R_START + 42, ry + 42, { lineBreak: false });
-    }
-    track('reference', 4, true);
+  // References: content.references is now a flexible array (1, 2, 3+).
+  // Cards are laid out side by side and share the available width evenly,
+  // so 3 references get three narrower cards instead of only ever having
+  // room for one.
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    ry = rsec('REFERENCE' + (refList.length > 1 ? 'S' : ''), ry);
+    const cardH = 58, gap = 8;
+    const cardW = (RIGHT_W + 8 - gap * (refList.length - 1)) / refList.length;
+    refList.forEach((ref, i) => {
+      const bx = R_START - 8 + i * (cardW + gap);
+      if (draw) {
+        doc.roundedRect(bx, ry - 4, cardW, cardH + 4, 5).fill(WHITE);
+        doc.roundedRect(bx, ry - 4, cardW, cardH + 4, 5).lineWidth(0.6).stroke(EMERALD);
+        doc.roundedRect(bx, ry - 4, 5, cardH + 4, 3).fill(EMERALD);
+        const nameLines = wrapLines(doc, ref.name, 'Helvetica-Bold', 10.5, cardW - 12);
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
+        doc.text(nameLines[0] || '', bx + 8, ry + 1, { lineBreak: false });
+        doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
+        doc.text(ref.role || '', bx + 8, ry + 15, { lineBreak: false, width: cardW - 16, ellipsis: true });
+        if (ref.email) {
+          doc.font('Helvetica-Bold').fontSize(9).fillColor(EMERALD);
+          doc.text('Email:', bx + 8, ry + 29, { lineBreak: false });
+          doc.font('Helvetica').fontSize(9).fillColor(BODY);
+          doc.text(ref.email, bx + 40, ry + 29, { lineBreak: false, width: cardW - 46, ellipsis: true });
+        }
+        if (ref.phone) {
+          doc.font('Helvetica-Bold').fontSize(9).fillColor(EMERALD);
+          doc.text('Phone:', bx + 8, ry + 42, { lineBreak: false });
+          doc.font('Helvetica').fontSize(9).fillColor(BODY);
+          doc.text(ref.phone, bx + 42, ry + 42, { lineBreak: false });
+        }
+      }
+    });
+    track('references', 4, true);
     ry += 60;
-  } else track('reference', 0, false);
+  } else track('references', 0, false);
 
   return { finalY: Math.max(y, ry), sections };
 }
