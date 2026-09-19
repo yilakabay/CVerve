@@ -5,8 +5,16 @@
 // gold accent throughout, and a two-column body (narrow date/label column,
 // wide content column). Same measure()/render() contract as every other
 // template — see cv-template-minimal.js for the full explanation.
+//
+// ── Fit escalation ladder ─────────────────────────────────────────────
+// This template's skills are already laid out as a dense 3-column grid
+// (not one-per-line), so there's no "compact skills" step to add here —
+// the ladder is just two levels: normal → tight-leading. See
+// cv-template-copper-diagonal.js for the full explanation of why render()
+// refuses (throws) rather than drawing overlapping/clipped text if even
+// the tightened layout still overflows past a small threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const CHARCOAL = '#1C1C1E', GOLD = '#B8962E', GOLD_LITE = '#E6D199';
@@ -21,9 +29,16 @@ const HEADER_H = 195.0, PHOTO_SIZE = HEADER_H, PHOTO_X = PAGE_W - PHOTO_SIZE;
 const BODY_TOP = HEADER_H + 30.0;
 const AVAILABLE_BOTTOM = PAGE_H - 30;
 
-function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
+function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } = {}) {
   const sections = [];
   function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
+
+  const tighten = (leading, size) => {
+    if (!tightLeading) return leading;
+    const floor = size + 2.2;
+    return Math.max(floor, Math.round(leading * 0.86 * 10) / 10);
+  };
+  const tightenGap = (gap) => tightLeading ? Math.round(gap * 0.6) : gap;
 
   if (draw) {
     doc.rect(0, 0, PAGE_W, PAGE_H).fill('#FCFCFC');
@@ -50,10 +65,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
     doc.text((content.subtitle || '').toUpperCase(), 18, 126, { lineBreak: false });
 
-    // Contact rows: missing phone/email/location fields are simply absent
-    // from content.contact, so .filter(Boolean) already drops that row
-    // (no dot/orphan label drawn for it), and the remaining rows stack
-    // up from the top rather than leaving a gap.
     doc.font('Helvetica').fontSize(10);
     const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
     contacts.forEach((ct, i) => {
@@ -86,7 +97,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     return yTop + size + 3;
   }
   function para(text, yTop, opts = {}) {
-    const size = opts.size || 9.2, leading = opts.leading || 13.5;
+    const size = opts.size || 9.2, leading = tighten(opts.leading || 13.5, size);
     const lines = wrapLines(doc, text, 'Helvetica', size, CONTENT_W - (opts.indent || 0));
     if (draw) {
       doc.font('Helvetica').fontSize(size).fillColor(opts.color || BODY);
@@ -96,16 +107,16 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     return { y: yTop + lines.length * leading, lines: lines.length };
   }
   function bullet(text, yTop, opts = {}) {
-    const size = opts.size || 9.2, leading = opts.leading || 13.0;
+    const size = opts.size || 9.2, leading = tighten(opts.leading || 13.0, size);
     const lines = wrapLines(doc, text, 'Helvetica', size, CONTENT_W - 10);
     if (draw) {
       doc.fillColor(GOLD).circle(CONTENT_X + 3.5, yTop - 2.5, 1.8).fill();
       doc.font('Helvetica').fontSize(size).fillColor(BODY);
       let cur = yTop;
       lines.forEach(ln => { doc.text(ln, CONTENT_X + 10, cur, { lineBreak: false }); cur += leading; });
-      return cur + 1.5;
+      return cur + (tightLeading ? 0.8 : 1.5);
     }
-    return yTop + lines.length * leading + 1.5;
+    return yTop + lines.length * leading + (tightLeading ? 0.8 : 1.5);
   }
 
   let y = BODY_TOP;
@@ -115,7 +126,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     y = section('PROFILE', y);
     const r = para(content.profile, y);
     track('profile', r.lines, true);
-    y = r.y + 10 + GS;
+    y = r.y + tightenGap(10) + GS;
   } else track('profile', 0, false);
 
   if (content.experience && content.experience.length) {
@@ -130,7 +141,7 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       linesUsed += 2;
     });
     track('experience', linesUsed, true);
-    y += 8 + GS;
+    y += tightenGap(8) + GS;
   } else track('experience', 0, false);
 
   const eduList = normalizeEducation(content.education);
@@ -142,11 +153,11 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
       y = boldLine(edu.school || '', y);
       if (edu.degree) y = italicLine(edu.degree, y - 2);
       if (edu.extra) { y = bullet(edu.extra, y); linesUsed++; }
-      y += 6;
+      y += tightLeading ? 3 : 6;
       linesUsed += 2;
     });
     track('education', linesUsed, true);
-    y += 4 + GS;
+    y += tightenGap(4) + GS;
   } else track('education', 0, false);
 
   if (content.achievements && content.achievements.length) {
@@ -154,45 +165,51 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     let linesUsed = 0;
     content.achievements.forEach(a => { y = bullet(a, y); linesUsed++; });
     track('achievements', linesUsed, true);
-    y += 10 + GS;
+    y += tightenGap(10) + GS;
   } else track('achievements', 0, false);
 
   if (content.certifications && content.certifications.length) {
     y = section('CERTIFICATIONS', y);
     let linesUsed = 0;
+    const issuerLeading = tighten(15, 8.5);
     content.certifications.forEach((cert, i) => {
       dateLabel(String(i + 1).padStart(2, '0'), y + 2);
       if (draw) { doc.font('Helvetica-Bold').fontSize(9.2).fillColor(BODY); doc.text(cert.title || '', CONTENT_X, y, { lineBreak: false }); }
       y += 12;
       const issuerLines = wrapLines(doc, cert.issuer || '', 'Helvetica', 8.5, CONTENT_W);
       if (draw) { doc.font('Helvetica').fontSize(8.5).fillColor(MUTED); doc.text(cert.issuer || '', CONTENT_X, y, { lineBreak: false }); }
-      y += 15;
+      y += issuerLeading;
       linesUsed += 1 + issuerLines.length;
     });
     track('certifications', linesUsed, true);
-    y += 4 + GS;
+    y += tightenGap(4) + GS;
   } else track('certifications', 0, false);
 
   if (content.skills && content.skills.length) {
     y = section('SKILLS', y);
-    const colCount = 3, colW = CONTENT_W / colCount;
+    // Skills are already a dense 3-column grid by default. In tight mode
+    // that becomes 4 columns — still a real grid, just packing more per
+    // row — rather than switching to a different layout style entirely.
+    const colCount = tightLeading ? 4 : 3, colW = CONTENT_W / colCount;
+    const rowH = tightLeading ? 11.5 : 13;
     let linesUsed = 0;
     content.skills.forEach((skill, i) => {
       const row = Math.floor(i / colCount), col = i % colCount;
-      const sy = y + row * 13;
+      const sy = y + row * rowH;
       if (draw) {
         doc.fillColor(GOLD).rect(CONTENT_X + col * colW, sy + 1, 3, 3).fill();
         doc.font('Helvetica').fontSize(8.8).fillColor(BODY);
-        doc.text(skill, CONTENT_X + col * colW + 7, sy, { lineBreak: false });
+        doc.text(skill, CONTENT_X + col * colW + 7, sy, { lineBreak: false, width: colW - 10, ellipsis: true });
       }
       if (col === 0) linesUsed++;
     });
-    y += Math.ceil(content.skills.length / colCount) * 13 + 4 + GS;
+    y += Math.ceil(content.skills.length / colCount) * rowH + tightenGap(4) + GS;
     track('skills', linesUsed, true);
   } else track('skills', 0, false);
 
   if (content.languages && content.languages.length) {
     y = section('LANGUAGES', y);
+    const langRowH = tightLeading ? 13 : 15;
     content.languages.forEach(l => {
       if (draw) {
         doc.font('Helvetica-Bold').fontSize(9.2).fillColor(BODY);
@@ -200,16 +217,12 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
         doc.font('Helvetica').fontSize(8.8).fillColor(MUTED);
         doc.text(l.level, CONTENT_X + 70, y, { lineBreak: false });
       }
-      y += 15;
+      y += langRowH;
     });
     track('languages', content.languages.length, true);
-    y += 4 + GS;
+    y += tightenGap(4) + GS;
   } else track('languages', 0, false);
 
-  // References: content.references is now a flexible array (1, 2, 3+),
-  // stacked vertically one after another (this template's reference block
-  // is a simple label/value list, so stacking reads more naturally here
-  // than side-by-side boxes).
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = section('REFERENCE' + (refList.length > 1 ? 'S' : ''), y);
@@ -241,22 +254,57 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   return { finalY: y, sections };
 }
 
+const FIT_LEVELS = [
+  { name: 'normal', opts: { tightLeading: false } },
+  { name: 'tight-leading', opts: { tightLeading: true } }
+];
+const HARD_OVERFLOW_LINE_THRESHOLD = 3;
+
 function measure(content) {
-  const doc = measureDoc();
-  const { finalY, sections } = layout(doc, content, { draw: false });
   const available = AVAILABLE_BOTTOM;
-  const overflowPt = Math.max(0, finalY - available);
-  const underflowPt = Math.max(0, available - finalY);
+  let last = null;
+
+  for (const level of FIT_LEVELS) {
+    const doc = measureDoc();
+    const { finalY, sections } = layout(doc, content, { draw: false, ...level.opts });
+    last = { finalY, sections, level: level.name };
+    if (finalY <= available) {
+      return {
+        fits: true, finalY, availableHeight: available,
+        overflowPoints: 0, overflowLines: 0,
+        underflowPoints: Math.round(available - finalY), underflowLines: Math.round((available - finalY) / 13.5),
+        sections, appliedLevel: level.name, hardOverflow: false
+      };
+    }
+  }
+
+  const overflowPt = last.finalY - available;
+  const overflowLines = Math.round(overflowPt / 13.5);
+  const hardOverflow = overflowLines > HARD_OVERFLOW_LINE_THRESHOLD;
+
   return {
-    fits: overflowPt === 0, finalY, availableHeight: available,
-    overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 13.5),
-    underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 13.5),
-    sections
+    fits: false, finalY: last.finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines,
+    underflowPoints: 0, underflowLines: 0,
+    sections: last.sections, appliedLevel: last.level, hardOverflow,
+    recommendation: buildFitRecommendation(last.sections, overflowLines)
   };
 }
 
 function render(content) {
   const m = measure(content);
+
+  if (m.hardOverflow) {
+    const err = new Error(
+      `Content is too long to render legibly on this template even at maximum compaction ` +
+      `(about ${m.overflowLines} line(s) over one page). ${m.recommendation}`
+    );
+    err.hardOverflow = true;
+    err.recommendation = m.recommendation;
+    throw err;
+  }
+
+  const level = FIT_LEVELS.find(l => l.name === m.appliedLevel) || FIT_LEVELS[0];
   const presentSections = m.sections.filter(s => s.present).length;
   const numGaps = Math.max(1, presentSections);
   const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
@@ -265,7 +313,7 @@ function render(content) {
   const chunks = [];
   doc.on('data', c => chunks.push(c));
   const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
-  layout(doc, content, { draw: true, stretchPerGap });
+  layout(doc, content, { draw: true, stretchPerGap, ...level.opts });
   doc.end();
   return done;
 }
