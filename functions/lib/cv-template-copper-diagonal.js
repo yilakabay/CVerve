@@ -6,7 +6,7 @@
 // double ring, and a timeline-styled experience section on the right.
 // Same measure()/render() contract as every other template.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const NAVY = '#141F45', COPPER = '#BF6125', COPPER_LT = '#F5E1C7';
@@ -17,7 +17,17 @@ const PHOTO_CX = SIDEBAR_W / 2, PHOTO_CY = HEADER_H / 2 + 6;
 const L_PAD = 18.0, R_START = SIDEBAR_W + 18.0, R_END = PAGE_W - 18.0, RIGHT_W = R_END - R_START;
 const AVAILABLE_BOTTOM = PAGE_H - 30;
 
-function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false } = {}) {
+function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, tightLeading = false } = {}) {
+  // Tightening never goes below a floor that keeps wrapped lines within the
+  // same bullet/paragraph from visually touching or overlapping — this is
+  // a real cap, not just a smaller number, so "tight" mode can never
+  // produce overlapping text no matter how it's combined with other flags.
+  const tighten = (leading, size) => {
+    if (!tightLeading) return leading;
+    const floor = size + 2.2;
+    return Math.max(floor, Math.round(leading * 0.86 * 10) / 10);
+  };
+  const tightenGap = (gap) => tightLeading ? Math.round(gap * 0.6) : gap;
   const sections = [];
   function track(name, linesUsed, present) { sections.push({ name, linesUsed, present }); }
 
@@ -176,7 +186,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
     return yTop + 24;
   }
   function rpara(text, yTop, opts = {}) {
-    const size = opts.size || 9.5, leading = opts.leading || 14.5;
+    const size = opts.size || 9.5, leading = tighten(opts.leading || 14.5, size);
     const lines = wrapLines(doc, text, 'Helvetica', size, RIGHT_W);
     if (draw) {
       doc.font('Helvetica').fontSize(size).fillColor(BODY);
@@ -186,7 +196,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
     return { y: yTop + lines.length * leading, lines: lines.length };
   }
   function rbullets(items, yTop, opts = {}) {
-    const size = opts.size || 9.5, leading = opts.leading || 13.5;
+    const size = opts.size || 9.5, leading = tighten(opts.leading || 13.5, size);
     let cur = yTop, total = 0;
     (items || []).forEach(item => {
       const lines = wrapLines(doc, item, 'Helvetica', size, RIGHT_W - 14);
@@ -200,7 +210,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
         let ly = cur;
         lines.forEach(ln => { doc.text(ln, R_START + 14, ly, { lineBreak: false }); ly += leading; });
       }
-      cur += lines.length * leading + 3.5;
+      cur += lines.length * leading + (tightLeading ? 1.5 : 3.5);
       total += lines.length;
     });
     return { y: cur, lines: total };
@@ -213,7 +223,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
     ry = rsection('PROFILE', ry);
     const r = rpara(content.profile, ry);
     track('profile', r.lines, true);
-    ry = r.y + 12 + GS;
+    ry = r.y + tightenGap(12) + GS;
   } else track('profile', 0, false);
 
   if (content.experience && content.experience.length) {
@@ -236,14 +246,14 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
       ry = r2.y;
     });
     track('experience', linesUsed, true);
-    ry += 12 + GS;
+    ry += tightenGap(12) + GS;
   } else track('experience', 0, false);
 
   if (content.achievements && content.achievements.length) {
     ry = rsection('ACHIEVEMENT', ry);
     const r3 = rbullets(content.achievements, ry);
     track('achievements', r3.lines, true);
-    ry = r3.y + 12 + GS;
+    ry = r3.y + tightenGap(12) + GS;
   } else track('achievements', 0, false);
 
   if (content.certifications && content.certifications.length) {
@@ -251,20 +261,21 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
     let linesUsed = 0;
     content.certifications.forEach((cert, i) => {
       const full = `${cert.title} | ${cert.issuer}`;
+      const certLeading = tighten(13.5, 9.5);
       const lines = wrapLines(doc, full, 'Helvetica', 9.5, RIGHT_W - 16);
       if (draw) {
         doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COPPER);
         doc.text(`${i + 1}.`, R_START, ry + 1, { lineBreak: false });
         doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
         let ly = ry;
-        lines.forEach(ln => { doc.text(ln, R_START + 16, ly, { lineBreak: false }); ly += 13.5; });
+        lines.forEach(ln => { doc.text(ln, R_START + 16, ly, { lineBreak: false }); ly += certLeading; });
         ry = ly;
-      } else { ry += lines.length * 13.5; }
+      } else { ry += lines.length * certLeading; }
       linesUsed += lines.length;
-      ry += 5;
+      ry += tightLeading ? 2 : 5;
     });
     track('certifications', linesUsed, true);
-    ry += 8 + GS;
+    ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
 
   // References: content.references is now an array (1, 2, 3+ — no cap).
@@ -310,50 +321,80 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false }
   return { finalY: Math.max(y, ry), sections };
 }
 
-function measure(content) {
-  // Pass 1: normal layout (one skill per line — the template's default
-  // look). If this already fits, use it as-is; compaction is never
-  // applied just because it's available.
-  const doc1 = measureDoc();
-  const normal = layout(doc1, content, { draw: false, compactSkills: false });
-  const available = AVAILABLE_BOTTOM;
+// Escalation ladder: each level is a slightly more space-saving rendering
+// technique, tried in order, LEAST visually invasive first. A level is
+// only ever used if every level before it has already failed to fit.
+// Nothing here changes or removes any of the user's actual content —
+// these are purely rendering-density choices.
+const FIT_LEVELS = [
+  { name: 'normal', opts: { compactSkills: false, tightLeading: false } },
+  { name: 'compact-skills', opts: { compactSkills: true, tightLeading: false } },
+  { name: 'compact-skills+tight-leading', opts: { compactSkills: true, tightLeading: true } }
+];
 
-  if (normal.finalY <= available) {
-    return {
-      fits: true, finalY: normal.finalY, availableHeight: available,
-      overflowPoints: 0, overflowLines: 0,
-      underflowPoints: Math.round(available - normal.finalY), underflowLines: Math.round((available - normal.finalY) / 13.5),
-      sections: normal.sections,
-      compactionApplied: false
-    };
+// Beyond this many lines of overflow, even at maximum compaction, tightening
+// further would start visually crowding or clipping text rather than
+// legibly shrinking it — so the renderer stops and reports it as genuinely
+// too much content, instead of silently degrading into a bad-looking PDF.
+const HARD_OVERFLOW_LINE_THRESHOLD = 3;
+
+function measure(content) {
+  const available = AVAILABLE_BOTTOM;
+  let last = null;
+
+  for (const level of FIT_LEVELS) {
+    const doc = measureDoc();
+    const { finalY, sections } = layout(doc, content, { draw: false, ...level.opts });
+    last = { finalY, sections, level: level.name };
+    if (finalY <= available) {
+      return {
+        fits: true, finalY, availableHeight: available,
+        overflowPoints: 0, overflowLines: 0,
+        underflowPoints: Math.round(available - finalY), underflowLines: Math.round((available - finalY) / 13.5),
+        sections, appliedLevel: level.name, hardOverflow: false
+      };
+    }
   }
 
-  // Pass 2: normal layout overflowed. Before asking the user to cut any
-  // content, automatically retry with skills packed into flowing rows
-  // (compactSkills: true) to recover vertical space. This is a rendering
-  // technique, not a content change — nothing the user wrote is altered
-  // or removed.
-  const doc2 = measureDoc();
-  const compact = layout(doc2, content, { draw: false, compactSkills: true });
-  const overflowPt = Math.max(0, compact.finalY - available);
-  const underflowPt = Math.max(0, available - compact.finalY);
+  // Every level failed — report the numbers from the MOST compact attempt
+  // (the last one tried), since that's the closest the renderer can get.
+  const overflowPt = last.finalY - available;
+  const overflowLines = Math.round(overflowPt / 13.5);
+  const hardOverflow = overflowLines > HARD_OVERFLOW_LINE_THRESHOLD;
 
   return {
-    fits: overflowPt === 0, finalY: compact.finalY, availableHeight: available,
-    overflowPoints: Math.round(overflowPt), overflowLines: Math.round(overflowPt / 13.5),
-    underflowPoints: Math.round(underflowPt), underflowLines: Math.round(underflowPt / 13.5),
-    sections: compact.sections,
-    // Tells the caller (cv-chat.js / the AI) that a space-saving layout
-    // change was already applied automatically. If fits is now true, the
-    // AI should tell the user their content fit WITHOUT needing to cut
-    // anything. If fits is still false, real trimming is genuinely needed
-    // even after this automatic recovery step.
-    compactionApplied: true
+    fits: false, finalY: last.finalY, availableHeight: available,
+    overflowPoints: Math.round(overflowPt), overflowLines,
+    underflowPoints: 0, underflowLines: 0,
+    sections: last.sections, appliedLevel: last.level,
+    hardOverflow,
+    // A concrete, specific cut recommendation — never present just to pad
+    // the response; only computed once we know trimming is genuinely
+    // needed, so the AI has something confident to tell the user instead
+    // of an open "what should I remove?" question.
+    recommendation: buildFitRecommendation(last.sections, overflowLines)
   };
 }
 
 function render(content) {
   const m = measure(content);
+
+  // Refuse to render rather than silently produce a PDF with clipped or
+  // crowded text. The caller (cv-chat.js's callTool) already wraps this in
+  // try/catch and surfaces the message as a tool failure, so the AI sees
+  // exactly why and can give the user a specific, confident recommendation
+  // instead of a broken file.
+  if (m.hardOverflow) {
+    const err = new Error(
+      `Content is too long to render legibly on this template even at maximum compaction ` +
+      `(about ${m.overflowLines} line(s) over one page). ${m.recommendation}`
+    );
+    err.hardOverflow = true;
+    err.recommendation = m.recommendation;
+    throw err;
+  }
+
+  const level = FIT_LEVELS.find(l => l.name === m.appliedLevel) || FIT_LEVELS[0];
   const presentSections = m.sections.filter(s => s.present).length;
   const numGaps = Math.max(1, presentSections);
   const stretchPerGap = (!m.fits || presentSections === 0) ? 0 : m.underflowPoints / numGaps;
@@ -362,10 +403,10 @@ function render(content) {
   const chunks = [];
   doc.on('data', c => chunks.push(c));
   const done = new Promise(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
-  // compactSkills must match whatever measure() actually decided (m.compactionApplied),
-  // never re-derived independently — otherwise the drawn PDF could disagree
-  // with the fit numbers the AI already showed the user.
-  layout(doc, content, { draw: true, stretchPerGap, compactSkills: m.compactionApplied });
+  // Always the SAME level measure() already decided on — render() never
+  // re-derives this independently, so the drawn PDF can never disagree
+  // with the fit numbers already shown to the user.
+  layout(doc, content, { draw: true, stretchPerGap, ...level.opts });
   doc.end();
   return done;
 }
