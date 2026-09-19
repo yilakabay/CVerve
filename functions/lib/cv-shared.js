@@ -75,8 +75,107 @@ function proficiencyToFill(level) {
   return DEFAULT_PROFICIENCY_FILL;
 }
 
+// ── Generic flowing / multi-column layout ────────────────────────────────
+// Two reusable layout strategies any template's measure()/render() can call
+// for ANY list of short items (skills, achievements, certifications, tags,
+// etc) whenever fitting the page matters more than one-item-per-line. Both
+// follow the same "returns the next y position" chaining pattern as every
+// other section-drawing function in the template files, so they slot into
+// an existing layout() function without changing how the rest of it works.
+//
+// Pick whichever suits the content:
+//   flowItems()   — like flexbox "flex-wrap: wrap". Items sit side by side
+//                   left-to-right at their NATURAL width, wrapping to a new
+//                   row only when the next item wouldn't fit. Best for
+//                   short, uneven-length items like skill tags, where
+//                   packing 3-4 short ones next to a longer one uses the
+//                   width much better than a fixed grid would.
+//   columnItems() — a fixed N-column grid (like CSS "columns: N"), items
+//                   flow down each column in a straight fixed-width grid.
+//                   Best when a tidy aligned grid look matters more than
+//                   maximum density (e.g. a skills grid users can scan).
+//
+// Both are pure measurement when draw=false (same convention as
+// wrapLines/layout elsewhere) — call once with draw:false inside measure(),
+// then again with draw:true inside render(), exactly like every other
+// section helper in the cv-template-*.js files.
+
+function flowItems(doc, items, x, yTop, totalWidth, opts = {}) {
+  const {
+    font = 'Helvetica', size = 8.8, color = '#FFFFFF',
+    gapX = 14, gapY = 12.5,           // space after an item, and between rows
+    bulletColor = null,               // if set, draws a small square bullet before each item
+    bulletSize = 3, bulletGap = 6,
+    draw = false
+  } = opts;
+
+  doc.font(font).fontSize(size);
+  let cx = x, cy = yTop, rows = 1;
+
+  (items || []).forEach((raw, i) => {
+    const text = String(raw);
+    const bulletW = bulletColor ? bulletSize + bulletGap : 0;
+    const itemW = doc.widthOfString(text) + bulletW;
+    const isFirstOnRow = cx === x;
+
+    // Wrap to a new row if this item won't fit in the remaining width —
+    // unless it's the very first item on the row, in which case placing it
+    // anyway (even if wider than totalWidth) is better than an infinite
+    // empty row; a single very long item just runs past the column edge.
+    if (!isFirstOnRow && (cx - x) + itemW > totalWidth) {
+      cx = x;
+      cy += gapY;
+      rows += 1;
+    }
+
+    if (draw) {
+      if (bulletColor) {
+        doc.fillColor(bulletColor).rect(cx, cy + size * 0.55, bulletSize, bulletSize).fill();
+      }
+      doc.font(font).fontSize(size).fillColor(color);
+      doc.text(text, cx + bulletW, cy, { lineBreak: false });
+    }
+
+    cx += itemW + gapX;
+  });
+
+  return { y: cy + gapY, rows, lines: rows };
+}
+
+function columnItems(doc, items, x, yTop, totalWidth, opts = {}) {
+  const {
+    font = 'Helvetica', size = 8.8, color = '#FFFFFF',
+    columns = 2, rowGap = 13,
+    bulletColor = null, bulletSize = 3, bulletGap = 6,
+    draw = false
+  } = opts;
+
+  const colW = totalWidth / columns;
+  const rowCount = Math.ceil((items || []).length / columns);
+  const bulletW = bulletColor ? bulletSize + bulletGap : 0;
+
+  (items || []).forEach((raw, i) => {
+    const text = String(raw);
+    const row = Math.floor(i / columns);
+    const col = i % columns;
+    const ix = x + col * colW;
+    const iy = yTop + row * rowGap;
+
+    if (draw) {
+      if (bulletColor) {
+        doc.fillColor(bulletColor).rect(ix, iy + size * 0.55, bulletSize, bulletSize).fill();
+      }
+      doc.font(font).fontSize(size).fillColor(color);
+      doc.text(text, ix + bulletW, iy, { lineBreak: false, width: colW - bulletW - 4, ellipsis: true });
+    }
+  });
+
+  return { y: yTop + rowCount * rowGap, rows: rowCount, lines: rowCount };
+}
+
 module.exports = {
   PDFDocument, measureDoc, wrapLines,
   normalizeEducation, normalizeReferences,
-  proficiencyToFill
+  proficiencyToFill,
+  flowItems, columnItems
 };
