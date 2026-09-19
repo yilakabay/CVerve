@@ -6,7 +6,7 @@
 // double ring, and a timeline-styled experience section on the right.
 // Same measure()/render() contract as every other template.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const NAVY = '#141F45', COPPER = '#BF6125', COPPER_LT = '#F5E1C7';
@@ -108,22 +108,21 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   });
   y += 3;
 
+  // Skills now flow side-by-side (like flex-wrap) instead of one per line —
+  // several short skills share a row, only wrapping to a new line when the
+  // next one wouldn't fit. This alone often recovers real vertical space
+  // versus the old one-item-per-line layout, which helps borderline-overflow
+  // CVs fit without trimming actual content.
   y = lsection('SKILLS', y) + 4;
-  let skillLines = 0;
-  (content.skills || []).forEach(sk => {
-    const lines = wrapLines(doc, sk, 'Helvetica', 8.8, SIDEBAR_W - L_PAD * 2 - 12);
-    if (draw) {
-      doc.fillColor(COPPER).rect(L_PAD, y + 5.5, 5, 2).fill();
-      doc.font('Helvetica').fontSize(8.8).fillColor(WHITE);
-      let cur = y;
-      lines.forEach(ln => { doc.text(ln, L_PAD + 12, cur, { lineBreak: false }); cur += 12.5; });
-      y = cur;
-    } else { y += lines.length * 12.5; }
-    y += 2;
-    skillLines += lines.length;
+  const skillsResult = flowItems(doc, content.skills || [], L_PAD + 8, y, SIDEBAR_W - L_PAD * 2 - 8, {
+    font: 'Helvetica', size: 8.8, color: WHITE,
+    gapX: 10, gapY: 13,
+    bulletColor: COPPER, bulletSize: 4, bulletGap: 6,
+    draw
   });
-  track('skills', skillLines, (content.skills || []).length > 0);
-  y += 8 + stretchPerGap;
+  y = skillsResult.y;
+  track('skills', skillsResult.lines, (content.skills || []).length > 0);
+  y += 4 + stretchPerGap;
 
   // Languages: bars are keyed off each language's OWN proficiency label
   // (via proficiencyToFill), never off array position. This also already
