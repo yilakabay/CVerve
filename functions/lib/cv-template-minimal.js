@@ -28,7 +28,7 @@
 //   name: string,
 //   subtitle: string,                          // e.g. "MANAGEMENT GRADUATE"
 //   photoBase64: string | null,                 // raw base64, no data: prefix
-//   contact: { phone, email, location },
+//   contact: { phone, email, location },        // any field may be omitted
 //   education: { degree, school, years, extra },// extra e.g. "CGPA 3.41 | Exit Exam 82%"
 //   languages: [{ name, level }],
 //   profile: string,
@@ -36,22 +36,11 @@
 //   experience: [{ org, role, dateRange, bullets: string[] }],
 //   achievements: string[],
 //   certifications: [{ title, issuer }],
-//   reference: { name, role, email, phone } | null
+//   references: [{ name, role, email, phone }] | []   // 0, 1, or many
 // }
 // Any array can be empty ([]) or omitted — that section is simply skipped.
 
-const PDFDocument = require('pdfkit');
-
-// Accepts education as EITHER the old single-object shape
-// { degree, school, extra } OR the newer array shape
-// [{ dateRange, school, degree, extra }, ...] (first entry = higher
-// education, used for this template's single meta-row slot). Always
-// returns an array so every template can rely on one shape internally.
-function normalizeEducation(education) {
-  if (!education) return [];
-  if (Array.isArray(education)) return education;
-  return [education];
-}
+const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences } = require('./cv-shared');
 
 const PAGE_W = 595.28; // A4 in points
 const PAGE_H = 841.89;
@@ -73,30 +62,6 @@ const MUTED    = '#96989E';
 const HAIRLINE = '#DADBDE';
 const ACCENT   = '#B08456';
 
-// A throwaway PDFDocument purely for font-metrics (widthOfString/heightOfString)
-// work fine on a document that's never .end()-ed for output.
-function measureDoc() {
-  return new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: false });
-}
-
-function wrapLines(doc, text, font, size, maxWidth) {
-  doc.font(font).fontSize(size);
-  const words = String(text || '').split(' ');
-  const lines = [];
-  let cur = '';
-  for (const w of words) {
-    const trial = (cur + ' ' + w).trim();
-    if (doc.widthOfString(trial) <= maxWidth || !cur) {
-      cur = trial;
-    } else {
-      lines.push(cur);
-      cur = w;
-    }
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
-
 // Runs the FULL layout using only measurement calls (no drawing) and
 // records per-section line counts + final y. Both measure() and render()
 // call this with a flag controlling whether drawing actually happens.
@@ -113,7 +78,6 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
   if (draw) {
     doc.font('Helvetica').fontSize(30).fillColor(INK);
     doc.text(content.name || '', CONTENT_LEFT, TOP, { lineBreak: false });
-    const nameW = doc.widthOfString(content.name || '');
     doc.strokeColor(ACCENT).lineWidth(1.4)
       .moveTo(CONTENT_LEFT, TOP + 35).lineTo(CONTENT_LEFT + 46, TOP + 35).stroke();
     doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
@@ -163,10 +127,16 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     if (opts.link) doc.link(x, yTop - 2, doc.widthOfString(text), 11, opts.link);
   }
 
+  // Contact: any missing field (phone/email/location) is simply skipped —
+  // the remaining ones stack up from the top of the column instead of
+  // leaving a blank line where the missing one would have been.
   metaLabel('Contact', col1, META_TOP);
-  metaLine(content.contact?.phone || '', col1, META_TOP + 15, { link: content.contact?.phone ? `tel:${content.contact.phone.replace(/\s+/g, '')}` : null });
-  metaLine(content.contact?.email || '', col1, META_TOP + 28, { link: content.contact?.email ? `mailto:${content.contact.email}` : null });
-  metaLine(content.contact?.location || '', col1, META_TOP + 41, { color: BODY_GRY });
+  const contactRows = [
+    content.contact?.phone ? { text: content.contact.phone, link: `tel:${content.contact.phone.replace(/\s+/g, '')}` } : null,
+    content.contact?.email ? { text: content.contact.email, link: `mailto:${content.contact.email}` } : null,
+    content.contact?.location ? { text: content.contact.location, color: BODY_GRY } : null
+  ].filter(Boolean);
+  contactRows.forEach((row, i) => metaLine(row.text, col1, META_TOP + 15 + i * 13, { link: row.link, color: row.color }));
 
   metaLabel('Education', col2, META_TOP);
   const eduList = normalizeEducation(content.education);
@@ -286,26 +256,41 @@ function layout(doc, content, { draw, stretchPerGap = 0 } = {}) {
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
-  // ---- 06 Reference ----
-  if (content.reference && content.reference.name) {
-    y = sectionHeading('Reference', y + GAP);
-    if (draw) {
-      doc.font('Helvetica').fontSize(9.7).fillColor(INK);
-      doc.text(content.reference.name, TEXT_COL_X, y + 1, { lineBreak: false });
-      doc.font('Helvetica').fontSize(9).fillColor(BODY_GRY);
-      doc.text(content.reference.role || '', TEXT_COL_X, y + 15, { lineBreak: false, width: TEXT_COL_W, align: 'right' });
-      doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
-      doc.text('EMAIL', TEXT_COL_X, y + 32, { lineBreak: false });
-      doc.fillColor(INK);
-      doc.text(content.reference.email || '', TEXT_COL_X + 40, y + 32, { lineBreak: false });
-      doc.fillColor(MUTED);
-      doc.text('PHONE', TEXT_COL_X + 230, y + 32, { lineBreak: false });
-      doc.fillColor(INK);
-      doc.text(content.reference.phone || '', TEXT_COL_X + 272, y + 32, { lineBreak: false });
-    }
-    track('reference', 3, true);
-    y += 46;
-  } else track('reference', 0, false);
+  // ---- 06 Reference(s) ----
+  // content.references is now a flexible array (0, 1, 2, 3+ entries) —
+  // stacked one after another, each only showing the fields it actually
+  // has (a reference given without a phone number just skips that line
+  // instead of printing "PHONE" next to nothing).
+  const refList = normalizeReferences(content.references || content.reference);
+  if (refList.length) {
+    y = sectionHeading(refList.length > 1 ? 'References' : 'Reference', y + GAP);
+    let linesUsed = 0;
+    refList.forEach((ref, i) => {
+      if (draw) {
+        doc.font('Helvetica').fontSize(9.7).fillColor(INK);
+        doc.text(ref.name, TEXT_COL_X, y + 1, { lineBreak: false });
+        doc.font('Helvetica').fontSize(9).fillColor(BODY_GRY);
+        doc.text(ref.role || '', TEXT_COL_X, y + 15, { lineBreak: false, width: TEXT_COL_W, align: 'right' });
+        let lineY = y + 32;
+        if (ref.email) {
+          doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
+          doc.text('EMAIL', TEXT_COL_X, lineY, { lineBreak: false });
+          doc.fillColor(INK);
+          doc.text(ref.email, TEXT_COL_X + 40, lineY, { lineBreak: false });
+        }
+        if (ref.phone) {
+          doc.fillColor(MUTED);
+          doc.text('PHONE', TEXT_COL_X + 230, lineY, { lineBreak: false });
+          doc.fillColor(INK);
+          doc.text(ref.phone, TEXT_COL_X + 272, lineY, { lineBreak: false });
+        }
+      }
+      y += 46;
+      linesUsed += 3;
+      if (i < refList.length - 1) y += 6;
+    });
+    track('references', linesUsed, true);
+  } else track('references', 0, false);
 
   return { finalY: y, sections };
 }
