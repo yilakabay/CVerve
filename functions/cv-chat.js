@@ -62,6 +62,20 @@
 // delivery path is the Telegram push, not the in-app Open/Download links.
 // A failed push (e.g. Telegram not linked yet) is non-fatal: the
 // conversation continues either way.
+//
+// ── FIX: content schema now supports multiple references + optional
+// contact fields ──────────────────────────────────────────────────────
+// Every template's renderer was updated (see cv-shared.js / each
+// cv-template-*.js) to: (a) accept `references` as an ARRAY of 0, 1, 2, 3+
+// entries instead of a single `reference` object, laying them out
+// side-by-side or stacked depending on the template; (b) treat any missing
+// contact field (phone/email/location) or reference field as simply
+// absent, never drawing an orphan label for it; and (c) compute language
+// proficiency bars from each language's own `level` text via
+// proficiencyToFill() in cv-shared.js, instead of guessing from array
+// position. The system prompt below has been updated to match — the model
+// now asks about contact fields and references without assuming there's
+// only ever one of the latter.
 
 // ── Template registry ──────────────────────────────────────────────────
 // Each entry maps a templateId (chosen by the user in the gallery, sent by
@@ -105,19 +119,22 @@ function buildSystemPrompt(templateName) {
    {
      name, subtitle, contact: {phone,email,location},
      education: {degree,school,extra},
-     languages: [{name,level}],
+     languages: [{name,level}],   // level is a free-text proficiency label — see note below
      profile, skills: [string], 
      experience: [{org,role,dateRange,bullets:[string]}],
      achievements: [string], certifications: [{title,issuer}],
-     reference: {name,role,email,phone} | null
+     references: [{name,role,email,phone}]   // 0, 1, 2, 3+ entries — see note below
    }
+   Every field in contact and in each item of references is OPTIONAL — omit a key entirely if the user doesn't have it (e.g. contact: {email: "..."} with no phone/location is valid). Never fill a missing field with a placeholder like "N/A" or an empty string — the renderer already knows to skip a field that isn't there, so a placeholder would be the only thing that actually shows up wrong. languages[].level should be a plain proficiency word the renderer can read a fill-bar amount from (e.g. "Native", "Fluent", "Advanced", "Intermediate", "Basic") — use the label the user actually gave you, don't invent a different scale.
 3. If a section is thin or missing (e.g. no experience, no skills), do NOT just leave it empty and do NOT interrogate the user with a long form. Ask ONE short, friendly question at a time, offering an easy way out — e.g. "Have you done any internship, volunteer work, or class project? If not, no worries, I can suggest some based on your field." If they still have nothing, propose 3-5 common, reasonable skills/achievements for their field of study as SUGGESTIONS ONLY, clearly labeled as suggestions, and ask them to confirm/edit before including them. NEVER silently invent facts (like a specific employer, degree, or grade) — only suggest generic, clearly-labeled filler for skills/soft-skills, never for verifiable facts.
+   - Contact details: ask for phone, email, and location together in one friendly question, but don't insist on all three — if the user only has one or two, that's completely fine, just leave the others out of contact rather than asking again or inventing something.
+   - References: ask if they'd like to include a reference, and if so how many (most CVs list 1-3). Collect each one's name/role/email/phone the same way — one short, friendly question at a time, not a long form — and put all of them in the references array in the order given. If the user has none, use an empty array and move on without pushing back.
 4. Before you EVER tell the user their CV "fits" or "is too long", call check_template_fit with your current best content object. Trust ONLY its numbers — never estimate this yourself.
    - If it reports overflow: summarize what's over budget in plain terms, propose a SPECIFIC trim (what you'd cut/shorten and why), show the user a quick before/after, and only apply it after they're OK with it (or say "go ahead, you decide" — in which case proceed).
    - If it reports large underflow after all real content is gathered: that's fine, the renderer automatically spaces things out — you don't need to pad content just to fill space. Do not invent extra content purely to fill space.
 5. Once the user explicitly confirms the ORGANIZED CONTENT looks right (text/sections, not the visual PDF yet), call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step — the app only shows the photo-cropping frame after you call this tool, so asking sooner would confuse the user. If the user has no photo or doesn't want one, that's fine — proceed without it.
 6. Once the user has attached a photo (or said to skip it), call render_preview with the final content object and tell the user a preview is ready — it will be sent to them as a file in this Telegram chat. You do NOT need to include a photo field yourself — the app attaches the user's photo automatically whenever you render; just build the rest of the content.
-7. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph).
+7. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph or another reference).
 8. When the user is happy, call finalize_pdf with the final content object and let them know their finished CV has been sent to them as a file in this chat.
 
 ## Hard rules
@@ -144,7 +161,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'check_template_fit',
-      description: 'Runs the REAL layout measurement for the Minimal CV template against a candidate content object. Returns exact per-section line counts, and whether the content fits one page (overflowLines/underflowLines). Always call this before judging fit or before rendering.',
+      description: 'Runs the REAL layout measurement for the selected CV template against a candidate content object. Returns exact per-section line counts, and whether the content fits one page (overflowLines/underflowLines). Always call this before judging fit or before rendering.',
       parameters: {
         type: 'object',
         properties: { content: { type: 'object', description: 'The candidate CV content object matching the schema described in the system prompt.' } },
