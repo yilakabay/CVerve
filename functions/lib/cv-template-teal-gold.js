@@ -43,13 +43,24 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.rect(LEFT_W + 18, 10, 3, 106).fill(GOLD);
 
     const nameX = LEFT_W + 30;
+    const NAME_TOP = 30;
     doc.font('Helvetica-Bold').fontSize(28).fillColor(WHITE);
-    doc.text(content.name || '', nameX, 30, { lineBreak: false });
-    doc.font('Helvetica').fontSize(10.5).fillColor(GOLD);
-    doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), nameX, 51, { lineBreak: false });
-    doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, 62).lineTo(PAGE_W - 18, 62).stroke();
+    // Measure the name's actual rendered line height (PDFKit's own metric
+    // for the current font/size) instead of a hardcoded offset, so the
+    // subtitle is always placed fully below it — including descenders —
+    // no matter what font size this header ends up using later.
+    const nameLineH = doc.currentLineHeight(true);
+    doc.text(content.name || '', nameX, NAME_TOP, { lineBreak: false });
 
-    let ix = nameX, rowY = 79;
+    const SUBTITLE_TOP = NAME_TOP + nameLineH + 4;
+    doc.font('Helvetica').fontSize(10.5).fillColor(GOLD);
+    const subtitleLineH = doc.currentLineHeight(true);
+    doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), nameX, SUBTITLE_TOP, { lineBreak: false });
+
+    const DIVIDER_Y = SUBTITLE_TOP + subtitleLineH + 3;
+    doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, DIVIDER_Y).lineTo(PAGE_W - 18, DIVIDER_Y).stroke();
+
+    let ix = nameX, rowY = DIVIDER_Y + 17;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
       const tw = doc.widthOfString(txt);
