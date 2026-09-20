@@ -81,13 +81,85 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
 
     const hx = SIDEBAR_W + 24;
-    doc.font('Helvetica-Bold').fontSize(32).fillColor(WHITE);
-    doc.text((content.name || '').toUpperCase(), hx, 24, { lineBreak: false });
-    doc.strokeColor(GOLD).lineWidth(2).moveTo(hx, 64).lineTo(PAGE_W - 80, 64).stroke();
-    doc.font('Helvetica').fontSize(10.5).fillColor(GOLD_LT);
-    doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), hx, 74, { lineBreak: false });
+    const NAME_TOP = 24;
+    // The decorative hexagons and the divider both stop at PAGE_W - 80,
+    // not the header's true right edge — so that's the real available
+    // width for the name/subtitle too, not R_END/PAGE_W-18.
+    const headerAvailW = (PAGE_W - 80) - hx;
 
-    let cx = hx, cy2 = 98;
+    // ── Name: wrap/shrink instead of running off the header ────────────
+    // Previously drawn with lineBreak:false and no width, so a long name
+    // just ran straight through the decorative hexagons and off the page.
+    // Same fix as the other templates: try a size ladder first (a
+    // slightly smaller single line beats an early wrap), then wrap onto a
+    // second line — capped at 2 — only if even the smallest size can't
+    // fit it on one line.
+    const NAME_SIZE_LADDER = [32, 28, 24, 22];
+    const upperName = (content.name || '').toUpperCase();
+    let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+    let nameLines = null;
+    for (const size of NAME_SIZE_LADDER) {
+      doc.font('Helvetica-Bold').fontSize(size);
+      if (doc.widthOfString(upperName) <= headerAvailW) {
+        nameSize = size;
+        nameLines = [upperName];
+        break;
+      }
+    }
+    if (!nameLines) {
+      nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      doc.font('Helvetica-Bold').fontSize(nameSize);
+      nameLines = wrapLines(doc, upperName, 'Helvetica-Bold', nameSize, headerAvailW).slice(0, 2);
+    }
+    doc.font('Helvetica-Bold').fontSize(nameSize).fillColor(WHITE);
+    const nameLineH = doc.currentLineHeight(true);
+    let nameBottomY = NAME_TOP;
+    nameLines.forEach((ln, i) => {
+      const lineY = NAME_TOP + i * nameLineH;
+      doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+      nameBottomY = lineY + nameLineH;
+    });
+
+    // This template's header order is name → divider → subtitle → contact
+    // (unlike teal-gold's name → subtitle → divider) — kept exactly as
+    // designed, just with each piece now cascading off the ACTUAL measured
+    // bottom of the one before it instead of a fixed y offset.
+    const DIVIDER_Y = nameBottomY + 3;
+    doc.strokeColor(GOLD).lineWidth(2).moveTo(hx, DIVIDER_Y).lineTo(PAGE_W - 80, DIVIDER_Y).stroke();
+
+    // ── Subtitle: letter-spaced text, wrapped like the divider's own
+    // width instead of running off unbounded ─────────────────────────
+    // The letter-spacing (a space inserted between every character)
+    // roughly doubles rendered width, so the ORIGINAL text is wrapped
+    // first with a conservative shrink factor (breaking at real word
+    // boundaries), then letter-spacing is applied per finished line —
+    // same approach already used for teal-gold's subtitle. Capped at 2
+    // lines; width+ellipsis is a hard backstop underneath this estimate.
+    const SUBTITLE_TOP = DIVIDER_Y + 10;
+    doc.font('Helvetica').fontSize(10.5).fillColor(GOLD_LT);
+    const subtitleLineH = doc.currentLineHeight(true);
+    const rawSubtitleLines = wrapLines(doc, content.subtitle || '', 'Helvetica', 10.5, headerAvailW / 1.9).slice(0, 2);
+    const spacedSubtitleLines = rawSubtitleLines.map(ln => ln.split('').join(' ').toUpperCase());
+    let subtitleBottomY = SUBTITLE_TOP;
+    if (spacedSubtitleLines.length) {
+      spacedSubtitleLines.forEach((ln, i) => {
+        const lineY = SUBTITLE_TOP + i * subtitleLineH;
+        doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+        subtitleBottomY = lineY + subtitleLineH;
+      });
+    } else {
+      subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
+    }
+
+    // Contact row: any missing field (phone/email/location) is simply
+    // absent from content.contact, so .filter(Boolean) already drops it
+    // and no orphan label/icon is drawn for it. Its row position now
+    // derives from subtitleBottomY instead of a fixed constant, so it
+    // moves down together with a wrapped name/subtitle rather than
+    // overlapping them — and the hex bullet and its text still share this
+    // one cy2 value, so they can never end up out of sync with each other.
+    const cy2 = subtitleBottomY + 12;
+    let cx = hx;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
       const tw = doc.widthOfString(txt);
@@ -125,6 +197,29 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       lines.forEach(ln => { doc.text(ln, L_PAD + indent, cur, { lineBreak: false }); cur += size * 1.4; });
     }
     return yTop + lines.length * size * 1.4;
+  }
+  // Bulleted list in the sidebar — same small-hexagon-plus-wrapped-text
+  // shape as SKILLS — used for any custom sidebar section given as a list
+  // rather than a paragraph. Every line goes through wrapLines against
+  // the real sidebar width, so it can't overflow the sidebar.
+  function lbullets(items, yTop) {
+    const size = 8.5;
+    let cur = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, String(item), 'Helvetica', size, SIDEBAR_W - L_PAD * 2 - 12);
+      if (draw) {
+        hexagon(doc, L_PAD + 4, cur + 5, 3, GOLD);
+        doc.font('Helvetica').fontSize(size).fillColor(WHITE);
+        let ly = cur;
+        lines.forEach(ln => { doc.text(ln, L_PAD + 13, ly, { lineBreak: false }); ly += size * 1.45; });
+        cur = ly;
+      } else {
+        cur += lines.length * size * 1.45;
+      }
+      cur += 2;
+      total += lines.length;
+    });
+    return { y: cur, lines: total };
   }
 
   let y = HEADER_H + 16;
@@ -185,6 +280,30 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       doc.roundedRect(L_PAD, y + 5, bw * fillPct, 5.5, 2.5).fill(GOLD);
     }
     y += 16;
+  });
+  y += 6;
+
+  // ── Custom sidebar sections ──────────────────────────────────────────
+  // A user can ask the AI to add a section not in the fixed schema (e.g.
+  // "Academic Projects", "Hobbies"). Entries in content.customSections
+  // with placement:'sidebar' get their own heading + wrapped content here,
+  // via the same lsec/lnorm/lbullets helpers (and therefore the same
+  // width-safe wrapping) as every built-in sidebar section — so they
+  // can't overflow the sidebar any more than SKILLS or LANGUAGES can.
+  (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
+    y = lsec((cs.title || 'Section').toUpperCase(), y) + 4;
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r = lbullets(cs.items, y);
+      y = r.y;
+      linesUsed = r.lines;
+    } else if (cs.text) {
+      const before = y;
+      y = lnorm(cs.text, y);
+      linesUsed = Math.round((y - before) / (8.5 * 1.4)) || 1;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    y += 6 + stretchPerGap;
   });
 
   function rsec(label, yTop) {
@@ -287,38 +406,110 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
 
+  // ── Custom main-column sections ──────────────────────────────────────
+  // Same idea as the sidebar version above, but for content that fits
+  // better in the wide right column. Every entry with placement !==
+  // 'sidebar' (including no placement at all — main is the default) lands
+  // here, via rsec/rpara/rbullets so it gets the same wrapping, leading
+  // and tight-leading/compaction behavior as EXPERIENCE/ACHIEVEMENT, and
+  // the same per-section line tracking so overflow detection and the fit
+  // recommendation both already account for it automatically.
+  (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar').forEach(cs => {
+    ry = rsec((cs.title || 'Section').toUpperCase(), ry);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r4 = rbullets(cs.items, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    } else if (cs.text) {
+      const r4 = rpara(cs.text, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    ry += tightenGap(12) + GS;
+  });
+
+  // References: content.references is an array (1, 2, 3+ — no cap).
+  // Cards are laid out side by side, own width dividing evenly by count.
+  //
+  // Each card now measures its OWN real content height instead of a fixed
+  // 58pt — a long role/title used to run straight into the Email/Phone
+  // lines below it (fixed offsets: ry+29, ry+42) since neither the box
+  // nor those offsets accounted for wrapping. Role now wraps properly;
+  // Email/Phone now wrap onto additional lines too (instead of being
+  // truncated with "…" via PDFKit's lineBreak:false+width+ellipsis, which
+  // turned out to still wrap unpredictably once a width was supplied —
+  // same fix already applied to copper-diagonal). And a long field in one
+  // card no longer forces the shorter cards next to it to stretch to
+  // match — only the row's overall footprint (rowH, used to advance ry
+  // afterward) uses the max; each card is drawn at its own height.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     ry = rsec('REFERENCE' + (refList.length > 1 ? 'S' : ''), ry);
-    const cardH = 58, gap = 8;
+    const gap = 8;
     const cardW = (RIGHT_W + 8 - gap * (refList.length - 1)) / refList.length;
-    refList.forEach((ref, i) => {
+    const PAD = 12;
+    const NAME_SIZE = 10.5, ROLE_SIZE = 9.5, FIELD_SIZE = 9;
+    const NAME_LH = NAME_SIZE * 1.3, ROLE_LH = ROLE_SIZE * 1.35, FIELD_LH = 13.5;
+    const EMAIL_OFFSET_X = 40, PHONE_OFFSET_X = 42;
+
+    function wrapField(value, offsetX) {
+      if (!value) return [];
+      return wrapLines(doc, String(value), 'Helvetica', FIELD_SIZE, cardW - PAD - offsetX);
+    }
+
+    const refBlocks = refList.map(ref => {
+      const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', NAME_SIZE, cardW - PAD).slice(0, 2);
+      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', ROLE_SIZE, cardW - PAD).slice(0, 4) : [];
+      const emailLines = wrapField(ref.email, EMAIL_OFFSET_X);
+      const phoneLines = wrapField(ref.phone, PHONE_OFFSET_X);
+      let h = 5 + nameLines.length * NAME_LH + 3;
+      if (roleLines.length) h += roleLines.length * ROLE_LH + 4;
+      h += emailLines.length * FIELD_LH;
+      h += phoneLines.length * FIELD_LH;
+      return { ref, nameLines, roleLines, emailLines, phoneLines, h: Math.max(h, 54) };
+    });
+    const rowH = Math.max(...refBlocks.map(b => b.h));
+
+    refBlocks.forEach((block, i) => {
+      const { nameLines, roleLines, emailLines, phoneLines, h } = block;
       const bx = R_START - 8 + i * (cardW + gap);
       if (draw) {
-        doc.roundedRect(bx, ry - 4, cardW, cardH + 4, 5).fill(WHITE);
-        doc.roundedRect(bx, ry - 4, cardW, cardH + 4, 5).lineWidth(0.6).stroke(EMERALD);
-        doc.roundedRect(bx, ry - 4, 5, cardH + 4, 3).fill(EMERALD);
-        const nameLines = wrapLines(doc, ref.name, 'Helvetica-Bold', 10.5, cardW - 12);
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
-        doc.text(nameLines[0] || '', bx + 8, ry + 1, { lineBreak: false });
-        doc.font('Helvetica').fontSize(9.5).fillColor(BODY);
-        doc.text(ref.role || '', bx + 8, ry + 15, { lineBreak: false, width: cardW - 16, ellipsis: true });
-        if (ref.email) {
-          doc.font('Helvetica-Bold').fontSize(9).fillColor(EMERALD);
-          doc.text('Email:', bx + 8, ry + 29, { lineBreak: false });
-          doc.font('Helvetica').fontSize(9).fillColor(BODY);
-          doc.text(ref.email, bx + 40, ry + 29, { lineBreak: false, width: cardW - 46, ellipsis: true });
+        doc.roundedRect(bx, ry - 4, cardW, h, 5).fill(WHITE);
+        doc.roundedRect(bx, ry - 4, cardW, h, 5).lineWidth(0.6).stroke(EMERALD);
+        doc.roundedRect(bx, ry - 4, 5, h, 3).fill(EMERALD);
+
+        let cy = ry + 1;
+        doc.font('Helvetica-Bold').fontSize(NAME_SIZE).fillColor(EMERALD);
+        nameLines.forEach(ln => { doc.text(ln, bx + 8, cy, { lineBreak: false }); cy += NAME_LH; });
+        cy += 3;
+
+        if (roleLines.length) {
+          doc.font('Helvetica').fontSize(ROLE_SIZE).fillColor(BODY);
+          roleLines.forEach(ln => { doc.text(ln, bx + 8, cy, { lineBreak: false }); cy += ROLE_LH; });
+          cy += 4;
         }
-        if (ref.phone) {
-          doc.font('Helvetica-Bold').fontSize(9).fillColor(EMERALD);
-          doc.text('Phone:', bx + 8, ry + 42, { lineBreak: false });
-          doc.font('Helvetica').fontSize(9).fillColor(BODY);
-          doc.text(ref.phone, bx + 42, ry + 42, { lineBreak: false });
+
+        if (emailLines.length) {
+          doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(EMERALD);
+          doc.text('Email:', bx + 8, cy, { lineBreak: false });
+          doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
+          emailLines.forEach(ln => { doc.text(ln, bx + EMAIL_OFFSET_X, cy, { lineBreak: false }); cy += FIELD_LH; });
+        }
+        if (phoneLines.length) {
+          doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(EMERALD);
+          doc.text('Phone:', bx + 8, cy, { lineBreak: false });
+          doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
+          phoneLines.forEach(ln => { doc.text(ln, bx + PHONE_OFFSET_X, cy, { lineBreak: false }); cy += FIELD_LH; });
         }
       }
     });
-    track('references', 4, true);
-    ry += 60;
+
+    const linesUsed = refBlocks.reduce((sum, b) =>
+      sum + b.nameLines.length + b.roleLines.length + b.emailLines.length + b.phoneLines.length, 0);
+    track('references', linesUsed, true);
+    ry += rowH;
   } else track('references', 0, false);
 
   return { finalY: Math.max(y, ry), sections };
