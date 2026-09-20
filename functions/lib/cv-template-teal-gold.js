@@ -44,18 +44,50 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
 
     const nameX = LEFT_W + 30;
     const NAME_TOP = 30;
-    doc.font('Helvetica-Bold').fontSize(28).fillColor(WHITE);
+    const nameAvailW = (PAGE_W - 18) - nameX;
+
+    // Long names used to be drawn with lineBreak:false and no width, so
+    // they simply ran off the right edge of the header. Now: try the full
+    // 28pt size first: if the name fits on one line at that size, keep it
+    // exactly as before. If not, step the size down a bit before wrapping
+    // at all (a slightly smaller single line usually still looks better
+    // than an early wrap), and only wrap onto a second line — capped at
+    // 2 — once even the smallest size in the ladder can't fit it on one.
+    const NAME_SIZE_LADDER = [28, 24, 20, 18];
+    let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+    let nameLines = null;
+    for (const size of NAME_SIZE_LADDER) {
+      doc.font('Helvetica-Bold').fontSize(size);
+      if (doc.widthOfString(content.name || '') <= nameAvailW) {
+        nameSize = size;
+        nameLines = [content.name || ''];
+        break;
+      }
+    }
+    if (!nameLines) {
+      nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      doc.font('Helvetica-Bold').fontSize(nameSize);
+      nameLines = wrapLines(doc, content.name || '', 'Helvetica-Bold', nameSize, nameAvailW).slice(0, 2);
+    }
+
+    doc.font('Helvetica-Bold').fontSize(nameSize).fillColor(WHITE);
     // Measure the name's actual rendered line height (PDFKit's own metric
     // for the current font/size) instead of a hardcoded offset, so the
     // subtitle is always placed fully below it — including descenders —
     // no matter what font size this header ends up using later.
     const nameLineH = doc.currentLineHeight(true);
-    doc.text(content.name || '', nameX, NAME_TOP, { lineBreak: false });
+    let nameBottomY = NAME_TOP;
+    nameLines.forEach((ln, i) => {
+      const lineY = NAME_TOP + i * nameLineH;
+      doc.text(ln, nameX, lineY, { lineBreak: false, width: nameAvailW, ellipsis: true });
+      nameBottomY = lineY + nameLineH;
+    });
 
-    const SUBTITLE_TOP = NAME_TOP + nameLineH + 4;
+    const SUBTITLE_TOP = nameBottomY + 4;
     doc.font('Helvetica').fontSize(10.5).fillColor(GOLD);
     const subtitleLineH = doc.currentLineHeight(true);
     const subtitleAvailW = (PAGE_W - 18) - nameX;
+
 
     // The letter-spacing effect (a space inserted between every character)
     // roughly doubles a title's rendered width, so word-wrap the ORIGINAL
