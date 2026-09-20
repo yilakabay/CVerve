@@ -274,6 +274,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
     y += 12;
   });
+  y += 8;
 
   // ── Custom sidebar sections ──────────────────────────────────────────
   // A user can ask the AI to add a section that isn't in the fixed
