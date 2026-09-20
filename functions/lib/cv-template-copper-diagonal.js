@@ -422,34 +422,52 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const NAME_SIZE = 10.5, ROLE_SIZE = 9, FIELD_SIZE = 8.5;
     const NAME_LH = NAME_SIZE * 1.3, ROLE_LH = ROLE_SIZE * 1.35, FIELD_LH = 13;
 
-    // A role/title long enough to wrap to 2+ lines used to run straight
-    // into the Email/Phone lines below it, because those were drawn at a
-    // FIXED offset (ry+29, ry+42) and the box itself was a fixed 60pt tall
-    // regardless of how much text it actually held. Wrapping name/role
-    // against the real box width (like every other section in this file)
-    // and measuring the true stacked height fixes both the overlap and
-    // the "box doesn't grow" symptom together — Email/Phone now start
-    // wherever the role actually ends, and the box (and the space ry
-    // advances by afterward) sizes itself to the tallest box in the row.
-    // This measurement runs on every pass (draw or not) so check_template_fit
-    // reports the real space this section needs, not the old fixed guess.
+    // PDFKit's lineBreak:false + width + ellipsis combo (used below for
+    // name/role's old single-line behavior) turned out to still wrap
+    // rather than truncate once a width was supplied — that's what let a
+    // long email run onto a second line and overlap Phone underneath it.
+    // Doing the truncation ourselves, character by character against the
+    // real measured width, and only ever drawing the already-safe result
+    // with lineBreak:false, sidesteps that PDFKit quirk entirely: there is
+    // no wrapping left for it to (mis)do.
+    function truncateToWidth(text, font, size, maxWidth) {
+      doc.font(font).fontSize(size);
+      const str = String(text || '');
+      if (doc.widthOfString(str) <= maxWidth) return str;
+      const ELLIPSIS = '…';
+      let lo = 0, hi = str.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (doc.widthOfString(str.slice(0, mid) + ELLIPSIS) <= maxWidth) lo = mid; else hi = mid - 1;
+      }
+      return str.slice(0, lo) + ELLIPSIS;
+    }
+
+    // Each reference box now measures its OWN real content height — a
+    // long role no longer forces the shorter boxes next to it to stretch
+    // to match; every box stops growing as soon as its own content fits.
+    // Only the row's overall vertical footprint (rowH, used to advance ry
+    // afterward so later content doesn't overlap the tallest box) still
+    // needs the max — the boxes themselves are drawn at their own height.
     const refBlocks = refList.map(ref => {
       const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', NAME_SIZE, boxW - PAD).slice(0, 2);
       const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', ROLE_SIZE, boxW - PAD).slice(0, 3) : [];
+      const emailText = ref.email ? truncateToWidth(ref.email, 'Helvetica', FIELD_SIZE, boxW - PAD - 30) : '';
+      const phoneText = ref.phone ? truncateToWidth(ref.phone, 'Helvetica', FIELD_SIZE, boxW - PAD - 32) : '';
       let h = 4 + nameLines.length * NAME_LH + 2;
       if (roleLines.length) h += roleLines.length * ROLE_LH + 4;
-      if (ref.email) h += FIELD_LH;
-      if (ref.phone) h += FIELD_LH;
-      return { ref, nameLines, roleLines, h: Math.max(h, 52) };
+      if (emailText) h += FIELD_LH;
+      if (phoneText) h += FIELD_LH;
+      return { ref, nameLines, roleLines, emailText, phoneText, h: Math.max(h, 52) };
     });
-    const boxH = Math.max(...refBlocks.map(b => b.h));
+    const rowH = Math.max(...refBlocks.map(b => b.h));
 
     refBlocks.forEach((block, i) => {
-      const { ref, nameLines, roleLines } = block;
+      const { ref, nameLines, roleLines, emailText, phoneText, h } = block;
       const bx = R_START + i * (boxW + gap);
       if (draw) {
-        doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).fill(COPPER_LT);
-        doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).lineWidth(0.8).stroke(COPPER);
+        doc.roundedRect(bx - 6, ry - 4, boxW + 6, h, 4).fill(COPPER_LT);
+        doc.roundedRect(bx - 6, ry - 4, boxW + 6, h, 4).lineWidth(0.8).stroke(COPPER);
 
         let cy = ry + 1;
         doc.font('Helvetica-Bold').fontSize(NAME_SIZE).fillColor(NAVY);
@@ -462,27 +480,27 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
           cy += 4;
         }
 
-        if (ref.email) {
+        if (emailText) {
           doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
           doc.text('Email:', bx + 4, cy, { lineBreak: false });
           doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
-          doc.text(ref.email, bx + 34, cy, { lineBreak: false, width: boxW - 38, ellipsis: true });
+          doc.text(emailText, bx + 34, cy, { lineBreak: false });
           cy += FIELD_LH;
         }
-        if (ref.phone) {
+        if (phoneText) {
           doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
           doc.text('Phone:', bx + 4, cy, { lineBreak: false });
           doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
-          doc.text(ref.phone, bx + 36, cy, { lineBreak: false });
+          doc.text(phoneText, bx + 36, cy, { lineBreak: false });
           cy += FIELD_LH;
         }
       }
     });
 
     const linesUsed = refBlocks.reduce((sum, b) =>
-      sum + b.nameLines.length + b.roleLines.length + (b.ref.email ? 1 : 0) + (b.ref.phone ? 1 : 0), 0);
+      sum + b.nameLines.length + b.roleLines.length + (b.emailText ? 1 : 0) + (b.phoneText ? 1 : 0), 0);
     track('references', linesUsed, true);
-    ry += boxH;
+    ry += rowH;
   } else track('references', 0, false);
 
   return { finalY: Math.max(y, ry), sections };
