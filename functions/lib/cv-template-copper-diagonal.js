@@ -421,49 +421,43 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const PAD = 8;
     const NAME_SIZE = 10.5, ROLE_SIZE = 9, FIELD_SIZE = 8.5;
     const NAME_LH = NAME_SIZE * 1.3, ROLE_LH = ROLE_SIZE * 1.35, FIELD_LH = 13;
+    const EMAIL_OFFSET_X = 34, PHONE_OFFSET_X = 36;
 
-    // PDFKit's lineBreak:false + width + ellipsis combo (used below for
-    // name/role's old single-line behavior) turned out to still wrap
-    // rather than truncate once a width was supplied — that's what let a
-    // long email run onto a second line and overlap Phone underneath it.
-    // Doing the truncation ourselves, character by character against the
-    // real measured width, and only ever drawing the already-safe result
-    // with lineBreak:false, sidesteps that PDFKit quirk entirely: there is
-    // no wrapping left for it to (mis)do.
-    function truncateToWidth(text, font, size, maxWidth) {
-      doc.font(font).fontSize(size);
-      const str = String(text || '');
-      if (doc.widthOfString(str) <= maxWidth) return str;
-      const ELLIPSIS = '…';
-      let lo = 0, hi = str.length;
-      while (lo < hi) {
-        const mid = Math.ceil((lo + hi) / 2);
-        if (doc.widthOfString(str.slice(0, mid) + ELLIPSIS) <= maxWidth) lo = mid; else hi = mid - 1;
-      }
-      return str.slice(0, lo) + ELLIPSIS;
+    // A long email used to be truncated to one line with "…" via PDFKit's
+    // width+ellipsis option — but the user wants to actually SEE the full
+    // email, just wrapped onto another line inside the box rather than
+    // cut off. So the value after "Email:"/"Phone:" is now wrapped with
+    // the same wrapLines() every other field in this file uses: the first
+    // line sits right after the label (same compact look as before for a
+    // short email), and any overflow continues on new lines indented to
+    // line up under that first line, instead of being chopped off.
+    function wrapField(value, offsetX) {
+      if (!value) return [];
+      return wrapLines(doc, String(value), 'Helvetica', FIELD_SIZE, boxW - PAD - offsetX);
     }
 
-    // Each reference box now measures its OWN real content height — a
-    // long role no longer forces the shorter boxes next to it to stretch
-    // to match; every box stops growing as soon as its own content fits.
-    // Only the row's overall vertical footprint (rowH, used to advance ry
-    // afterward so later content doesn't overlap the tallest box) still
-    // needs the max — the boxes themselves are drawn at their own height.
+    // Each reference box measures its OWN real content height — a long
+    // role or a wrapped email no longer forces the shorter boxes next to
+    // it to stretch to match; every box stops growing as soon as its own
+    // content fits. Only the row's overall vertical footprint (rowH, used
+    // to advance ry afterward so later content doesn't overlap the
+    // tallest box) still needs the max — the boxes themselves are drawn
+    // at their own height.
     const refBlocks = refList.map(ref => {
       const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', NAME_SIZE, boxW - PAD).slice(0, 2);
-      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', ROLE_SIZE, boxW - PAD).slice(0, 3) : [];
-      const emailText = ref.email ? truncateToWidth(ref.email, 'Helvetica', FIELD_SIZE, boxW - PAD - 30) : '';
-      const phoneText = ref.phone ? truncateToWidth(ref.phone, 'Helvetica', FIELD_SIZE, boxW - PAD - 32) : '';
+      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', ROLE_SIZE, boxW - PAD).slice(0, 4) : [];
+      const emailLines = wrapField(ref.email, EMAIL_OFFSET_X);
+      const phoneLines = wrapField(ref.phone, PHONE_OFFSET_X);
       let h = 4 + nameLines.length * NAME_LH + 2;
       if (roleLines.length) h += roleLines.length * ROLE_LH + 4;
-      if (emailText) h += FIELD_LH;
-      if (phoneText) h += FIELD_LH;
-      return { ref, nameLines, roleLines, emailText, phoneText, h: Math.max(h, 52) };
+      h += emailLines.length * FIELD_LH;
+      h += phoneLines.length * FIELD_LH;
+      return { ref, nameLines, roleLines, emailLines, phoneLines, h: Math.max(h, 52) };
     });
     const rowH = Math.max(...refBlocks.map(b => b.h));
 
     refBlocks.forEach((block, i) => {
-      const { ref, nameLines, roleLines, emailText, phoneText, h } = block;
+      const { nameLines, roleLines, emailLines, phoneLines, h } = block;
       const bx = R_START + i * (boxW + gap);
       if (draw) {
         doc.roundedRect(bx - 6, ry - 4, boxW + 6, h, 4).fill(COPPER_LT);
@@ -480,25 +474,29 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
           cy += 4;
         }
 
-        if (emailText) {
+        if (emailLines.length) {
           doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
           doc.text('Email:', bx + 4, cy, { lineBreak: false });
           doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
-          doc.text(emailText, bx + 34, cy, { lineBreak: false });
-          cy += FIELD_LH;
+          emailLines.forEach((ln, li) => {
+            doc.text(ln, bx + EMAIL_OFFSET_X, cy, { lineBreak: false });
+            cy += FIELD_LH;
+          });
         }
-        if (phoneText) {
+        if (phoneLines.length) {
           doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
           doc.text('Phone:', bx + 4, cy, { lineBreak: false });
           doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
-          doc.text(phoneText, bx + 36, cy, { lineBreak: false });
-          cy += FIELD_LH;
+          phoneLines.forEach((ln, li) => {
+            doc.text(ln, bx + PHONE_OFFSET_X, cy, { lineBreak: false });
+            cy += FIELD_LH;
+          });
         }
       }
     });
 
     const linesUsed = refBlocks.reduce((sum, b) =>
-      sum + b.nameLines.length + b.roleLines.length + (b.emailText ? 1 : 0) + (b.phoneText ? 1 : 0), 0);
+      sum + b.nameLines.length + b.roleLines.length + b.emailLines.length + b.phoneLines.length, 0);
     track('references', linesUsed, true);
     ry += rowH;
   } else track('references', 0, false);
