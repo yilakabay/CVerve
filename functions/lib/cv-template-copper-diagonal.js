@@ -418,32 +418,70 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry = rsection('REFERENCE' + (refList.length > 1 ? 'S' : ''), ry);
     const gap = 8;
     const boxW = (RIGHT_W - gap * (refList.length - 1)) / refList.length;
-    const boxH = 60;
-    refList.forEach((ref, i) => {
+    const PAD = 8;
+    const NAME_SIZE = 10.5, ROLE_SIZE = 9, FIELD_SIZE = 8.5;
+    const NAME_LH = NAME_SIZE * 1.3, ROLE_LH = ROLE_SIZE * 1.35, FIELD_LH = 13;
+
+    // A role/title long enough to wrap to 2+ lines used to run straight
+    // into the Email/Phone lines below it, because those were drawn at a
+    // FIXED offset (ry+29, ry+42) and the box itself was a fixed 60pt tall
+    // regardless of how much text it actually held. Wrapping name/role
+    // against the real box width (like every other section in this file)
+    // and measuring the true stacked height fixes both the overlap and
+    // the "box doesn't grow" symptom together — Email/Phone now start
+    // wherever the role actually ends, and the box (and the space ry
+    // advances by afterward) sizes itself to the tallest box in the row.
+    // This measurement runs on every pass (draw or not) so check_template_fit
+    // reports the real space this section needs, not the old fixed guess.
+    const refBlocks = refList.map(ref => {
+      const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', NAME_SIZE, boxW - PAD).slice(0, 2);
+      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', ROLE_SIZE, boxW - PAD).slice(0, 3) : [];
+      let h = 4 + nameLines.length * NAME_LH + 2;
+      if (roleLines.length) h += roleLines.length * ROLE_LH + 4;
+      if (ref.email) h += FIELD_LH;
+      if (ref.phone) h += FIELD_LH;
+      return { ref, nameLines, roleLines, h: Math.max(h, 52) };
+    });
+    const boxH = Math.max(...refBlocks.map(b => b.h));
+
+    refBlocks.forEach((block, i) => {
+      const { ref, nameLines, roleLines } = block;
       const bx = R_START + i * (boxW + gap);
       if (draw) {
         doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).fill(COPPER_LT);
         doc.roundedRect(bx - 6, ry - 4, boxW + 6, boxH, 4).lineWidth(0.8).stroke(COPPER);
-        const nameLines = wrapLines(doc, ref.name, 'Helvetica-Bold', 10.5, boxW - 8);
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-        doc.text(nameLines[0] || '', bx + 4, ry + 1, { lineBreak: false });
-        doc.font('Helvetica').fontSize(9).fillColor(BODY);
-        doc.text(ref.role || '', bx + 4, ry + 15, { lineBreak: false, width: boxW - 8, ellipsis: true });
+
+        let cy = ry + 1;
+        doc.font('Helvetica-Bold').fontSize(NAME_SIZE).fillColor(NAVY);
+        nameLines.forEach(ln => { doc.text(ln, bx + 4, cy, { lineBreak: false }); cy += NAME_LH; });
+        cy += 2;
+
+        if (roleLines.length) {
+          doc.font('Helvetica').fontSize(ROLE_SIZE).fillColor(BODY);
+          roleLines.forEach(ln => { doc.text(ln, bx + 4, cy, { lineBreak: false }); cy += ROLE_LH; });
+          cy += 4;
+        }
+
         if (ref.email) {
-          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY);
-          doc.text('Email:', bx + 4, ry + 29, { lineBreak: false });
-          doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
-          doc.text(ref.email, bx + 34, ry + 29, { lineBreak: false, width: boxW - 38, ellipsis: true });
+          doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
+          doc.text('Email:', bx + 4, cy, { lineBreak: false });
+          doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
+          doc.text(ref.email, bx + 34, cy, { lineBreak: false, width: boxW - 38, ellipsis: true });
+          cy += FIELD_LH;
         }
         if (ref.phone) {
-          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY);
-          doc.text('Phone:', bx + 4, ry + 42, { lineBreak: false });
-          doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
-          doc.text(ref.phone, bx + 36, ry + 42, { lineBreak: false });
+          doc.font('Helvetica-Bold').fontSize(FIELD_SIZE).fillColor(NAVY);
+          doc.text('Phone:', bx + 4, cy, { lineBreak: false });
+          doc.font('Helvetica').fontSize(FIELD_SIZE).fillColor(BODY);
+          doc.text(ref.phone, bx + 36, cy, { lineBreak: false });
+          cy += FIELD_LH;
         }
       }
     });
-    track('references', 4, true);
+
+    const linesUsed = refBlocks.reduce((sum, b) =>
+      sum + b.nameLines.length + b.roleLines.length + (b.ref.email ? 1 : 0) + (b.ref.phone ? 1 : 0), 0);
+    track('references', linesUsed, true);
     ry += boxH;
   } else track('references', 0, false);
 
