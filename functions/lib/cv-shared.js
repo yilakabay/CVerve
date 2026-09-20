@@ -9,20 +9,55 @@ function measureDoc() {
   return new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: false });
 }
 
+// Wraps text to fit maxWidth, breaking between words as normal. If a
+// SINGLE word is wider than maxWidth on its own (a long compound term, a
+// URL, a skill with no spaces, etc.), it is additionally force-broken by
+// character so it still fits — this is what guarantees text can never be
+// drawn past the edge of its column, which the old word-only version
+// could not do (a too-wide single word had no way to break and simply
+// overflowed). Used by every template via cv-shared, so this fix applies
+// everywhere at once.
 function wrapLines(doc, text, font, size, maxWidth) {
   doc.font(font).fontSize(size);
-  const words = String(text || '').split(' ');
+  const rawWords = String(text || '').split(' ');
+
+  // Pass 1: expand any word wider than maxWidth into character chunks that
+  // each individually fit. Continuation chunks of the same broken word are
+  // flagged so pass 2 joins them back together with no artificial space.
+  const tokens = [];
+  rawWords.forEach(w => {
+    if (w.length === 0 || doc.widthOfString(w) <= maxWidth) {
+      tokens.push({ text: w, continuation: false });
+      return;
+    }
+    let chunk = '';
+    let isFirstChunk = true;
+    for (const ch of w) {
+      const trial = chunk + ch;
+      if (doc.widthOfString(trial) <= maxWidth || !chunk) {
+        chunk = trial;
+      } else {
+        tokens.push({ text: chunk, continuation: !isFirstChunk });
+        isFirstChunk = false;
+        chunk = ch;
+      }
+    }
+    if (chunk) tokens.push({ text: chunk, continuation: !isFirstChunk });
+  });
+
+  // Pass 2: normal greedy line-wrapping over the tokens.
   const lines = [];
   let cur = '';
-  for (const w of words) {
-    const trial = (cur + ' ' + w).trim();
+  tokens.forEach(tok => {
+    const joiner = (!cur || tok.continuation) ? '' : ' ';
+    const trial = cur + joiner + tok.text;
     if (doc.widthOfString(trial) <= maxWidth || !cur) {
       cur = trial;
     } else {
       lines.push(cur);
-      cur = w;
+      cur = tok.text;
     }
-  }
+  });
   if (cur) lines.push(cur);
   return lines;
 }
