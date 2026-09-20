@@ -41,17 +41,74 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.rect(PAGE_W - 80, 0, 80, 40).fill('#2C3C68');
 
     const hx = SIDEBAR_W + 22;
-    doc.font('Helvetica-Bold').fontSize(30).fillColor(WHITE);
-    doc.text((content.name || '').toUpperCase(), hx, 26, { lineBreak: false });
+    const NAME_TOP = 26;
+    const headerAvailW = R_END - hx;
+
+    // ── Name: wrap/shrink instead of running off the header ────────────
+    // This used to be drawn with lineBreak:false and no width at all, so
+    // a long name simply ran past the header's right edge. Now it first
+    // tries a size ladder (30 → 26 → 22 → 20) to fit on one line — a
+    // slightly smaller single line reads better than an early wrap — and
+    // only wraps onto a second line, capped at 2, if even the smallest
+    // size can't fit it on one. Everything below (subtitle, divider,
+    // contact row) is then positioned off the ACTUAL measured bottom of
+    // whatever was drawn, so a 2-line name can never leave later elements
+    // overlapping it — same fix already applied to the teal-gold template.
+    const NAME_SIZE_LADDER = [30, 26, 22, 20];
+    const upperName = (content.name || '').toUpperCase();
+    let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+    let nameLines = null;
+    for (const size of NAME_SIZE_LADDER) {
+      doc.font('Helvetica-Bold').fontSize(size);
+      if (doc.widthOfString(upperName) <= headerAvailW) {
+        nameSize = size;
+        nameLines = [upperName];
+        break;
+      }
+    }
+    if (!nameLines) {
+      nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      doc.font('Helvetica-Bold').fontSize(nameSize);
+      nameLines = wrapLines(doc, upperName, 'Helvetica-Bold', nameSize, headerAvailW).slice(0, 2);
+    }
+    doc.font('Helvetica-Bold').fontSize(nameSize).fillColor(WHITE);
+    const nameLineH = doc.currentLineHeight(true);
+    let nameBottomY = NAME_TOP;
+    nameLines.forEach((ln, i) => {
+      const lineY = NAME_TOP + i * nameLineH;
+      doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+      nameBottomY = lineY + nameLineH;
+    });
+
+    // ── Subtitle: same wrap-then-measure treatment, cascading off the
+    // name's real bottom rather than a fixed y=62 offset ────────────────
+    const SUBTITLE_TOP = nameBottomY + 6;
     doc.font('Helvetica').fontSize(10).fillColor(COPPER_LT);
-    doc.text((content.subtitle || '').toUpperCase(), hx, 62, { lineBreak: false });
-    doc.strokeColor(COPPER).lineWidth(0.8).moveTo(hx, 78).lineTo(R_END, 78).stroke();
+    const subtitleLineH = doc.currentLineHeight(true);
+    const subtitleLines = wrapLines(doc, (content.subtitle || '').toUpperCase(), 'Helvetica', 10, headerAvailW).slice(0, 2);
+    let subtitleBottomY = SUBTITLE_TOP;
+    if (subtitleLines.length) {
+      subtitleLines.forEach((ln, i) => {
+        const lineY = SUBTITLE_TOP + i * subtitleLineH;
+        doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+        subtitleBottomY = lineY + subtitleLineH;
+      });
+    } else {
+      subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
+    }
+
+    const DIVIDER_Y = subtitleBottomY + 6;
+    doc.strokeColor(COPPER).lineWidth(0.8).moveTo(hx, DIVIDER_Y).lineTo(R_END, DIVIDER_Y).stroke();
 
     // Contact row: any missing field (phone/email/location) is simply
     // absent from content.contact, so .filter(Boolean) already drops it
-    // and no orphan label/icon is drawn for it. Nothing else to do here —
-    // this already flexes to however many of the 3 the user actually has.
-    let cx = hx, rowY = 90;
+    // and no orphan label/icon is drawn for it. Its row position (rowY)
+    // now derives from DIVIDER_Y instead of a fixed constant, so it moves
+    // down together with a wrapped name/subtitle rather than overlapping
+    // them — and the dot and its text still share this one rowY value, so
+    // they can never end up out of sync with each other either.
+    const rowY = DIVIDER_Y + 12;
+    let cx = hx;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
       const tw = doc.widthOfString(txt);
@@ -103,6 +160,29 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       lines.forEach(ln => { doc.text(ln, L_PAD + indent, cur, { lineBreak: false }); cur += size * 1.4; });
     }
     return yTop + lines.length * size * 1.4;
+  }
+  // Bulleted list in the sidebar — same dash-bullet-plus-wrapped-text shape
+  // as SKILLS — used for any custom sidebar section given as a list rather
+  // than a paragraph. Every line goes through wrapLines against the real
+  // sidebar width, so it can't overflow the sidebar any more than SKILLS.
+  function lbullets(items, yTop, opts = {}) {
+    const size = opts.size || 8.5;
+    let cur = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, String(item), 'Helvetica', size, SIDEBAR_W - L_PAD * 2 - 12);
+      if (draw) {
+        doc.fillColor(COPPER).rect(L_PAD, cur + 5.5, 5, 2).fill();
+        doc.font('Helvetica').fontSize(size).fillColor(WHITE);
+        let ly = cur;
+        lines.forEach(ln => { doc.text(ln, L_PAD + 12, ly, { lineBreak: false }); ly += size * 1.45; });
+        cur = ly;
+      } else {
+        cur += lines.length * size * 1.45;
+      }
+      cur += 2;
+      total += lines.length;
+    });
+    return { y: cur, lines: total };
   }
 
   let y = HEADER_H + 16;
@@ -174,6 +254,30 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       doc.roundedRect(L_PAD, y + 4.5, bw * fillPct, 5, 2.5).fill(COPPER);
     }
     y += 14;
+  });
+  y += 6;
+
+  // ── Custom sidebar sections ──────────────────────────────────────────
+  // A user can ask the AI to add a section not in the fixed schema (e.g.
+  // "Academic Projects", "Hobbies"). Entries in content.customSections
+  // with placement:'sidebar' get their own heading + wrapped content here,
+  // via the same lsection/lnorm/lbullets helpers (and therefore the same
+  // width-safe wrapping) as every built-in sidebar section — so they
+  // can't overflow the sidebar any more than SKILLS or LANGUAGES can.
+  (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
+    y = lsection((cs.title || 'Section').toUpperCase(), y) + 4;
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r = lbullets(cs.items, y);
+      y = r.y;
+      linesUsed = r.lines;
+    } else if (cs.text) {
+      const before = y;
+      y = lnorm(cs.text, y);
+      linesUsed = Math.round((y - before) / (8.5 * 1.4)) || 1;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    y += 6 + stretchPerGap;
   });
 
   function rsection(label, yTop) {
@@ -277,6 +381,31 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('certifications', linesUsed, true);
     ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
+
+  // ── Custom main-column sections ──────────────────────────────────────
+  // Same idea as the sidebar version above, but for content that fits
+  // better in the wide right column — a project with a real description,
+  // multiple bullet points, etc. Every entry with placement !== 'sidebar'
+  // (including no placement at all — main is the default) lands here,
+  // via rsection/rpara/rbullets so it gets the same wrapping, leading and
+  // tight-leading/compaction behavior as EXPERIENCE/ACHIEVEMENT, and the
+  // same per-section line tracking so overflow detection and the fit
+  // recommendation both already account for it automatically.
+  (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar').forEach(cs => {
+    ry = rsection((cs.title || 'Section').toUpperCase(), ry);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r4 = rbullets(cs.items, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    } else if (cs.text) {
+      const r4 = rpara(cs.text, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    ry += tightenGap(12) + GS;
+  });
 
   // References: content.references is now an array (1, 2, 3+ — no cap).
   // Boxes are laid out side by side and their own width divides evenly by
