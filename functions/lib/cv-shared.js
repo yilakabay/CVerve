@@ -249,8 +249,13 @@ function columnItems(doc, items, x, yTop, totalWidth, opts = {}) {
 const TRIMMABLE_SECTIONS = ['experience', 'achievements', 'certifications', 'skills', 'profile'];
 
 function buildFitRecommendation(sections, overflowLines) {
+  // Custom sections (see each template's content.customSections handling)
+  // are user-elective extras added on top of the base schema — track them
+  // as trimmable too, by their dynamic "custom:<title>" name, alongside
+  // the fixed built-in section names.
+  const isTrimmable = s => TRIMMABLE_SECTIONS.includes(s.name) || (s.name || '').startsWith('custom:');
   const trimmable = (sections || [])
-    .filter(s => s.present && TRIMMABLE_SECTIONS.includes(s.name) && s.linesUsed > 0)
+    .filter(s => s.present && isTrimmable(s) && s.linesUsed > 0)
     .sort((a, b) => b.linesUsed - a.linesUsed);
 
   if (!trimmable.length) {
@@ -258,7 +263,8 @@ function buildFitRecommendation(sections, overflowLines) {
   }
   const target = trimmable[0];
   const cutCount = Math.min(overflowLines, target.linesUsed);
-  return `Content is about ${overflowLines} line(s) too long for one page even after tightening the layout. The "${target.name}" section is the largest (${target.linesUsed} lines) — recommend cutting or shortening about ${cutCount} line(s) there, e.g. the least relevant bullet point or entry, rather than trimming a little from everywhere.`;
+  const displayName = target.name.startsWith('custom:') ? target.name.slice(7) : target.name;
+  return `Content is about ${overflowLines} line(s) too long for one page even after tightening the layout. The "${displayName}" section is the largest (${target.linesUsed} lines) — recommend cutting or shortening about ${cutCount} line(s) there, e.g. the least relevant bullet point or entry, rather than trimming a little from everywhere.`;
 }
 
 module.exports = {
