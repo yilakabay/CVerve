@@ -181,6 +181,31 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
     return yTop + lines.length * size * 1.4;
   }
+  // Bulleted list in the sidebar (same square-bullet-plus-wrapped-text
+  // shape as the SKILLS section) — used for any custom sidebar section
+  // whose content is a list of short items rather than one paragraph.
+  // Every line is wrapped against the real sidebar column width via
+  // wrapLines, same as everywhere else in this file, so a long custom
+  // item can't run past the edge of the sidebar any more than a skill can.
+  function lbullets(items, yTop, opts = {}) {
+    const size = opts.size || 8.5;
+    let cur = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, String(item), 'Helvetica', size, LEFT_W - L_PAD * 2 - 10);
+      if (draw) {
+        doc.fillColor(GOLD).rect(L_PAD, cur + 5.8, 3, 3).fill();
+        doc.font('Helvetica').fontSize(size).fillColor(GOLD_LIGHT);
+        let ly = cur;
+        lines.forEach(ln => { doc.text(ln, L_PAD + 10, ly, { lineBreak: false }); ly += size * 1.4; });
+        cur = ly;
+      } else {
+        cur += lines.length * size * 1.4;
+      }
+      cur += 2.5;
+      total += lines.length;
+    });
+    return { y: cur, lines: total };
+  }
 
   let y = HEADER_H + 18;
   y = lhead('EDUCATION', y);
@@ -248,6 +273,31 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       doc.fillColor(GOLD).rect(L_PAD, y + 3.5, bw * fillPct, 4).fill();
     }
     y += 12;
+  });
+
+  // ── Custom sidebar sections ──────────────────────────────────────────
+  // A user can ask the AI to add a section that isn't in the fixed
+  // schema (e.g. "Academic Projects", "Volunteering", "Interests"). Each
+  // entry in content.customSections with placement:'sidebar' gets its own
+  // heading + wrapped content here, using the exact same lhead/lnorm/
+  // lbullets helpers (and therefore the exact same width-safe wrapping)
+  // as every built-in sidebar section — so it can't overflow the sidebar
+  // any more than SKILLS or LANGUAGES can. Falls back to 'Section' as a
+  // title only if the AI somehow omitted one, never silently drops it.
+  (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
+    y = lhead((cs.title || 'Section').toUpperCase(), y);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r = lbullets(cs.items, y);
+      y = r.y;
+      linesUsed = r.lines;
+    } else if (cs.text) {
+      const before = y;
+      y = lnorm(cs.text, y);
+      linesUsed = Math.round((y - before) / (8.5 * 1.4)) || 1;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    y += 6 + stretchPerGap;
   });
 
   function rhead(label, yTop) {
@@ -344,6 +394,32 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('certifications', linesUsed, true);
     ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
+
+  // ── Custom main-column sections ──────────────────────────────────────
+  // Same idea as the sidebar version above, but for content that fits
+  // better in the wide right column — e.g. "Academic Projects" with a few
+  // detailed bullet points, which would be cramped in the narrow sidebar.
+  // Every entry with placement !== 'sidebar' (including no placement at
+  // all — main is the default) lands here, using rhead/rpara/rbullets so
+  // it gets the same wrapping, leading, and tight-leading/compaction
+  // behavior as EXPERIENCE/ACHIEVEMENT/CERTIFICATIONS, and the same
+  // per-section line tracking so overflow detection and the fit
+  // recommendation both already account for it automatically.
+  (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar').forEach(cs => {
+    ry = rhead((cs.title || 'Section').toUpperCase(), ry);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r4 = rbullets(cs.items, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    } else if (cs.text) {
+      const r4 = rpara(cs.text, ry);
+      ry = r4.y;
+      linesUsed = r4.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    ry += tightenGap(10) + GS;
+  });
 
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
