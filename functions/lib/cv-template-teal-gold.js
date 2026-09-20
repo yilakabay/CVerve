@@ -97,7 +97,11 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
       const tw = doc.widthOfString(txt);
-      doc.fillColor(GOLD).circle(ix + 3, rowY - 3, 1.8).fill();
+      // Vertically center the dot against the text's optical middle rather
+      // than its top — doc.text's y is the top of the glyph box, so the
+      // dot needs to sit roughly half a line down from there, not above
+      // it (which is what made it look like it was floating too high).
+      doc.fillColor(GOLD).circle(ix + 3, rowY + 3.2, 1.8).fill();
       doc.fillColor(WHITE).text(txt, ix + 9, rowY, { lineBreak: false });
       ix += tw + 22;
     });
