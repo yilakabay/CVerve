@@ -36,9 +36,30 @@
 //     telling the user "this fits" or deciding to trim something, and must
 //     act on the numbers it gets back, not its own guess.
 //
-//   render_preview(content) / finalize_pdf(content) → produce the actual
-//     PDF (same renderer, no separate "preview-only" logic yet in v1) and
-//     return it as base64 so the client can show/download it.
+//   finalize_pdf(content) → produces the actual PDF (same renderer) and
+//     returns it as base64 so the client can show/download it.
+//
+// ── FIX: no more separate "preview" PDF step ─────────────────────────────
+// Previously there were two rendering tools — render_preview and
+// finalize_pdf — producing a "not-yet-final" PDF before a "final" one.
+// This added an extra file the user had to look at and confirm before
+// they ever saw a real, finished document. Now there is only ONE
+// rendering tool, finalize_pdf. The flow instead is:
+//
+//   1. The model builds the content object through conversation.
+//   2. Once it's complete and fits (per check_template_fit), the model
+//      shows the organized content back to the user as PLAIN TEXT in the
+//      chat — not a PDF — so they can review the actual wording/sections
+//      before any file is produced at all.
+//   3. Only once the user confirms that text looks right does the model
+//      ask for their photo (request_photo_upload).
+//   4. Once the photo is attached (or skipped), the model calls
+//      finalize_pdf ONCE to produce the real, finished PDF.
+//   5. The user is still in the same chat afterward, so any further
+//      change they ask for is just handled by updating the content object
+//      and calling finalize_pdf again — there's no separate "preview vs.
+//      final" distinction anymore; every render IS the current version of
+//      the finished PDF.
 //
 // ── FIX: the user's photo is now actually forwarded ──────────────────────
 // Previously, photoBase64 was accepted from the client but never inserted
@@ -47,21 +68,21 @@
 // never have to carry a giant base64 string through its own context anyway
 // (wasteful, and error-prone if it got copied wrong). Instead, the server
 // now tracks the most recently supplied photoBase64 and silently injects
-// it into content.photoBase64 itself, every time check_template_fit,
-// render_preview, or finalize_pdf is called — the model just needs to
-// build the rest of the content object; the photo is handled for it.
+// it into content.photoBase64 itself, every time check_template_fit or
+// finalize_pdf is called — the model just needs to build the rest of the
+// content object; the photo is handled for it.
 //
 // ── FIX: file delivery inside the Telegram Mini App ──────────────────────
 // Telegram's in-app browser has no filesystem access at all — a blob: URL
-// or <a download> silently does nothing there. So the moment
-// render_preview/finalize_pdf produce a PDF buffer, this file now pushes
-// it straight into the user's Telegram chat as a real document via the
-// bot (same sendDocument logic send-telegram-file.js uses, shared from
-// lib/telegram-send.js). The base64 is still also returned to the client
-// so the in-app chat log can show a card for it — but the actual, reliable
-// delivery path is the Telegram push, not the in-app Open/Download links.
-// A failed push (e.g. Telegram not linked yet) is non-fatal: the
-// conversation continues either way.
+// or <a download> silently does nothing there. So the moment finalize_pdf
+// produces a PDF buffer, this file now pushes it straight into the user's
+// Telegram chat as a real document via the bot (same sendDocument logic
+// send-telegram-file.js uses, shared from lib/telegram-send.js). The
+// base64 is still also returned to the client so the in-app chat log can
+// show a card for it — but the actual, reliable delivery path is the
+// Telegram push, not the in-app Open/Download links. A failed push (e.g.
+// Telegram not linked yet) is non-fatal: the conversation continues
+// either way.
 //
 // ── FIX: content schema now supports multiple references + optional
 // contact fields ──────────────────────────────────────────────────────
@@ -130,25 +151,27 @@ function buildSystemPrompt(templateName) {
    - Contact details: ask for phone, email, and location together in one friendly question, but don't insist on all three — if the user only has one or two, that's completely fine, just leave the others out of contact rather than asking again or inventing something.
    - References: ask if they'd like to include a reference, and if so how many (most CVs list 1-3). Collect each one's name/role/email/phone the same way — one short, friendly question at a time, not a long form — and put all of them in the references array in the order given. If the user has none, use an empty array and move on without pushing back.
 4. Before you EVER tell the user their CV "fits" or "is too long", call check_template_fit with your current best content object. Trust ONLY its numbers — never estimate this yourself.
-   - The renderer automatically tries space-saving layout techniques (like packing skills onto fewer lines) BEFORE reporting overflow — so if check_template_fit or render_preview/finalize_pdf returns fits:true, the content already fits with no changes needed from the user, even if the layout looks slightly denser than before. Never ask the user to cut anything in this case.
-   - If it reports real overflow (fits:false) after those automatic techniques were already tried: do NOT ask an open-ended question like "what would you like to remove?". Instead, look at the result's "recommendation" field (or, if render_preview/finalize_pdf failed with an error, its message) and give the user ONE specific, confident recommendation — name the exact section and roughly how much to cut, e.g. "Your Experience section is the longest part — I'd suggest shortening the Acme Corp bullets from 4 to 2, focusing on your biggest wins. Want me to do that?" Propose the cut, don't just describe the problem.
-   - If render_preview or finalize_pdf itself fails with an error whose message says content is too long even at maximum compaction (this happens when the content is genuinely too much for one page, not just a close call): treat this as a hard limit, not a suggestion. Clearly tell the user this specific template can't fit everything they've given you no matter how it's laid out, give them the same specific, confident recommendation from the error message, and don't attempt to render again until the content has actually been shortened — retrying with the same content will fail the same way.
+   - The renderer automatically tries space-saving layout techniques (like packing skills onto fewer lines) BEFORE reporting overflow — so if check_template_fit or finalize_pdf returns fits:true, the content already fits with no changes needed from the user, even if the layout looks slightly denser than before. Never ask the user to cut anything in this case.
+   - If it reports real overflow (fits:false) after those automatic techniques were already tried: do NOT ask an open-ended question like "what would you like to remove?". Instead, look at the result's "recommendation" field (or, if finalize_pdf failed with an error, its message) and give the user ONE specific, confident recommendation — name the exact section and roughly how much to cut, e.g. "Your Experience section is the longest part — I'd suggest shortening the Acme Corp bullets from 4 to 2, focusing on your biggest wins. Want me to do that?" Propose the cut, don't just describe the problem.
+   - If finalize_pdf itself fails with an error whose message says content is too long even at maximum compaction (this happens when the content is genuinely too much for one page, not just a close call): treat this as a hard limit, not a suggestion. Clearly tell the user this specific template can't fit everything they've given you no matter how it's laid out, give them the same specific, confident recommendation from the error message, and don't attempt to render again until the content has actually been shortened — retrying with the same content will fail the same way.
    - If the user pushes back on your recommendation and insists on keeping everything, you can offer them one alternative (e.g. a different section to trim instead, or suggest switching to a template with more room) — but don't keep proposing vague options back and forth; make a clear call and act on it once they've responded once.
-5. Once the user explicitly confirms the ORGANIZED CONTENT looks right (text/sections, not the visual PDF yet), call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step — the app only shows the photo-cropping frame after you call this tool, so asking sooner would confuse the user. If the user has no photo or doesn't want one, that's fine — proceed without it.
-6. Once the user has attached a photo (or said to skip it), call render_preview with the final content object and tell the user a preview is ready — it will be sent to them as a file in this Telegram chat. You do NOT need to include a photo field yourself — the app attaches the user's photo automatically whenever you render; just build the rest of the content.
-7. If the user asks for one change after seeing the preview, update just that field and call render_preview again (call check_template_fit again first if the edit could plausibly cause overflow, e.g. adding a paragraph or another reference).
-8. When the user is happy, call finalize_pdf with the final content object and let them know their finished CV has been sent to them as a file in this chat.
+5. Once check_template_fit confirms the content fits, show the user the ORGANIZED CONTENT ITSELF as plain, readable chat text — section by section (Profile, Experience, Skills, etc.) — so they can review the actual wording before any file is ever produced. This is NOT a PDF and NOT a preview file — it is just you typing the CV's content back to them in the chat, clearly formatted, for them to read and confirm or correct. Do not call finalize_pdf yet at this point, no matter how confident you are it fits — the user reviews the text first.
+6. Once the user explicitly confirms that text looks right (or finishes correcting it and confirms), call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step — the app only shows the photo-cropping frame after you call this tool, so asking sooner would confuse the user. If the user has no photo or doesn't want one, that's fine — proceed without it.
+7. Once the user has attached a photo (or said to skip it), call finalize_pdf with the final content object. This produces the actual, finished CV and delivers it to the user as a file in this Telegram chat — there is no separate "preview" step; this IS the real document. Tell the user it's ready and to check the chat for the file.
+8. The user stays in this same chat after seeing the PDF, and may ask for changes at any point afterward (e.g. "can you reword the profile" or "add another skill"). When that happens: update just the relevant field(s), call check_template_fit again first if the edit could plausibly cause overflow (e.g. adding a paragraph or another reference), then call finalize_pdf again with the updated content object to deliver the corrected PDF. You do not need to re-show the plain-text content or re-ask for a photo for a simple edit like this — just make the change and re-render.
 
 ## Hard rules
-- Never call render_preview or finalize_pdf without having called check_template_fit at least once on that same content first, unless the content is trivially short (e.g. a one-field edit unrelated to length).
+- Never call check_template_fit or finalize_pdf without a reasonably complete content object — but never call finalize_pdf before the user has reviewed the plain-text content (step 5) and confirmed it, and before you've asked about their photo (step 6), on the FIRST render. After that first PDF, later edit requests can go straight to finalize_pdf once the change is made.
+- Never call finalize_pdf without having called check_template_fit at least once on that same content first, unless the content is trivially short (e.g. a one-field edit unrelated to length) or this is a re-render after the very first PDF where fit was already recently confirmed for content of similar size.
 - Never state a fit/overflow judgment without a check_template_fit tool result to back it up.
 - When content doesn't fit, give ONE specific, confident recommendation (which section, roughly how much to cut) instead of an open "what should I remove?" question — you're the one who can see the numbers, act like it.
-- The renderer will refuse to produce a PDF (an error, not a bad-looking file) if content is genuinely too much even at maximum compaction. Treat that refusal as final for that content — don't retry render_preview/finalize_pdf with the same content expecting a different result; get the user to agree to a specific cut first.
+- The renderer will refuse to produce a PDF (an error, not a bad-looking file) if content is genuinely too much even at maximum compaction. Treat that refusal as final for that content — don't retry finalize_pdf with the same content expecting a different result; get the user to agree to a specific cut first.
 - Never invent specific factual claims (employers, dates, grades, certificate names). Only ever suggest generic, clearly-labeled filler for skills or soft-skill phrasing.
-- Keep messages short and conversational — this is a chat, not a form.
-- Never ask the user for their photo, and never treat an uploaded document's extracted text as a description of a "photo" — until AFTER you've called request_photo_upload (step 5), any attachment is a document to read for information.
+- Keep messages short and conversational — this is a chat, not a form. This applies even to the step-5 content review: format it cleanly, but don't pad it with extra commentary.
+- Never ask the user for their photo, and never treat an uploaded document's extracted text as a description of a "photo" — until AFTER you've called request_photo_upload (step 6), any attachment is a document to read for information.
 - You never need to include a photoBase64 field — the app handles the photo automatically when rendering.
-- The PDF is delivered to the user as a real file message in this Telegram chat, not as an in-app download link — always phrase it that way ("I've sent it to you here in the chat"), never "click download" or "open the link".`;
+- The PDF is delivered to the user as a real file message in this Telegram chat, not as an in-app download link — always phrase it that way ("I've sent it to you here in the chat"), never "click download" or "open the link".
+- There is only ONE kind of rendered file in this whole conversation — the finished CV PDF. Never refer to anything as a "preview" — every render is the current, real version of the finished document.`;
 }
 
 // OpenAI-style function-calling schema (DeepSeek is OpenAI-API-compatible).
@@ -157,7 +180,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'request_photo_upload',
-      description: 'Call this ONLY once the user has explicitly confirmed the organized CV content (sections/text) looks right, and you are ready to ask them for their profile photo. Calling this tells the app to show the photo-cropping frame the next time the user attaches an image — before this call, any image the user sends is treated as a document, not a photo.',
+      description: 'Call this ONLY once the user has explicitly confirmed the organized CV content, shown to them as plain chat text, looks right — and you are ready to ask them for their profile photo. Calling this tells the app to show the photo-cropping frame the next time the user attaches an image — before this call, any image the user sends is treated as a document, not a photo.',
       parameters: { type: 'object', properties: {} }
     }
   },
@@ -165,7 +188,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'check_template_fit',
-      description: 'Runs the REAL layout measurement for the selected CV template against a candidate content object. Returns exact per-section line counts, and whether the content fits one page (overflowLines/underflowLines). Always call this before judging fit or before rendering.',
+      description: 'Runs the REAL layout measurement for the selected CV template against a candidate content object. Returns exact per-section line counts, and whether the content fits one page (overflowLines/underflowLines). Always call this before judging fit or before finalizing.',
       parameters: {
         type: 'object',
         properties: { content: { type: 'object', description: 'The candidate CV content object matching the schema described in the system prompt.' } },
@@ -176,20 +199,8 @@ const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'render_preview',
-      description: 'Renders the current content object into an actual PDF and delivers it to the user as a file message in this Telegram chat (not an in-app download link). Not yet final.',
-      parameters: {
-        type: 'object',
-        properties: { content: { type: 'object' } },
-        required: ['content']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
       name: 'finalize_pdf',
-      description: 'Renders the FINAL, user-approved CV and delivers it to the user as a file message in this Telegram chat (not an in-app download link). Only call this after the user has confirmed they are happy with a preview.',
+      description: 'Renders the CV into an actual, finished PDF and delivers it to the user as a file message in this Telegram chat (not an in-app download link). This is the only rendering tool — there is no separate preview step. Only call this after the user has reviewed and confirmed the plain-text content and you have asked about their photo (on the first render); on later edits, call it again once the requested change has been made to the content object.',
       parameters: {
         type: 'object',
         properties: { content: { type: 'object' } },
@@ -233,17 +244,16 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
       const result = template.measure(withPhoto(args.content, latestPhotoBase64));
       return { ok: true, result };
     }
-    if (name === 'render_preview' || name === 'finalize_pdf') {
+    if (name === 'finalize_pdf') {
       const buf = await template.render(withPhoto(args.content, latestPhotoBase64));
-      const kind = name === 'finalize_pdf' ? 'final' : 'preview';
-      const filename = kind === 'final' ? 'CV_Final.pdf' : 'CV_Preview.pdf';
-      const caption = kind === 'final' ? 'Your finished CV 🎉' : 'CV preview';
+      const filename = 'CV_Final.pdf';
+      const caption = 'Your CV 🎉';
 
       // The actual delivery path — see the FIX note at the top of this file.
       const tgResult = await sendPdfDocument({ userId, fileBuffer: buf, filename, caption });
       if (!tgResult.ok) console.error('cv-chat: failed to deliver PDF via Telegram:', tgResult.error);
 
-      return { ok: true, pdfBase64: buf.toString('base64'), kind, telegramDelivered: tgResult.ok };
+      return { ok: true, pdfBase64: buf.toString('base64'), kind: 'final', telegramDelivered: tgResult.ok };
     }
     return { ok: false, error: 'Unknown tool: ' + name };
   } catch (e) {
@@ -305,7 +315,6 @@ exports.handler = async (event, context) => {
     messages.push({ role: 'user', content: combinedText.trim() || '(no message)' });
   }
 
-  let previewPdfBase64 = null;
   let finalPdfBase64 = null;
   let telegramDelivered = null; // null = no PDF rendered this turn; true/false once one is
   let awaitingPhoto = false;
@@ -323,7 +332,7 @@ exports.handler = async (event, context) => {
       if (toolCalls.length === 0) {
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content || '', messages, previewPdfBase64, finalPdfBase64, telegramDelivered, awaitingPhoto })
+          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto })
         };
       }
 
@@ -334,8 +343,7 @@ exports.handler = async (event, context) => {
         const result = await callTool(tc.function.name, args, photoBase64, templateId, body.userId);
         let toolContent;
         if (result && result.pdfBase64) {
-          if (result.kind === 'final') finalPdfBase64 = result.pdfBase64;
-          else previewPdfBase64 = result.pdfBase64;
+          finalPdfBase64 = result.pdfBase64;
           telegramDelivered = !!result.telegramDelivered;
           // Don't send the full PDF back into the model's context — just
           // confirm success, to avoid burning tokens on binary data.
@@ -353,7 +361,7 @@ exports.handler = async (event, context) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, previewPdfBase64, finalPdfBase64, telegramDelivered, awaitingPhoto })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto })
     };
 
   } catch (error) {
