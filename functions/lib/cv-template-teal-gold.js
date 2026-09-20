@@ -55,9 +55,24 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const SUBTITLE_TOP = NAME_TOP + nameLineH + 4;
     doc.font('Helvetica').fontSize(10.5).fillColor(GOLD);
     const subtitleLineH = doc.currentLineHeight(true);
-    doc.text((content.subtitle || '').split('').join(' ').toUpperCase(), nameX, SUBTITLE_TOP, { lineBreak: false });
+    const subtitleAvailW = (PAGE_W - 18) - nameX;
 
-    const DIVIDER_Y = SUBTITLE_TOP + subtitleLineH + 3;
+    // The letter-spacing effect (a space inserted between every character)
+    // roughly doubles a title's rendered width, so word-wrap the ORIGINAL
+    // text using a conservative shrink factor first — this breaks at real
+    // word boundaries rather than mid-word — then apply the letter-spacing
+    // per finished line. Capped at 2 lines; doc.text's own width+ellipsis
+    // is a hard backstop underneath this estimate, so even an unusually
+    // wide title (a very long single word, an unexpected font metric) can
+    // never physically draw past the header's right edge.
+    const rawSubtitleLines = wrapLines(doc, content.subtitle || '', 'Helvetica', 10.5, subtitleAvailW / 1.9).slice(0, 2);
+    const spacedSubtitleLines = rawSubtitleLines.map(ln => ln.split('').join(' ').toUpperCase());
+    spacedSubtitleLines.forEach((ln, i) => {
+      doc.text(ln, nameX, SUBTITLE_TOP + i * subtitleLineH, { lineBreak: false, width: subtitleAvailW, ellipsis: true });
+    });
+    const subtitleLinesUsed = Math.max(1, spacedSubtitleLines.length);
+
+    const DIVIDER_Y = SUBTITLE_TOP + subtitleLineH * subtitleLinesUsed + 3;
     doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, DIVIDER_Y).lineTo(PAGE_W - 18, DIVIDER_Y).stroke();
 
     let ix = nameX, rowY = DIVIDER_Y + 17;
