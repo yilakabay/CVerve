@@ -68,16 +68,24 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const photoCx = SIDEBAR_W / 2, photoCy = HEADER_H / 2 - 4;
     hexagon(doc, photoCx, photoCy, PHOTO_R + 10, GOLD);
     hexagon(doc, photoCx, photoCy, PHOTO_R + 6, WHITE);
+    // The photo is clipped to the SAME hexagon shape as its frame (via the
+    // shared hexPoints() helper), not a circle — a circular clip left
+    // visible gaps at the hexagon's six corners since a circle never
+    // reaches the corners of the hexagon it sits inside. The bounding box
+    // passed to doc.image (still 2*PHOTO_R square, with cover:true) is
+    // unchanged — it's exactly big enough to fully cover the hexagon,
+    // which is inscribed within a circle of that same radius.
     if (content.photoBase64) {
       try {
         const buf = Buffer.from(content.photoBase64, 'base64');
         doc.save();
-        doc.circle(photoCx, photoCy, PHOTO_R).clip();
+        doc.polygon(...hexPoints(photoCx, photoCy, PHOTO_R)).clip();
         doc.image(buf, photoCx - PHOTO_R, photoCy - PHOTO_R, { width: PHOTO_R * 2, height: PHOTO_R * 2, cover: [PHOTO_R * 2, PHOTO_R * 2] });
         doc.restore();
       } catch (e) { console.error('emerald-hex photo error:', e.message); }
     } else {
-      doc.fillColor('#D5D9E0').circle(photoCx, photoCy, PHOTO_R).fill();
+      doc.fillColor('#D5D9E0');
+      doc.polygon(...hexPoints(photoCx, photoCy, PHOTO_R)).fill();
     }
 
     const hx = SIDEBAR_W + 24;
