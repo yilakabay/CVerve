@@ -67,15 +67,33 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     // never physically draw past the header's right edge.
     const rawSubtitleLines = wrapLines(doc, content.subtitle || '', 'Helvetica', 10.5, subtitleAvailW / 1.9).slice(0, 2);
     const spacedSubtitleLines = rawSubtitleLines.map(ln => ln.split('').join(' ').toUpperCase());
-    spacedSubtitleLines.forEach((ln, i) => {
-      doc.text(ln, nameX, SUBTITLE_TOP + i * subtitleLineH, { lineBreak: false, width: subtitleAvailW, ellipsis: true });
-    });
-    const subtitleLinesUsed = Math.max(1, spacedSubtitleLines.length);
 
-    const DIVIDER_Y = SUBTITLE_TOP + subtitleLineH * subtitleLinesUsed + 3;
+    // Draw each subtitle line while tracking the actual bottom y-coordinate
+    // we drew at, rather than trusting a separately-computed line count.
+    // Everything below the subtitle (the divider, and the contact row —
+    // both its bullet dots AND its text) is then positioned relative to
+    // THIS single measured value, so a 1-line vs 2-line subtitle can never
+    // leave the dots and the text out of sync with each other or with the
+    // divider — they all derive from the same number.
+    let subtitleBottomY = SUBTITLE_TOP;
+    spacedSubtitleLines.forEach((ln, i) => {
+      const lineY = SUBTITLE_TOP + i * subtitleLineH;
+      doc.text(ln, nameX, lineY, { lineBreak: false, width: subtitleAvailW, ellipsis: true });
+      subtitleBottomY = lineY + subtitleLineH;
+    });
+    // Even with no subtitle at all, still reserve one line's worth of
+    // space so the divider/contact row sit at a consistent baseline.
+    if (!spacedSubtitleLines.length) subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
+
+    const DIVIDER_Y = subtitleBottomY + 3;
     doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, DIVIDER_Y).lineTo(PAGE_W - 18, DIVIDER_Y).stroke();
 
-    let ix = nameX, rowY = DIVIDER_Y + 17;
+    // Single shared row position for the whole contact line — the dot
+    // bullets and the text of every contact item read from this ONE
+    // variable, so they move down together as a unit whenever the
+    // subtitle (and therefore the divider) grows to a second line.
+    const rowY = DIVIDER_Y + 17;
+    let ix = nameX;
     doc.font('Helvetica').fontSize(8.5);
     [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
       const tw = doc.widthOfString(txt);
@@ -141,6 +159,14 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   });
   y += 6;
 
+  // ── SKILLS ────────────────────────────────────────────────────────────
+  // Every skill is wrapped to fit the sidebar column width, in BOTH the
+  // normal per-line layout and the compact flow-wrap layout — including a
+  // single skill/tag that's too long to fit on one line by itself (e.g.
+  // "Financial Data Analysis and Interpretation"), which is what used to
+  // run past the edge of the sidebar. See cv-shared.js's flowItems() for
+  // the fix on the compact-skills path; the per-line path below already
+  // wrapped correctly via wrapLines().
   y = lhead('SKILLS', y);
   if (compactSkills) {
     const skillsResult = flowItems(doc, content.skills || [], L_PAD + 6, y, LEFT_W - L_PAD * 2 - 6, {
