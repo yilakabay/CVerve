@@ -146,21 +146,51 @@ function flowItems(doc, items, x, yTop, totalWidth, opts = {}) {
 
   doc.font(font).fontSize(size);
   let cx = x, cy = yTop, rows = 1;
+  const bulletW = bulletColor ? bulletSize + bulletGap : 0;
+  // The width actually available for the text of an item once its bullet
+  // (if any) is accounted for — this is what an oversized item gets
+  // wrapped against below.
+  const itemAvailW = Math.max(10, totalWidth - bulletW);
 
-  (items || []).forEach((raw, i) => {
+  (items || []).forEach((raw) => {
     const text = String(raw);
-    const bulletW = bulletColor ? bulletSize + bulletGap : 0;
     const itemW = doc.widthOfString(text) + bulletW;
     const isFirstOnRow = cx === x;
 
     // Wrap to a new row if this item won't fit in the remaining width —
-    // unless it's the very first item on the row, in which case placing it
-    // anyway (even if wider than totalWidth) is better than an infinite
-    // empty row; a single very long item just runs past the column edge.
+    // unless it's the very first item on the row (handled below).
     if (!isFirstOnRow && (cx - x) + itemW > totalWidth) {
       cx = x;
       cy += gapY;
       rows += 1;
+    }
+
+    // An item that's wider than the ENTIRE row (a long skill/tag with no
+    // natural break point, e.g. "Financial Data Analysis and
+    // Interpretation") used to just get drawn with lineBreak:false and no
+    // width limit, so it ran straight past the edge of the column. Now it
+    // gets wrapped onto its own multi-line block — using the same
+    // word/char-fallback wrapping every other section of the CV uses —
+    // and takes up as many rows as it needs, instead of overflowing.
+    if (itemW > totalWidth) {
+      const wlines = wrapLines(doc, text, font, size, itemAvailW);
+      if (draw) {
+        if (bulletColor) {
+          doc.fillColor(bulletColor).rect(cx, cy + size * 0.55, bulletSize, bulletSize).fill();
+        }
+        doc.font(font).fontSize(size).fillColor(color);
+        wlines.forEach((ln, i) => {
+          doc.text(ln, cx + bulletW, cy + i * gapY, { lineBreak: false });
+        });
+      }
+      cy += (wlines.length - 1) * gapY;
+      rows += wlines.length - 1;
+      // Force the next item onto a fresh row rather than trying to pack
+      // something next to the tail end of a wrapped block.
+      cx = x;
+      cy += gapY;
+      rows += 1;
+      return;
     }
 
     if (draw) {
