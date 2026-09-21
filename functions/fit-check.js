@@ -1,11 +1,8 @@
 // functions/fit-check.js
-// POST body: { cvText, position: { title, company, qualification, experience, salary, expireDate, fullDescription } }
+// POST body: { userId, password, cvText, position: { title, company, qualification, experience, salary, expireDate, fullDescription } }
 //
-// Pro-only feature (gated client-side via planLimit('fitTests') > 0; this function
-// itself does not enforce the plan — app.html only calls it for Pro users).
-//
-// Unlike Smart Finder (which screens many jobs at once), this checks ONE specific
-// job in depth and returns a short, human verdict:
+// Checks ONE specific job in depth and returns a short, human verdict, using
+// DeepSeek. The user is charged the REAL tokens DeepSeek used (lib/ai-billing.js).
 //   - "fit"     → reasonably qualified. Soft/learnable gaps (e.g. a tool or skill
 //                 not mentioned on the CV) do NOT disqualify — they're noted as
 //                 something to develop or simply clarify, since the CV may just be
@@ -14,18 +11,17 @@
 //                 minimum CGPA/degree/certification/years of experience and the CV's
 //                 stated numbers fall short.
 //
+// Response on success: { success, fit, reason, tip, tokensUsed, tokenBalance }
+// Not enough CT:        402 { error, code:'INSUFFICIENT_TOKENS', tokenBalance }
+//
 // IMPORTANT: never return raw provider/AI error text (error.message from the
-// Gemini SDK) in the HTTP response — it can include quota details, internal
+// AI provider) in the HTTP response — it can include quota details, internal
 // URLs, and JSON error blobs that shouldn't be shown to end users. Full errors
 // are logged server-side via console.error for our own debugging; the client
 // only ever receives a short, generic, safe message.
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-function parseJsonLoose(text) {
-  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
-}
+const { runBilledChat, errorResponse, parseJsonLoose } = require('./lib/ai-billing');
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
@@ -38,11 +34,10 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { cvText, position } = body;
+  const { userId, password, cvText, position } = body;
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error('fit-check: Missing Gemini API key');
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.error('fit-check: Missing DEEPSEEK_API_KEY');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
@@ -54,7 +49,7 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const MAX_TEXT_LENGTH = 30000;
+    const MAX_TEXT_LENGTH = 12000; // users pay per token — a fit check never needs more than this
     const truncatedCv = cvText.length > MAX_TEXT_LENGTH ? cvText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]' : cvText;
 
     const positionText = `
@@ -65,9 +60,6 @@ exports.handler = async (event, context) => {
       Salary: ${position.salary || ''}
       Full description: ${(position.fullDescription || '').substring(0, 4000)}
     `;
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
       You are talking directly to a job applicant, helping them understand whether
@@ -124,55 +116,46 @@ exports.handler = async (event, context) => {
       }
     `;
 
-    const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 3000;
-    let lastError;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-
-        let parsed;
-        try {
-          parsed = parseJsonLoose(text);
-        } catch (parseErr) {
-          throw new Error('AI returned an unexpected format. Please try again.');
-        }
-
-        if (!parsed || (parsed.verdict !== 'fit' && parsed.verdict !== 'not_fit') || !parsed.reason) {
-          throw new Error('AI response was missing required fields. Please try again.');
-        }
-
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            success: true,
-            fit: parsed.verdict === 'fit',
-            reason: (parsed.reason || '').toString().trim(),
-            tip: (parsed.tip || '').toString().trim()
-          })
-        };
-      } catch (err) {
-        lastError = err;
-        console.error(`fit-check Gemini attempt ${attempt} failed:`, err.message);
-        const isRetryable = err.message.includes('503') || err.message.includes('high demand') ||
-                             err.message.includes('429') || err.message.includes('quota');
-        if (!isRetryable || attempt === MAX_ATTEMPTS) break;
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+    // Validation rejects an unusable answer BEFORE anything is charged; it is
+    // then retried once automatically inside runBilledChat.
+    const validate = (text) => {
+      let parsed;
+      try { parsed = parseJsonLoose(text); }
+      catch (e) { throw new Error('AI returned an unexpected format.'); }
+      if (!parsed || (parsed.verdict !== 'fit' && parsed.verdict !== 'not_fit') || !parsed.reason) {
+        throw new Error('AI response was missing required fields.');
       }
-    }
+      return parsed;
+    };
 
-    throw lastError;
+    const { parsed, tokensUsed, tokenBalance } = await runBilledChat({
+      userId, password,
+      feature: 'fit-check',
+      messages: [
+        { role: 'system', content: 'You are a fair, practical career advisor. You reply with valid JSON only.' },
+        { role: 'user',   content: prompt }
+      ],
+      maxTokens: 400,
+      temperature: 0.2,
+      json: true,
+      validate
+    });
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        success: true,
+        fit: parsed.verdict === 'fit',
+        reason: (parsed.reason || '').toString().trim(),
+        tip: (parsed.tip || '').toString().trim(),
+        tokensUsed,
+        tokenBalance
+      })
+    };
 
   } catch (error) {
-    // Full detail (provider error, quota info, stack, etc) goes to server
-    // logs ONLY — the client always gets a short, generic, safe message.
-    console.error('fit-check error:', error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' })
-    };
+    // Full detail (provider error, stack, etc) goes to server logs ONLY — the
+    // client always gets a short, generic, safe message.
+    return errorResponse(error, 'We are unable to complete your request right now. Please try again in a moment.');
   }
 };
