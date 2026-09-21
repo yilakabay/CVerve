@@ -14,7 +14,7 @@
 // refuses (throws) rather than drawing overlapping/clipped text if even
 // the tightened layout still overflows past a small threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const CHARCOAL = '#1C1C1E', GOLD = '#B8962E', GOLD_LITE = '#E6D199';
@@ -57,20 +57,82 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     }
     doc.rect(PHOTO_X, 0, PHOTO_SIZE, PHOTO_SIZE).lineWidth(1.5).stroke(GOLD);
 
-    doc.font('Helvetica-Bold').fontSize(36).fillColor(WHITE);
-    doc.text((content.name || '').split(' ')[0] || '', 18, 18, { lineBreak: false });
-    doc.fillColor(GOLD_LITE);
-    doc.text((content.name || '').split(' ').slice(1).join(' ') || '', 18, 58, { lineBreak: false });
-    doc.strokeColor(GOLD).lineWidth(1).moveTo(18, 112).lineTo(PHOTO_X - 18, 112).stroke();
-    doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
-    doc.text((content.subtitle || '').toUpperCase(), 18, 126, { lineBreak: false });
+    // ── Name: two stacked lines (first word large, rest of the name below
+    // in gold) — this already acts like a natural 2-line wrap by word, but
+    // previously neither line had a width limit at all, so a long single
+    // first name or a long "rest of name" could run straight into the
+    // photo. Each line now shrinks through a small size ladder to fit the
+    // available width before falling back to truncateToFit as a last
+    // resort — and everything below (divider, subtitle, contact rows) now
+    // cascades off the ACTUAL measured bottom of these lines instead of
+    // fixed y offsets, so it can never overlap a name that needed to
+    // shrink or truncate.
+    const nameAvailW = PHOTO_X - 18 - 18;
+    const nameWords = (content.name || '').trim().split(/\s+/).filter(Boolean);
+    const firstWord = nameWords[0] || '';
+    const restWords = nameWords.slice(1).join(' ');
+    const NAME_SIZE_LADDER = [36, 30, 26, 22];
 
+    function fitNameLine(text) {
+      let size = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      for (const s of NAME_SIZE_LADDER) {
+        doc.font('Helvetica-Bold').fontSize(s);
+        if (doc.widthOfString(text) <= nameAvailW) { size = s; return { text, size }; }
+      }
+      doc.font('Helvetica-Bold').fontSize(size);
+      return { text: truncateToFit(doc, text, 'Helvetica-Bold', size, nameAvailW), size };
+    }
+
+    const L1_TOP = 18;
+    const line1 = fitNameLine(firstWord);
+    doc.font('Helvetica-Bold').fontSize(line1.size).fillColor(WHITE);
+    const line1H = doc.currentLineHeight(true);
+    doc.text(line1.text, 18, L1_TOP, { lineBreak: false });
+    const line1BottomY = L1_TOP + line1H;
+
+    let line2BottomY = line1BottomY;
+    if (restWords) {
+      const L2_TOP = line1BottomY + 2;
+      const line2 = fitNameLine(restWords);
+      doc.font('Helvetica-Bold').fontSize(line2.size).fillColor(GOLD_LITE);
+      const line2H = doc.currentLineHeight(true);
+      doc.text(line2.text, 18, L2_TOP, { lineBreak: false });
+      line2BottomY = L2_TOP + line2H;
+    }
+
+    const DIVIDER_Y = line2BottomY + 11;
+    doc.strokeColor(GOLD).lineWidth(1).moveTo(18, DIVIDER_Y).lineTo(PHOTO_X - 18, DIVIDER_Y).stroke();
+
+    // ── Subtitle: wraps up to 2 lines against the same available width,
+    // instead of running past the photo unbounded ─────────────────────
+    const SUBTITLE_TOP = DIVIDER_Y + 14;
+    doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
+    const subtitleLineH = doc.currentLineHeight(true);
+    const subtitleLines = wrapLines(doc, (content.subtitle || '').toUpperCase(), 'Helvetica', 9.5, nameAvailW).slice(0, 2);
+    let subtitleBottomY = SUBTITLE_TOP;
+    if (subtitleLines.length) {
+      subtitleLines.forEach((ln, i) => {
+        const lineY = SUBTITLE_TOP + i * subtitleLineH;
+        doc.text(ln, 18, lineY, { lineBreak: false, width: nameAvailW, ellipsis: true });
+        subtitleBottomY = lineY + subtitleLineH;
+      });
+    } else {
+      subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
+    }
+
+    // Contact rows: any missing field is simply absent from
+    // content.contact, so .filter(Boolean) already drops it. Their
+    // starting position now derives from subtitleBottomY instead of a
+    // fixed constant, so a wrapped subtitle pushes them down instead of
+    // overlapping them. Each row's bullet dot and its text still share
+    // one cy value, so they stay in sync with each other too.
+    const CONTACT_TOP = subtitleBottomY + 10;
     doc.font('Helvetica').fontSize(10);
     const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
     contacts.forEach((ct, i) => {
-      const cy = 144 + i * 15.5;
+      const cy = CONTACT_TOP + i * 15.5;
       doc.fillColor(GOLD).circle(21, cy + 3.5, 1.8).fill();
-      doc.fillColor(WHITE).text(ct, 30, cy, { lineBreak: false });
+      doc.fillColor(WHITE).text(ct, 30, cy, { lineBreak: false, width: PHOTO_X - 30 - 18, ellipsis: true });
     });
   }
 
@@ -82,11 +144,16 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     }
     return yTop + 16;
   }
+  // Right-aligned date/label column: this MUST stay one line (the content
+  // column starts right after it), so an unusually long value is
+  // truncated to fit rather than left to run past LABEL_W into the
+  // content text or off the page's left margin.
   function dateLabel(text, yTop) {
     if (!draw || !text) return;
     doc.font('Helvetica-Oblique').fontSize(8).fillColor(MUTED);
-    const tw = doc.widthOfString(text);
-    doc.text(text, MARGIN_L + LABEL_W - tw, yTop, { lineBreak: false });
+    const safe = truncateToFit(doc, text, 'Helvetica-Oblique', 8, LABEL_W - 2);
+    const tw = doc.widthOfString(safe);
+    doc.text(safe, MARGIN_L + LABEL_W - tw, yTop, { lineBreak: false });
   }
   function boldLine(text, yTop, size = 10.5) {
     if (draw) { doc.font('Helvetica-Bold').fontSize(size).fillColor(BODY); doc.text(text, CONTENT_X, yTop, { lineBreak: false }); }
@@ -171,15 +238,31 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   if (content.certifications && content.certifications.length) {
     y = section('CERTIFICATIONS', y);
     let linesUsed = 0;
-    const issuerLeading = tighten(15, 8.5);
+    const titleLeading = tighten(12, 9.2), issuerLeading = tighten(12.5, 8.5);
     content.certifications.forEach((cert, i) => {
       dateLabel(String(i + 1).padStart(2, '0'), y + 2);
-      if (draw) { doc.font('Helvetica-Bold').fontSize(9.2).fillColor(BODY); doc.text(cert.title || '', CONTENT_X, y, { lineBreak: false }); }
-      y += 12;
+      // Title now wraps (up to 2 lines) instead of being drawn with no
+      // width at all, which used to let a long title run past CONTENT_R.
+      const titleLines = wrapLines(doc, cert.title || '', 'Helvetica-Bold', 9.2, CONTENT_W).slice(0, 2);
+      if (draw) {
+        doc.font('Helvetica-Bold').fontSize(9.2).fillColor(BODY);
+        let ty = y;
+        titleLines.forEach(ln => { doc.text(ln, CONTENT_X, ty, { lineBreak: false }); ty += titleLeading; });
+        y = ty;
+      } else {
+        y += titleLines.length * titleLeading;
+      }
       const issuerLines = wrapLines(doc, cert.issuer || '', 'Helvetica', 8.5, CONTENT_W);
-      if (draw) { doc.font('Helvetica').fontSize(8.5).fillColor(MUTED); doc.text(cert.issuer || '', CONTENT_X, y, { lineBreak: false }); }
-      y += issuerLeading;
-      linesUsed += 1 + issuerLines.length;
+      if (draw) {
+        doc.font('Helvetica').fontSize(8.5).fillColor(MUTED);
+        let iy = y;
+        issuerLines.forEach(ln => { doc.text(ln, CONTENT_X, iy, { lineBreak: false }); iy += issuerLeading; });
+        y = iy;
+      } else {
+        y += issuerLines.length * issuerLeading;
+      }
+      y += tightLeading ? 2 : 4;
+      linesUsed += titleLines.length + issuerLines.length;
     });
     track('certifications', linesUsed, true);
     y += tightenGap(4) + GS;
@@ -187,9 +270,14 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
 
   if (content.skills && content.skills.length) {
     y = section('SKILLS', y);
-    // Skills are already a dense 3-column grid by default. In tight mode
-    // that becomes 4 columns — still a real grid, just packing more per
-    // row — rather than switching to a different layout style entirely.
+    // Skills are a dense fixed-row-height grid (3 columns, 4 in tight
+    // mode), so a skill has to stay on ONE line — there's no room in the
+    // row below it to wrap into. Previously this relied on PDFKit's
+    // lineBreak:false + width + ellipsis to truncate, but that combo has
+    // proven unreliable elsewhere in this app (it can still wrap once a
+    // width is given, which would silently overlap the row underneath).
+    // truncateToFit() does the truncation manually and draws the
+    // already-safe, guaranteed-single-line result instead.
     const colCount = tightLeading ? 4 : 3, colW = CONTENT_W / colCount;
     const rowH = tightLeading ? 11.5 : 13;
     let linesUsed = 0;
@@ -198,8 +286,9 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
       const sy = y + row * rowH;
       if (draw) {
         doc.fillColor(GOLD).rect(CONTENT_X + col * colW, sy + 1, 3, 3).fill();
+        const safe = truncateToFit(doc, skill, 'Helvetica', 8.8, colW - 10);
         doc.font('Helvetica').fontSize(8.8).fillColor(BODY);
-        doc.text(skill, CONTENT_X + col * colW + 7, sy, { lineBreak: false, width: colW - 10, ellipsis: true });
+        doc.text(safe, CONTENT_X + col * colW + 7, sy, { lineBreak: false });
       }
       if (col === 0) linesUsed++;
     });
@@ -223,32 +312,77 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y += tightenGap(4) + GS;
   } else track('languages', 0, false);
 
+  // ── Custom sections ───────────────────────────────────────────────────
+  // A user can ask the AI to add a section not in the fixed schema (e.g.
+  // "Academic Projects", "Hobbies"). This template has no sidebar/main
+  // split — everything lives in one column — so every entry in
+  // content.customSections (regardless of any placement hint) lands here,
+  // via the same section/bullet/para helpers as every built-in section,
+  // getting the same width-safe wrapping.
+  (content.customSections || []).forEach(cs => {
+    y = section((cs.title || 'Section').toUpperCase(), y);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      cs.items.forEach(item => { y = bullet(item, y); linesUsed++; });
+    } else if (cs.text) {
+      const r = para(cs.text, y);
+      y = r.y;
+      linesUsed = r.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    y += tightenGap(8) + GS;
+  });
+
+  // References: content.references is an array (1, 2, 3+ — no cap).
+  // Name/role/email/phone now all wrap against CONTENT_W via wrapLines,
+  // same as every other multi-line field in this file — previously role
+  // had NO width bound at all, and email/phone had none either, so a long
+  // one would simply run off the right edge of the page instead of
+  // wrapping or being caught by the fit/overflow system.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = section('REFERENCE' + (refList.length > 1 ? 'S' : ''), y);
+    let linesUsed = 0;
     refList.forEach((ref, i) => {
+      const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', 9.5, CONTENT_W).slice(0, 2);
       if (draw) {
         doc.font('Helvetica-Bold').fontSize(9.5).fillColor(BODY);
-        doc.text(ref.name, CONTENT_X, y, { lineBreak: false });
-        y += 13;
-        doc.font('Helvetica').fontSize(9).fillColor(MUTED);
-        doc.text(ref.role || '', CONTENT_X, y, { lineBreak: false });
-        y += 13;
-        [['Email', ref.email], ['Phone', ref.phone]].forEach(([label, val]) => {
-          if (!val) return;
+        let ny = y;
+        nameLines.forEach(ln => { doc.text(ln, CONTENT_X, ny, { lineBreak: false }); ny += 13; });
+        y = ny;
+      } else { y += nameLines.length * 13; }
+      linesUsed += nameLines.length;
+
+      if (ref.role) {
+        const roleLines = wrapLines(doc, ref.role, 'Helvetica', 9, CONTENT_W);
+        if (draw) {
+          doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+          let roY = y;
+          roleLines.forEach(ln => { doc.text(ln, CONTENT_X, roY, { lineBreak: false }); roY += 13; });
+          y = roY;
+        } else { y += roleLines.length * 13; }
+        linesUsed += roleLines.length;
+      }
+
+      [['Email', ref.email], ['Phone', ref.phone]].forEach(([label, val]) => {
+        if (!val) return;
+        doc.font('Helvetica-Bold').fontSize(8.5);
+        const lw = doc.widthOfString(label + ':  ');
+        const valLines = wrapLines(doc, val, 'Helvetica', 8.5, CONTENT_W - lw);
+        if (draw) {
           doc.font('Helvetica-Bold').fontSize(8.5).fillColor(MUTED);
           doc.text(label + ':', CONTENT_X, y, { lineBreak: false });
-          const lw = doc.widthOfString(label + ':  ');
           doc.font('Helvetica').fontSize(8.5).fillColor(BODY);
-          doc.text(val, CONTENT_X + lw, y, { lineBreak: false });
-          y += 13;
-        });
-      } else {
-        y += 13 + 13 + (ref.email ? 13 : 0) + (ref.phone ? 13 : 0);
-      }
+          let vy = y;
+          valLines.forEach(ln => { doc.text(ln, CONTENT_X + lw, vy, { lineBreak: false }); vy += 13; });
+          y = vy;
+        } else { y += valLines.length * 13; }
+        linesUsed += valLines.length;
+      });
+
       if (i < refList.length - 1) y += 8;
     });
-    track('references', 4 * refList.length, true);
+    track('references', linesUsed, true);
   } else track('references', 0, false);
 
   return { finalY: y, sections };
