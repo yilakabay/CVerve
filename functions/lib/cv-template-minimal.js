@@ -197,14 +197,10 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
 
   y = META_BOTTOM + tightenGap(16) + stretchPerGap * 0.6;
 
-  let sectionNum = 0;
   function sectionHeading(label, yTop) {
-    sectionNum += 1;
     if (draw) {
-      doc.font('Helvetica').fontSize(8.3).fillColor(ACCENT);
-      doc.text(String(sectionNum).padStart(2, '0'), CONTENT_LEFT, yTop + 1, { lineBreak: false });
       doc.font('Helvetica').fontSize(11.5).fillColor(INK);
-      doc.text(label.toUpperCase(), CONTENT_LEFT + 22, yTop + 1, { lineBreak: false });
+      doc.text(label.toUpperCase(), CONTENT_LEFT, yTop + 1, { lineBreak: false });
     }
     return yTop + (tightLeading ? 20 : 24);
   }
