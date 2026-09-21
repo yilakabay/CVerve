@@ -5,24 +5,19 @@
 // method. Transaction IDs are never extracted from or matched against SMS
 // here; they play no role in this flow at all.
 //
-// Once matched, the amount is checked against the CHOSEN plan on that
-// pending record (the user picks Basic or Pro before paying):
-//   - If the amount covers the chosen plan's price, it's activated for
-//     THAT plan — never silently upgraded/downgraded to whatever tier the
-//     amount happens to fit. Any excess above the tier price is flagged as
-//     refund-eligible, and if the user chose Basic with excess that itself
-//     covers Pro's price, a "upgrade to Pro" offer is included.
-//   - If the amount does NOT cover the chosen plan (including anything
-//     under 49 ETB, which can't fund either plan), this function does
-//     NOTHING further — it leaves the payment pending. The automatic system
-//     never rejects a payment; only an admin can do that, since "amount too
-//     low" and "this looks like a scam" are indistinguishable from amount
-//     alone (a genuinely low real payment vs. a fabricated screenshot with
-//     no matching SMS look identical from the SMS side).
+// Once matched, the amount is checked against the CHOSEN CT pack on that
+// pending record (the user picks a pack before paying; see lib/packs.js):
+//   - If the amount covers the chosen pack's price, that pack's CT are added
+//     to the user's balance — never a different pack than the one chosen.
+//     Any excess above the pack price is flagged as refund-eligible (Refund
+//     or Leave as Tip).
+//   - If the amount does NOT cover the chosen pack (including anything under
+//     the cheapest pack), this function does NOTHING further — it leaves the
+//     payment pending. The automatic system never rejects a payment; only an
+//     admin can do that, since "amount too low" and "this looks like a scam"
+//     are indistinguishable from amount alone.
 //
-// The user is notified on activation. If there's a refund-eligible excess,
-// the notification carries enough info for the app to show Refund/Tip (and,
-// for Basic-with-large-excess, an "Activate Pro") buttons.
+// The SMS text itself is read by DeepSeek (plain text — no file involved).
 //
 // ── FIX (revenue model) ──────────────────────────────────────────────────
 // This is the automatic counterpart to admin-verify.js's verify-one, but it
@@ -39,26 +34,13 @@
 // admin-verify.js does, tied to the same notification id that's shown to
 // the user (so Tip/Refund can find it).
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { callDeepSeek, parseJsonLoose } = require('./lib/ai-billing');
+const { computeVerifyOutcome, creditTokens } = require('./lib/packs');
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
 
 const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
-
-// ── Plan prices — kept identical across process-payment.js / admin-verify.js ──
-const PLAN_PRICES = { basic: 49, pro: 79 };
-const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-// Decides whether a chosen plan can be verified at a given amount, and what
-// follow-up offers apply. Never suggests a different plan than was chosen.
-function computeVerifyOutcome(chosenPlan, amount) {
-  const tierPrice = PLAN_PRICES[chosenPlan];
-  if (amount < tierPrice) return { canVerify: false };
-  const excess = Math.round((amount - tierPrice) * 100) / 100;
-  const canUpgradeToPro = chosenPlan === 'basic' && amount >= PLAN_PRICES.pro;
-  return { canVerify: true, tierPrice, excess, canUpgradeToPro };
-}
 
 // ── Allowed bank senders ──────────────────────────────────────────────────────
 const ALLOWED_SENDERS = [
@@ -98,13 +80,8 @@ function nameSimilarity(a, b) {
 
 const NAME_MATCH_THRESHOLD = 0.5; // at least half the shorter name's tokens must match
 
-// ── Gemini extraction — amount + sender name only, no transaction ID ─────────
-async function extractWithGemini(smsText) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel(
-        { model: 'gemini-2.5-flash' },
-        { apiVersion: 'v1beta' }
-    );
+// ── DeepSeek extraction — amount + sender name only, no transaction ID ──────
+async function extractSmsFields(smsText) {
     const prompt = `You are a payment SMS parser for Ethiopian banks/wallets (CBE, CBE Birr, Telebirr).
 Extract the following from this SMS:
 - amount: the money transferred in ETB (Birr), as a plain number.
@@ -117,10 +94,18 @@ Use null for any field you cannot find.
 SMS:
 ${smsText}`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim()
-        .replace(/```json/gi, '').replace(/```/g, '').trim();
-    return JSON.parse(text);
+    const result = await callDeepSeek({
+        messages: [
+            { role: 'system', content: 'You extract fields from bank SMS messages. You reply with valid JSON only.' },
+            { role: 'user',   content: prompt }
+        ],
+        maxTokens: 100,
+        temperature: 0,
+        json: true,
+        timeoutMs: 15000,
+        attempts: 2
+    });
+    return parseJsonLoose(result.text);
 }
 
 // ── Write notification to user document ──────────────────────────────────────
@@ -138,26 +123,7 @@ async function writeNotification(usersCol, userId, notification) {
     }
 }
 
-// Activate a plan on the user document, resetting usage counters for the new period
-async function activatePlan(usersCol, userId, plan) {
-    const now    = new Date();
-    const expiry = new Date(now.getTime() + PLAN_DURATION_MS);
-    await usersCol.updateOne(
-        { phoneNumber: userId },
-        {
-            $set: {
-                plan,
-                planActivatedAt: now,
-                planExpiry:      expiry,
-                usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
-            }
-        },
-        { upsert: false }
-    );
-    return expiry;
-}
-
-// ── Verify a pending payment for exactly the plan it was submitted for ───────
+// ── Verify a pending payment: credit exactly the pack it was submitted for ──
 async function verifyPendingPayment(db, pending) {
     const usersCol          = db.collection('users');
     const verifiedCol       = db.collection('payments');
@@ -167,14 +133,15 @@ async function verifyPendingPayment(db, pending) {
     const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
     if (!outcome.canVerify) return { status: 'insufficient' };
 
-    const plan       = pending.chosenPlan;
-    const planExpiry = await activatePlan(usersCol, pending.userId, plan);
+    const pack = outcome.pack;
+    await creditTokens(usersCol, pending.userId, pack.tokens);
 
     const insertResult = await verifiedCol.insertOne({
         userId:        pending.userId,
         amount:        pending.claimedAmount,
         senderName:    pending.claimedSenderName,
-        plan,
+        plan:          pack.id,
+        tokens:        pack.tokens,
         tierPrice:     outcome.tierPrice,
         excess:        outcome.excess,
         paymentMethod: pending.paymentMethod || 'unknown',
@@ -207,19 +174,19 @@ async function verifyPendingPayment(db, pending) {
 
     await writeNotification(usersCol, pending.userId, {
         id:                 notifId,
-        type:               'plan_activated',
-        plan,
+        type:               'plan_activated',   // (name kept for the app; it now means "CT added")
+        plan:               pack.id,
+        tokens:             pack.tokens,
+        packLabel:          pack.label,
         amount:             pending.claimedAmount,
         excess:             outcome.excess,
         refundEligible:     outcome.excess > 0,
         refundAmount:       outcome.excess,
-        canUpgradeToPro:    outcome.canUpgradeToPro,
         verifiedPaymentId:  insertResult.insertedId.toString(),
-        expiry:             planExpiry,
         resolvedBy:         'system_auto'
     });
 
-    return { status: 'verified', userId: pending.userId, amount: pending.claimedAmount, plan, excess: outcome.excess };
+    return { status: 'verified', userId: pending.userId, amount: pending.claimedAmount, plan: pack.id, tokens: pack.tokens, excess: outcome.excess };
 }
 
 // ── Auto verify — name + exact amount match only, for every payment method ──
@@ -317,12 +284,12 @@ exports.handler = async (event, context) => {
             );
         } catch (_) {}
 
-        // Extract with Gemini
+        // Extract with DeepSeek
         let extracted = { amount: null, senderName: null };
         try {
-            extracted = await extractWithGemini(smsBody);
+            extracted = await extractSmsFields(smsBody);
         } catch (err) {
-            console.error('Gemini extraction failed:', err.message);
+            console.error('SMS extraction failed:', err.message);
         }
 
         const normalizedAmount = extracted.amount != null ? Number(extracted.amount) : null;
