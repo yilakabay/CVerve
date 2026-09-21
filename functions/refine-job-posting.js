@@ -3,7 +3,7 @@
 //
 // Admin pastes a job posting URL OR supplies text already extracted client-side
 // (e.g. via extract-text.js, same flow used for letter generation uploads).
-// This function resolves the raw text, then asks Gemini to structure it into:
+// This function resolves the raw text, then asks DeepSeek to structure it into:
 //   { company, positions: [ { title, qualification, experience, salary, expireDate,
 //                              shortDescription, fullDescription } ] }
 //
@@ -12,8 +12,11 @@
 //
 // This does NOT save anything — admin.html reviews/edits the structured result,
 // then calls manage-jobs.js (action: 'create') to actually post it.
+//
+// Uses DeepSeek (text only). This is an ADMIN tool, so it is NOT charged to
+// any user's CT balance — it's part of running the platform.
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { callDeepSeek, parseJsonLoose } = require('./lib/ai-billing');
 const crypto = require('crypto');
 const https  = require('https');
 const http   = require('http');
@@ -68,12 +71,6 @@ function htmlToText(html) {
     .trim();
 }
 
-// Strip ``` / ```json fences some models add, then parse
-function parseJsonLoose(text) {
-  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
-}
-
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
@@ -91,9 +88,8 @@ exports.handler = async (event, context) => {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing Gemini API key' }) };
+  if (!process.env.DEEPSEEK_API_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing DeepSeek API key' }) };
   }
 
   try {
@@ -120,9 +116,6 @@ exports.handler = async (event, context) => {
     const truncated = rawText.length > MAX_TEXT_LENGTH
       ? rawText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : rawText;
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
 
     const prompt = `
       You are structuring a raw job posting (possibly containing several openings from
@@ -164,53 +157,55 @@ exports.handler = async (event, context) => {
       - Return raw JSON only — no backticks, no explanation text before or after.
     `;
 
-    const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 3000;
-    let lastError;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Up to 2 passes if the answer comes back unusable (not charged to anyone).
+    let structured, lastError;
+    for (let pass = 1; pass <= 2; pass++) {
       try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        const result = await callDeepSeek({
+          messages: [
+            { role: 'system', content: 'You turn raw job postings into clean structured JSON. You reply with valid JSON only.' },
+            { role: 'user',   content: prompt }
+          ],
+          maxTokens: 8000,
+          temperature: 0.1,
+          json: true,
+          timeoutMs: 24000,
+          attempts: 2
+        });
 
-        let structured;
-        try {
-          structured = parseJsonLoose(text);
-        } catch (parseErr) {
-          throw new Error('AI returned an unexpected format. Please try again.');
-        }
+        let parsed;
+        try { parsed = parseJsonLoose(result.text); }
+        catch (parseErr) { throw new Error('AI returned an unexpected format. Please try again.'); }
 
-        if (!structured || !structured.company || !Array.isArray(structured.positions) || structured.positions.length === 0) {
+        if (!parsed || !parsed.company || !Array.isArray(parsed.positions) || parsed.positions.length === 0) {
           throw new Error('AI response was missing required fields. Please try again.');
         }
-
-        // Safety defaults in case the AI omits the newer application-method fields
-        structured.positions = structured.positions.map(p => ({
-          ...p,
-          applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
-          applicationUrl:   p.applicationUrl || '',
-          physicalAddress:  p.physicalAddress || ''
-        }));
-
-        return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
+        structured = parsed;
+        lastError = null;
+        break;
       } catch (err) {
         lastError = err;
-        console.error(`Gemini attempt ${attempt} failed:`, err.message);
-        const isRetryable = err.message.includes('503') || err.message.includes('high demand') ||
-                             err.message.includes('429') || err.message.includes('quota');
-        if (!isRetryable || attempt === MAX_ATTEMPTS) break;
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        console.error(`refine-job-posting DeepSeek pass ${pass} failed:`, err.message);
+        if (err.retryable === false) break;
       }
     }
+    if (lastError) throw lastError;
 
-    throw lastError;
+    // Safety defaults in case the AI omits the newer application-method fields
+    structured.positions = structured.positions.map(p => ({
+      ...p,
+      applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
+      applicationUrl:   p.applicationUrl || '',
+      physicalAddress:  p.physicalAddress || ''
+    }));
+
+    return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
 
   } catch (error) {
     console.error('refine-job-posting error:', error);
     let errorMessage = 'We are unable to refine this job posting right now. ';
-    if (error.message && (error.message.includes('503') || error.message.includes('high demand'))) {
-      errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
+    if (error.name === 'AbortError' || (error.message && /timeout|timed out/i.test(error.message))) {
+      errorMessage += 'The AI took too long. Please try again, or paste a shorter posting.';
     } else {
       // Never forward the raw provider error to the client — see the same
       // reasoning documented in generate-letter.js / smart-finder.js.
