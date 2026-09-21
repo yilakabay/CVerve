@@ -1,13 +1,17 @@
 // functions/process-payment.js
 // POST body: { userId, password, amount, senderName, chosenPlan, transactionId?, paymentMethod?, checkOnly? }
 //
-// The user picks a plan (Basic or Pro) BEFORE paying. That choice — chosenPlan
-// — is stored on the pending record and is the anchor for everything that
-// happens next: what shows on the admin's Pending tab, whether a payment can
-// be verified at all, and what a Verify/Reject notification says. The system
-// always respects what the user chose; it never silently activates a
-// different tier just because the amount happens to cover it (see
+// The user picks a CT top-up pack (see lib/packs.js) BEFORE paying. That
+// choice is stored on the pending record and is the anchor for everything
+// that happens next: what shows on the admin's Pending tab, whether a payment
+// can be verified at all, and what a Verify/Reject notification says. The
+// system always respects what the user chose; it never silently credits a
+// different pack just because the amount happens to cover it (see
 // receive-sms.js / admin-verify.js for the full decision logic).
+//
+// NOTE: the field is still called `chosenPlan` in the database and in the
+// request body (kept so older data and admin screens keep working) — it now
+// simply holds a PACK id such as 'ind_1m'.
 //
 // amount + senderName are REQUIRED — they are the only fields ever used for
 // matching against the real bank SMS. Matching is name + amount only, for
@@ -32,7 +36,7 @@ const crypto = require('crypto');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-const VALID_PLANS = ['basic', 'pro'];
+const { resolvePack, formatCT } = require('./lib/packs');
 
 async function writeNotification(db, userId, notification) {
   try {
@@ -108,8 +112,9 @@ exports.handler = async (event, context) => {
     if (!trimmedSenderName) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Sender name is required.' }) };
     }
-    if (!chosenPlan || !VALID_PLANS.includes(chosenPlan)) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'A plan (basic or pro) must be selected before paying.' }) };
+    const chosenPack = resolvePack(chosenPlan);
+    if (!chosenPack) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Please choose a CT pack before paying.' }) };
     }
     const trimmedTransactionId = transactionId ? String(transactionId).trim().toLowerCase() : null;
 
@@ -145,7 +150,7 @@ exports.handler = async (event, context) => {
       submittedAt:       new Date(),
       claimedAmount:     parsedAmount,
       claimedSenderName: trimmedSenderName,
-      chosenPlan,
+      chosenPlan:        chosenPack.id,
       // Optional — present only when the screenshot happened to show one.
       // Used solely to block resubmission of this exact payment; never used
       // for matching against the SMS.
@@ -157,17 +162,17 @@ exports.handler = async (event, context) => {
       type:       'payment_received',
       pendingId:  insertResult.insertedId.toString(),
       amount:     parsedAmount,
-      chosenPlan
+      chosenPlan: chosenPack.id
     });
 
-    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}, chosenPlan=${chosenPlan}`);
+    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}, chosenPack=${chosenPack.id} (${formatCT(chosenPack.tokens)})`);
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         success:    true,
         pending:    true,
-        message:    'We received your payment. Our system will review and activate your plan within a few minutes.',
+        message:    'We received your payment. Our system will review it and add your CT within a few minutes.',
         pendingId:  insertResult.insertedId.toString()
       })
     };
