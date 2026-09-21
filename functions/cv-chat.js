@@ -7,6 +7,17 @@
 // with the user, one message at a time. The client keeps the full message
 // history and re-sends it every turn (this function is stateless).
 //
+// ── BILLING (CT tokens) ──────────────────────────────────────────────────
+// The body must now also include `password` (same one used at login). Every
+// DeepSeek call made during a turn reports its real token usage; they are
+// added up and the total is deducted from the user's CT balance once the
+// turn finishes (see lib/ai-billing.js). The reply includes `tokensUsed` and
+// `tokenBalance` so the app can update the balance on screen. If the user
+// doesn't have enough CT to start a turn, nothing is sent to DeepSeek and a
+// 402 { code:'INSUFFICIENT_TOKENS' } is returned.
+// Reading uploaded files/photos with Gemini (below) is NOT billed in CT —
+// only DeepSeek tokens are.
+//
 // ── MODEL: DeepSeek (deepseek-chat), not Claude ──────────────────────────
 // This file was switched from the Anthropic API to DeepSeek's
 // OpenAI-compatible chat-completions API. Two consequences that matter:
@@ -118,9 +129,12 @@ function resolveTemplate(templateId) {
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { sendPdfDocument } = require('./lib/telegram-send');
 
+const {
+  callDeepSeek, getDb, authenticate, assertCanAfford, estimateTokens, estimateMessagesTokens,
+  deductTokens, errorResponse
+} = require('./lib/ai-billing');
+
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
-const MODEL = 'deepseek-chat'; // DeepSeek-V3, general-purpose, supports function calling
 const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop
 
 // ── DEV ACCESS GATE ──────────────────────────────────────────────────────
@@ -266,26 +280,6 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
   }
 }
 
-async function callDeepSeek(messages) {
-  const res = await fetch(DEEPSEEK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 2000,
-      messages,
-      tools: TOOLS,
-      tool_choice: 'auto'
-    })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error((data.error && data.error.message) || 'DeepSeek API error');
-  return data;
-}
-
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -302,11 +296,31 @@ exports.handler = async (event, context) => {
     return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
   }
 
-  let { messages, newUserText, newUserFiles, photoBase64, templateId } = body;
+  let { messages, newUserText, newUserFiles, photoBase64, templateId, password } = body;
   const template = resolveTemplate(templateId);
   messages = Array.isArray(messages) ? messages.slice() : [];
   if (!messages.length || messages[0].role !== 'system') {
     messages.unshift({ role: 'system', content: buildSystemPrompt(template.name) });
+  }
+
+  // ── Log-in + "can they afford to start this turn?" — BEFORE any file is
+  // read or anything is sent to DeepSeek.
+  let db;
+  try {
+    db = await getDb();
+    const user = await authenticate(db, body.userId, password);
+    assertCanAfford(user, estimateMessagesTokens(messages) + estimateTokens(newUserText));
+  } catch (e) {
+    return errorResponse(e, 'Something went wrong. Please try again.');
+  }
+
+  // Running totals of what DeepSeek used during this turn.
+  let usedCost = 0, usedPrompt = 0, usedCompletion = 0;
+  let charged = false;
+  async function chargeOnce() {
+    if (charged) return null;
+    charged = true;
+    return deductTokens(db, body.userId, usedCost, { feature: 'cv-chat', promptTokens: usedPrompt, completionTokens: usedCompletion });
   }
 
   // Any attached file is read via Gemini FIRST (DeepSeek is text-only) and
@@ -326,18 +340,22 @@ exports.handler = async (event, context) => {
 
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const data = await callDeepSeek(messages);
-      const choice = data.choices[0];
-      const msg = choice.message;
+      const result = await callDeepSeek({ messages, maxTokens: 2000, tools: TOOLS, toolChoice: 'auto', attempts: 2 });
+      usedCost       += result.cost;
+      usedPrompt     += (result.usage && result.usage.prompt_tokens)     || 0;
+      usedCompletion += (result.usage && result.usage.completion_tokens) || 0;
+
+      const msg = result.message;
       messages.push(msg);
 
       const toolCalls = msg.tool_calls || [];
       if (toolCalls.some(tc => tc.function.name === 'request_photo_upload')) awaitingPhoto = true;
 
       if (toolCalls.length === 0) {
+        const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto })
+          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance })
         };
       }
 
@@ -345,32 +363,40 @@ exports.handler = async (event, context) => {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
 
-        const result = await callTool(tc.function.name, args, photoBase64, templateId, body.userId);
+        const toolResult = await callTool(tc.function.name, args, photoBase64, templateId, body.userId);
         let toolContent;
-        if (result && result.pdfBase64) {
-          finalPdfBase64 = result.pdfBase64;
-          telegramDelivered = !!result.telegramDelivered;
+        if (toolResult && toolResult.pdfBase64) {
+          finalPdfBase64 = toolResult.pdfBase64;
+          telegramDelivered = !!toolResult.telegramDelivered;
           // Don't send the full PDF back into the model's context — just
           // confirm success, to avoid burning tokens on binary data.
-          const deliveryNote = result.telegramDelivered
+          const deliveryNote = toolResult.telegramDelivered
             ? "It has already been sent to the user as a file in this Telegram chat — do not re-describe the raw PDF, just comment on it conversationally and tell them to check the chat for the file."
             : "The file could NOT be delivered to the user's Telegram chat automatically (Telegram may not be linked yet). Let the user know their CV was generated but couldn't be delivered, and suggest they link their Telegram account with the bot, then ask you to render again.";
-          toolContent = JSON.stringify({ ok: result.ok, kind: result.kind, message: result.ok ? deliveryNote : result.error });
+          toolContent = JSON.stringify({ ok: toolResult.ok, kind: toolResult.kind, message: toolResult.ok ? deliveryNote : toolResult.error });
         } else {
-          toolContent = JSON.stringify(result);
+          toolContent = JSON.stringify(toolResult);
         }
 
         messages.push({ role: 'tool', tool_call_id: tc.id, content: toolContent });
       }
     }
 
+    const tokenBalance = await chargeOnce();
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance })
     };
 
   } catch (error) {
     console.error('cv-chat error:', error);
-    return { statusCode: 500, body: JSON.stringify({ error: error.message || 'Internal server error' }) };
+    // Whatever DeepSeek already used before the failure was real work — charge
+    // for it (a failed call itself is never charged, because it returned no usage).
+    let tokenBalance = null;
+    try { tokenBalance = await chargeOnce(); } catch (e) { console.error('cv-chat: charge after error failed:', e.message); }
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Something went wrong while building your CV. Please try again.', tokenBalance })
+    };
   }
 };
