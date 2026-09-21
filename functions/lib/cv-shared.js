@@ -62,6 +62,30 @@ function wrapLines(doc, text, font, size, maxWidth) {
   return lines;
 }
 
+// For places where a SINGLE line is required no matter what — a
+// fixed-row-height grid cell, a right-aligned date label — and wrapping
+// to a second line would overlap whatever comes next, rather than fitting
+// legibly like wrapLines() everywhere else. PDFKit's own lineBreak:false +
+// width + ellipsis combo turned out to be unreliable for this: it can
+// still wrap onto a second line once a width is supplied, rather than
+// truncating, which is exactly the overflow bug this exists to prevent.
+// Doing the truncation manually — binary-searching for the longest
+// prefix + "…" that actually measures within maxWidth — and drawing the
+// already-safe result with no width/wrapping options at all sidesteps
+// that quirk entirely: there's nothing left for PDFKit to (mis)wrap.
+function truncateToFit(doc, text, font, size, maxWidth) {
+  doc.font(font).fontSize(size);
+  const str = String(text || '');
+  if (doc.widthOfString(str) <= maxWidth) return str;
+  const ELLIPSIS = '…';
+  let lo = 0, hi = str.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (doc.widthOfString(str.slice(0, mid) + ELLIPSIS) <= maxWidth) lo = mid; else hi = mid - 1;
+  }
+  return str.slice(0, lo) + ELLIPSIS;
+}
+
 // Accepts education as EITHER the old single-object shape
 // { degree, school, extra } OR the array shape
 // [{ level, dateRange, school, degree, extra }, ...]. Always returns an
@@ -268,7 +292,7 @@ function buildFitRecommendation(sections, overflowLines) {
 }
 
 module.exports = {
-  PDFDocument, measureDoc, wrapLines,
+  PDFDocument, measureDoc, wrapLines, truncateToFit,
   normalizeEducation, normalizeReferences,
   proficiencyToFill,
   flowItems, columnItems,
