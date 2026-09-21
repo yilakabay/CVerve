@@ -1,6 +1,16 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// functions/generate-letter.js
+// POST body: { userId, password, fullName, phone, email, address, appDate, cvText,
+//              jdText, jdUrl, targetPosition, extraPrompt }
+//
+// Writes the application letter with DeepSeek and charges the user's CT
+// balance for the REAL tokens DeepSeek used (see lib/ai-billing.js).
+//
+// Response on success: { letterText, tokensUsed, tokenBalance }
+// Response when the user can't afford it: 402 { error, code:'INSUFFICIENT_TOKENS', tokenBalance }
+
 const https = require('https');
 const http  = require('http');
+const { runBilledChat, getDb, authenticate, errorResponse, AIError } = require('./lib/ai-billing');
 
 // ── Fetch plain text from a URL ───────────────────────────────────────────────
 function fetchUrl(url) {
@@ -46,11 +56,14 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  const { fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = JSON.parse(event.body);
-  const apiKey = process.env.GEMINI_API_KEY;
+  let parsedBody;
+  try { parsedBody = JSON.parse(event.body); }
+  catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
+  const { userId, password, fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = parsedBody;
 
-  if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing Gemini API key' }) };
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.error('generate-letter: Missing DEEPSEEK_API_KEY');
+    return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to generate your letter right now. Please try again in a moment.' }) };
   }
 
   if (!targetPosition || targetPosition.trim().length < 2) {
@@ -58,6 +71,10 @@ exports.handler = async (event, context) => {
   }
 
   try {
+    // Log-in check FIRST — before we download any URL or spend anything.
+    const db   = await getDb();
+    const user = await authenticate(db, userId, password);
+
     if (!cvText || cvText.length < 20) {
       return { statusCode: 400, body: JSON.stringify({ error: 'CV text is required and must contain sufficient content' }) };
     }
@@ -88,7 +105,9 @@ exports.handler = async (event, context) => {
     console.log("Target Position:", targetPosition);
     console.log("Extra Prompt Provided:", !!(extraPrompt && extraPrompt.trim()));
 
-    const MAX_TEXT_LENGTH = 50000;
+    // Kept modest on purpose: users pay per token, and a letter never needs more
+    // than this much of a CV or a job post (a long web page can be huge).
+    const MAX_TEXT_LENGTH = 15000;
     const truncatedJdText = resolvedJdText.length > MAX_TEXT_LENGTH
       ? resolvedJdText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : resolvedJdText;
@@ -103,16 +122,6 @@ exports.handler = async (event, context) => {
     if (extraPrompt && typeof extraPrompt === 'string' && extraPrompt.trim()) {
       sanitizedExtraPrompt = extraPrompt.trim().substring(0, MAX_EXTRA_PROMPT_LENGTH);
     }
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    // NOTE on generationConfig: gemini-3.6-flash does not support custom
-    // temperature/topP/topK (silently ignored) or custom frequencyPenalty/
-    // presencePenalty (throws an error if set) — see Google's own model docs.
-    // So none of those are set here; the "sound human, not robotic" behavior
-    // now comes entirely from the VOICE section of the prompt below rather
-    // than sampling parameters. If Google adds support for these back on a
-    // future model, this is the place to reintroduce them.
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" }, { apiVersion: "v1beta" });
 
     const prompt = `
       TARGET POSITION: "${targetPosition}"
@@ -167,56 +176,37 @@ exports.handler = async (event, context) => {
       Generate the letter now:
     `;
 
-    // Retry logic: up to 3 attempts with 3-second delay between each
-    const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 3000;
-    let lastError;
+    // Ask DeepSeek, then charge the real tokens it used. Retries on temporary
+    // DeepSeek failures happen inside runBilledChat and are never charged.
+    const { text, tokensUsed, tokenBalance } = await runBilledChat({
+      userId, password,
+      feature: 'letter',
+      preAuth: { db, user },
+      messages: [
+        { role: 'system', content: 'You are a seasoned, empathetic ghostwriter who writes short, genuine, human-sounding job application letters. You follow the formatting rules you are given exactly and reply with the letter only — no preface, no commentary, no markdown.' },
+        { role: 'user',   content: prompt }
+      ],
+      maxTokens: 900,
+      temperature: 1.1
+    });
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        console.log(`Sending request to Gemini 2.5 Flash (attempt ${attempt} of ${MAX_ATTEMPTS})...`);
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const letterText = response.text();
-        console.log("Letter generated successfully on attempt", attempt);
-        return {
-          statusCode: 200,
-          body: JSON.stringify({ letterText })
-        };
-      } catch (err) {
-        lastError = err;
-        console.error(`Gemini attempt ${attempt} failed:`, err.message);
+    const letterText = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/,'').trim();
+    if (!letterText) throw new AIError(500, 'We are unable to generate your letter right now. Please try again in a moment.');
 
-        const isRetryable = err.message.includes('503') || err.message.includes('503 Service Unavailable') ||
-                            err.message.includes('high demand') || err.message.includes('429') ||
-                            err.message.includes('quota');
-
-        if (!isRetryable || attempt === MAX_ATTEMPTS) break;
-
-        console.log(`Waiting ${RETRY_DELAY_MS / 1000}s before retry...`);
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-      }
-    }
-
-    throw lastError;
+    console.log(`Letter generated for ${userId}: ${tokensUsed} CT charged`);
+    return { statusCode: 200, body: JSON.stringify({ letterText, tokensUsed, tokenBalance }) };
 
   } catch (error) {
+    if (error instanceof AIError) return errorResponse(error);
     console.error('Letter generation error:', error);
+    // Never forward raw provider errors to the browser — they are technical
+    // and can leak details. The real error is logged above for debugging.
     let errorMessage = 'We are unable to generate your letter right now. ';
-    if (error.message && (error.message.includes('503') || error.message.includes('high demand'))) {
-      errorMessage += 'The AI service is currently busy. Please wait a moment and try again.';
-    } else if (error.message && error.message.includes('timeout')) {
+    if (error.name === 'AbortError' || (error.message && /timeout|timed out/i.test(error.message))) {
       errorMessage += 'The request took too long. Please try again.';
     } else {
-      // Never forward the raw error (e.g. a Gemini API quota/rate-limit
-      // message) to the client — it's technical, unhelpful to the person
-      // using the app, and can leak implementation details. The real error
-      // is still logged above for debugging.
       errorMessage += 'Please try again in a moment.';
     }
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: errorMessage })
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: errorMessage }) };
   }
 };
