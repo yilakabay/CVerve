@@ -5,18 +5,19 @@
 // detection within 30 minutes and the user clicked "Report" on it, or for
 // any pending payment the admin wants to resolve directly.
 //
-// The user always picks a plan (Basic or Pro) before paying — chosenPlan is
-// stored on the pending record. This function NEVER activates a different
-// plan than the one the user chose, regardless of how much they paid.
+// The user always picks a CT pack before paying (see lib/packs.js) — it is
+// stored on the pending record as `chosenPlan` (field name kept for
+// compatibility; it holds a pack id). This function NEVER credits a different
+// pack than the one the user chose, regardless of how much they paid.
 //
 // 'verify-one' only works when the pending payment's amount actually covers
-// its chosenPlan's price. If it doesn't, there's nothing to verify — only
+// the chosen pack's price. If it doesn't, there's nothing to verify — only
 // 'reject' applies.
 //
 // 'reject' has two shapes:
-//   - amountIssue: true  → ONLY valid when the amount is under 49 ETB (can't
-//     fund either plan). Sends the standard "amount too low" message with a
-//     refund offered for the full amount.
+//   - amountIssue: true  → valid when the amount doesn't cover the chosen
+//     pack. Sends the standard "amount too low" message with a refund (or
+//     tip) offered for the full amount.
 //   - amountIssue: false/omitted → a free-text reason is required. No refund
 //     is offered automatically — this covers every other rejection (admin
 //     suspects the screenshot is fake, the payment never shows up on the
@@ -49,22 +50,11 @@
 // touch pending_revenue at all — there's no refund/tip path for those.
 
 const { MongoClient, ObjectId } = require('mongodb');
+const { computeVerifyOutcome, creditTokens, MIN_PACK_PRICE, resolvePack } = require('./lib/packs');
 const crypto = require('crypto');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
-
-// ── Plan prices — kept identical across process-payment.js / receive-sms.js ──
-const PLAN_PRICES = { basic: 49, pro: 79 };
-const PLAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-function computeVerifyOutcome(chosenPlan, amount) {
-  const tierPrice = PLAN_PRICES[chosenPlan];
-  if (amount < tierPrice) return { canVerify: false };
-  const excess = Math.round((amount - tierPrice) * 100) / 100;
-  const canUpgradeToPro = chosenPlan === 'basic' && amount >= PLAN_PRICES.pro;
-  return { canVerify: true, tierPrice, excess, canUpgradeToPro };
-}
 
 function verifyToken(token) {
   if (!token) return false;
@@ -111,24 +101,6 @@ async function createPendingRevenue(pendingRevenueCol, { notificationId, userId,
   });
 }
 
-async function activatePlan(usersCol, userId, plan) {
-  const now    = new Date();
-  const expiry = new Date(now.getTime() + PLAN_DURATION_MS);
-  await usersCol.updateOne(
-    { phoneNumber: userId },
-    {
-      $set: {
-        plan,
-        planActivatedAt: now,
-        planExpiry:      expiry,
-        usageCounts: { lettersInternal: 0, lettersExternal: 0, pdfMerges: 0, cvBuilds: 0, fitTests: 0 }
-      }
-    },
-    { upsert: false }
-  );
-  return expiry;
-}
-
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -161,18 +133,21 @@ exports.handler = async (event, context) => {
         .toArray();
       const pending = pendingDocs.map(p => {
         const outcome = computeVerifyOutcome(p.chosenPlan, p.claimedAmount);
+        const pk = resolvePack(p.chosenPlan);
         return {
           pendingId:            p._id.toString(),
           userId:                p.userId,
           amount:                p.claimedAmount,
           senderName:            p.claimedSenderName,
-          chosenPlan:            p.chosenPlan,
+          chosenPlan:            pk ? pk.id : p.chosenPlan,
+          packLabel:             pk ? pk.label : String(p.chosenPlan || ''),
+          packPrice:             pk ? pk.price : null,
           transactionId:         p.transactionId || null,
           paymentMethod:         p.paymentMethod,
           reported:              p.reported,
           submittedAt:           p.submittedAt,
           canVerify:             outcome.canVerify,
-          isUniversallyInsufficient: p.claimedAmount < PLAN_PRICES.basic,
+          isUniversallyInsufficient: p.claimedAmount < MIN_PACK_PRICE,
           amountIssueApplicable: !outcome.canVerify
         };
       });
@@ -180,7 +155,7 @@ exports.handler = async (event, context) => {
     }
 
     // ── verify-one ────────────────────────────────────────────────────────────
-    // Always activates exactly pending.chosenPlan — never a different tier.
+    // Always credits exactly the pack in pending.chosenPlan — never a different one.
     if (action === 'verify-one') {
       const { pendingId } = body;
       if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
@@ -192,11 +167,11 @@ exports.handler = async (event, context) => {
 
       const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
       if (!outcome.canVerify) {
-        return { statusCode: 400, body: JSON.stringify({ error: `This amount does not cover the ${pending.chosenPlan} plan. Reject it instead.` }) };
+        return { statusCode: 400, body: JSON.stringify({ error: `This amount does not cover the pack the user chose. Reject it instead.` }) };
       }
 
-      const plan       = pending.chosenPlan;
-      const planExpiry = await activatePlan(usersCol, pending.userId, plan);
+      const pack = outcome.pack;
+      await creditTokens(usersCol, pending.userId, pack.tokens);
 
       // Revenue-relevant: only tierPrice is ever "earned" immediately.
       // The insert below still stores the FULL amount on the payments doc
@@ -204,7 +179,7 @@ exports.handler = async (event, context) => {
       // admin-stats.js now sums `tierPrice`, not `amount`, for gross.
       const insertResult = await verifiedCol.insertOne({
         userId: pending.userId, amount: pending.claimedAmount, senderName: pending.claimedSenderName,
-        plan, tierPrice: outcome.tierPrice, excess: outcome.excess,
+        plan: pack.id, tokens: pack.tokens, tierPrice: outcome.tierPrice, excess: outcome.excess,
         paymentMethod: pending.paymentMethod || 'unknown',
         transactionId: pending.transactionId || null,
         verifiedAt: new Date(), submittedAt: pending.submittedAt, resolvedBy: 'admin_manual',
@@ -226,36 +201,30 @@ exports.handler = async (event, context) => {
 
       await writeNotification(usersCol, pending.userId, {
         id: notifId,
-        type: 'plan_activated', plan, amount: pending.claimedAmount,
+        type: 'plan_activated',   // (name kept for the app; it now means "CT added")
+        plan: pack.id, tokens: pack.tokens, packLabel: pack.label, amount: pending.claimedAmount,
         excess: outcome.excess,
         refundEligible: outcome.excess > 0, refundAmount: outcome.excess,
-        canUpgradeToPro: outcome.canUpgradeToPro,
         verifiedPaymentId: insertResult.insertedId.toString(),
-        expiry: planExpiry,
         resolvedBy: 'admin_manual'
       });
 
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, userId: pending.userId, amount: pending.claimedAmount, plan, planExpiry, excess: outcome.excess })
+        body: JSON.stringify({ success: true, userId: pending.userId, amount: pending.claimedAmount, plan: pack.id, tokens: pack.tokens, packLabel: pack.label, excess: outcome.excess })
       };
     }
 
     // ── reject ────────────────────────────────────────────────────────────────
     // The "amount issue" toggle applies whenever the payment couldn't be
-    // verified for the chosen plan — i.e. amount < 49 (regardless of which
-    // plan was chosen), OR chosenPlan is Pro and amount is 49–78.99 (enough
-    // for Basic but not Pro). Same rule as computeVerifyOutcome.canVerify.
+    // verified for the chosen pack (amount is below that pack's price).
     //
     //   amountIssue: true  → standard "amount too low" message, full amount
-    //     refund-eligible (and now also tracked in pending_revenue, since it
-    //     can be tipped instead of refunded), and — if the amount is enough
-    //     to cover Basic while Pro was chosen — an "Activate Basic" offer.
-    //   amountIssue: false → admin-typed reason only, no refund/tip/upgrade
-    //     buttons (covers suspected fraud / payment not on the bank statement
-    //     / any other non-amount reason). Nothing is written to
-    //     pending_revenue for this branch — there's no path to turn it into
-    //     revenue or hand it back.
+    //     refund-eligible (and tracked in pending_revenue, since it can be
+    //     tipped instead of refunded).
+    //   amountIssue: false → admin-typed reason only, no refund/tip buttons
+    //     (covers suspected fraud / payment not on the bank statement / any
+    //     other non-amount reason). Nothing is written to pending_revenue.
     if (action === 'reject') {
       const { pendingId, amountIssue, reason } = body;
       if (!pendingId) return { statusCode: 400, body: JSON.stringify({ error: 'pendingId is required' }) };
@@ -267,16 +236,16 @@ exports.handler = async (event, context) => {
 
       const amountIssueApplicable = !computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount).canVerify;
 
-      let finalReason, refundEligible, refundAmount, canActivateBasic = false;
+      let finalReason, refundEligible, refundAmount;
       if (amountIssueApplicable && amountIssue === true) {
-        if (pending.claimedAmount < PLAN_PRICES.basic) {
-          finalReason = `Your payment of ${pending.claimedAmount} ETB is below the minimum amount required to activate a plan.`;
+        const pk = resolvePack(pending.chosenPlan);
+        if (pending.claimedAmount < MIN_PACK_PRICE) {
+          finalReason = `Your payment of ${pending.claimedAmount} ETB is below the minimum amount required to buy CT (${MIN_PACK_PRICE} ETB).`;
         } else {
-          finalReason = `Your payment of ${pending.claimedAmount} ETB is not enough to activate the ${pending.chosenPlan} plan you selected.`;
+          finalReason = `Your payment of ${pending.claimedAmount} ETB is not enough to buy the ${pk ? pk.label : 'CT'} pack you selected${pk ? ` (${pk.price} ETB)` : ''}.`;
         }
         refundEligible   = true;
         refundAmount     = pending.claimedAmount;
-        canActivateBasic = pending.chosenPlan === 'pro' && pending.claimedAmount >= PLAN_PRICES.basic;
       } else {
         const trimmedReason = (reason || '').trim();
         if (!trimmedReason) {
@@ -314,8 +283,6 @@ exports.handler = async (event, context) => {
         reason: finalReason,
         refundEligible,
         refundAmount,
-        canActivateBasic,
-        basicActivationUsed: false,
         resolvedBy: 'admin_manual'
       });
 
