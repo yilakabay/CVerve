@@ -13,7 +13,8 @@
 //   experience: [{ org, role, dateRange, bullets: string[] }],
 //   achievements: string[],
 //   certifications: [{ title, issuer }],
-//   references: [{ name, role, email, phone }]   // 0, 1, or many
+//   references: [{ name, role, email, phone }],  // 0, 1, or many
+//   customSections: [{ title, items, text }]      // extra AI/user-added sections
 // }
 //
 // ── Fit escalation ladder ─────────────────────────────────────────────
@@ -26,7 +27,7 @@
 // refuses (throws) rather than drawing overlapping/clipped text if even
 // the tightened layout still overflows past a small threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28; // A4 in points
 const PAGE_H = 841.89;
@@ -63,18 +64,72 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   const tightenGap = (gap) => tightLeading ? Math.round(gap * 0.6) : gap;
 
   const TOP = 58;
-  if (draw) {
-    doc.font('Helvetica').fontSize(30).fillColor(INK);
-    doc.text(content.name || '', CONTENT_LEFT, TOP, { lineBreak: false });
-    doc.strokeColor(ACCENT).lineWidth(1.4)
-      .moveTo(CONTENT_LEFT, TOP + 35).lineTo(CONTENT_LEFT + 46, TOP + 35).stroke();
-    doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
-    doc.text((content.subtitle || '').toUpperCase(), CONTENT_LEFT, TOP + 44, { lineBreak: false });
-  }
-
   const PHOTO_R = 32;
   const photoCx = CONTENT_RIGHT - PHOTO_R;
   const photoCy = TOP + 14 + PHOTO_R;
+  // How far the name/subtitle/accent rule are allowed to extend before
+  // running into the photo — everything in the header wraps or shrinks
+  // against this same width.
+  const ruleEndX = (photoCx - PHOTO_R) - 14;
+  const headerAvailW = ruleEndX - CONTENT_LEFT;
+
+  let headBottom = TOP + 70; // fallback; overwritten below when draw is true
+  if (draw) {
+    // ── Name: shrink through a size ladder, then wrap up to 2 lines if
+    // even the smallest size can't fit — previously drawn with
+    // lineBreak:false and no width at all, so a long name could run
+    // straight into the photo. Everything below (the accent underline,
+    // subtitle, and the full-width hairline before the meta strip) now
+    // cascades off the ACTUAL measured bottom of the name/subtitle
+    // instead of fixed y offsets, the same fix already applied to every
+    // other template's header.
+    const NAME_SIZE_LADDER = [30, 26, 23, 20];
+    const nameText = content.name || '';
+    let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+    let nameLines = null;
+    for (const s of NAME_SIZE_LADDER) {
+      doc.font('Helvetica').fontSize(s);
+      if (doc.widthOfString(nameText) <= headerAvailW) { nameSize = s; nameLines = [nameText]; break; }
+    }
+    if (!nameLines) {
+      nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      doc.font('Helvetica').fontSize(nameSize);
+      nameLines = wrapLines(doc, nameText, 'Helvetica', nameSize, headerAvailW).slice(0, 2);
+    }
+    doc.font('Helvetica').fontSize(nameSize).fillColor(INK);
+    const nameLineH = doc.currentLineHeight(true);
+    let nameBottomY = TOP;
+    nameLines.forEach((ln, i) => {
+      const lineY = TOP + i * nameLineH;
+      doc.text(ln, CONTENT_LEFT, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+      nameBottomY = lineY + nameLineH;
+    });
+
+    const ACCENT_Y = nameBottomY + 1;
+    doc.strokeColor(ACCENT).lineWidth(1.4)
+      .moveTo(CONTENT_LEFT, ACCENT_Y).lineTo(CONTENT_LEFT + 46, ACCENT_Y).stroke();
+
+    const SUBTITLE_TOP = ACCENT_Y + 9;
+    doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
+    const subtitleLineH = doc.currentLineHeight(true);
+    const subtitleLines = wrapLines(doc, (content.subtitle || '').toUpperCase(), 'Helvetica', 9.3, headerAvailW).slice(0, 2);
+    let subtitleBottomY = SUBTITLE_TOP;
+    if (subtitleLines.length) {
+      subtitleLines.forEach((ln, i) => {
+        const lineY = SUBTITLE_TOP + i * subtitleLineH;
+        doc.text(ln, CONTENT_LEFT, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+        subtitleBottomY = lineY + subtitleLineH;
+      });
+    } else {
+      subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
+    }
+
+    headBottom = subtitleBottomY + 15;
+    doc.strokeColor(HAIRLINE).lineWidth(0.75)
+      .moveTo(CONTENT_LEFT, headBottom).lineTo(ruleEndX, headBottom).stroke();
+  }
+  const HEAD_BOTTOM = headBottom;
+
   if (draw && content.photoBase64) {
     try {
       const buf = Buffer.from(content.photoBase64, 'base64');
@@ -90,16 +145,15 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     doc.strokeColor(HAIRLINE).lineWidth(0.9).circle(photoCx, photoCy, PHOTO_R).stroke();
   }
 
-  const HEAD_BOTTOM = TOP + 70;
-  if (draw) {
-    const ruleEndX = (photoCx - PHOTO_R) - 14;
-    doc.strokeColor(HAIRLINE).lineWidth(0.75)
-      .moveTo(CONTENT_LEFT, HEAD_BOTTOM).lineTo(ruleEndX, HEAD_BOTTOM).stroke();
-  }
-
   const META_TOP = HEAD_BOTTOM + 20;
   const colW = CONTENT_W / 3;
   const col1 = CONTENT_LEFT, col2 = CONTENT_LEFT + colW, col3 = CONTENT_LEFT + 2 * colW;
+  // Every meta-strip line MUST stay single-line and inside its own
+  // column — there's no room to wrap without running into the next
+  // column or the ones below it. Previously these were drawn with no
+  // width bound at all, so a long phone number, email, degree name, or
+  // language label could bleed straight into the neighboring column.
+  const META_COL_MAX_W = colW - 10;
 
   function metaLabel(label, x, yTop) {
     if (!draw) return;
@@ -107,10 +161,12 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     doc.text(label.toUpperCase(), x, yTop, { lineBreak: false });
   }
   function metaLine(text, x, yTop, opts = {}) {
-    if (!draw) return;
-    doc.font(opts.font || 'Helvetica').fontSize(opts.size || 9.3).fillColor(opts.color || INK);
-    doc.text(text, x, yTop, { lineBreak: false });
-    if (opts.link) doc.link(x, yTop - 2, doc.widthOfString(text), 11, opts.link);
+    if (!draw || !text) return;
+    const font = opts.font || 'Helvetica', size = opts.size || 9.3;
+    const safe = truncateToFit(doc, text, font, size, META_COL_MAX_W);
+    doc.font(font).fontSize(size).fillColor(opts.color || INK);
+    doc.text(safe, x, yTop, { lineBreak: false });
+    if (opts.link) doc.link(x, yTop - 2, doc.widthOfString(safe), 11, opts.link);
   }
 
   metaLabel('Contact', col1, META_TOP);
@@ -203,11 +259,18 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y = sectionHeading('Experience', y + GAP);
     let linesUsed = 0;
     for (const exp of content.experience) {
+      // Org name and the "Role — dateRange" line both stay single-line by
+      // design (the bullets below carry the detail), so a value too long
+      // to fit is truncated rather than left to run off the page — the
+      // same reasoning as the meta-strip columns above.
       if (draw) {
+        const orgSafe = truncateToFit(doc, exp.org || '', 'Helvetica', 9.7, TEXT_COL_W);
         doc.font('Helvetica').fontSize(9.7).fillColor(INK);
-        doc.text(exp.org || '', TEXT_COL_X, y + 1, { lineBreak: false });
+        doc.text(orgSafe, TEXT_COL_X, y + 1, { lineBreak: false });
+        const roleDate = `${exp.role || ''} — ${exp.dateRange || ''}`;
+        const roleDateSafe = truncateToFit(doc, roleDate, 'Helvetica-Oblique', 8.8, TEXT_COL_W);
         doc.font('Helvetica-Oblique').fontSize(8.8).fillColor(MUTED);
-        doc.text(`${exp.role || ''} — ${exp.dateRange || ''}`, TEXT_COL_X, y + 14, { lineBreak: false });
+        doc.text(roleDateSafe, TEXT_COL_X, y + 14, { lineBreak: false });
       }
       const r = bodyBullets(exp.bullets || [], y + 26);
       linesUsed += 3 + r.lines;
@@ -234,32 +297,88 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
+  // ── Custom sections ───────────────────────────────────────────────────
+  // A user can ask the AI to add a section not in the fixed schema (e.g.
+  // "Academic Projects", "Hobbies"). This template has a single column —
+  // no sidebar/main split — so every entry in content.customSections
+  // (regardless of any placement hint) lands here, via the same
+  // sectionHeading/bodyBullets/bodyParagraph helpers as every built-in
+  // section, getting the same width-safe wrapping.
+  (content.customSections || []).forEach(cs => {
+    y = sectionHeading((cs.title || 'Section'), y + GAP);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r = bodyBullets(cs.items, y);
+      y = r.y;
+      linesUsed = r.lines;
+    } else if (cs.text) {
+      const r = bodyParagraph(cs.text, y);
+      y = r.y;
+      linesUsed = r.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+  });
+
+  // References: content.references is an array (1, 2, 3+ — no cap). Name
+  // now wraps (up to 2 lines) instead of running unbounded, role wraps
+  // against the full text-column width, and each reference's actual
+  // measured height (not a fixed 46pt constant) determines how far y
+  // advances — so a wrapped name/role can no longer overlap the next
+  // reference below it. Email/Phone stay side-by-side as designed, but
+  // are now truncated to fit their fixed sub-columns instead of being
+  // drawn with no width bound at all — which is what let a long email
+  // run straight into "PHONE" next to it.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = sectionHeading(refList.length > 1 ? 'References' : 'Reference', y + GAP);
     let linesUsed = 0;
+    const EMAIL_LABEL_X = TEXT_COL_X, EMAIL_VALUE_X = TEXT_COL_X + 40;
+    const PHONE_LABEL_X = TEXT_COL_X + 230, PHONE_VALUE_X = TEXT_COL_X + 272;
+    const EMAIL_VALUE_MAX_W = PHONE_LABEL_X - EMAIL_VALUE_X - 6;
+    const PHONE_VALUE_MAX_W = CONTENT_RIGHT - PHONE_VALUE_X - 2;
+
     refList.forEach((ref, i) => {
+      const nameLines = wrapLines(doc, ref.name || '', 'Helvetica', 9.7, TEXT_COL_W).slice(0, 2);
+      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', 9, TEXT_COL_W).slice(0, 2) : [];
+
       if (draw) {
         doc.font('Helvetica').fontSize(9.7).fillColor(INK);
-        doc.text(ref.name, TEXT_COL_X, y + 1, { lineBreak: false });
-        doc.font('Helvetica').fontSize(9).fillColor(BODY_GRY);
-        doc.text(ref.role || '', TEXT_COL_X, y + 15, { lineBreak: false, width: TEXT_COL_W, align: 'right' });
-        let lineY = y + 32;
+        let ny = y + 1;
+        nameLines.forEach(ln => { doc.text(ln, TEXT_COL_X, ny, { lineBreak: false }); ny += 14; });
+
+        let ly = ny + 1;
+        if (roleLines.length) {
+          doc.font('Helvetica').fontSize(9).fillColor(BODY_GRY);
+          roleLines.forEach(ln => { doc.text(ln, TEXT_COL_X, ly, { lineBreak: false }); ly += 13; });
+        }
+
+        const fieldY = ly + 3;
         if (ref.email) {
+          const emailSafe = truncateToFit(doc, ref.email, 'Helvetica', 9.3, EMAIL_VALUE_MAX_W);
           doc.font('Helvetica').fontSize(9.3).fillColor(MUTED);
-          doc.text('EMAIL', TEXT_COL_X, lineY, { lineBreak: false });
+          doc.text('EMAIL', EMAIL_LABEL_X, fieldY, { lineBreak: false });
           doc.fillColor(INK);
-          doc.text(ref.email, TEXT_COL_X + 40, lineY, { lineBreak: false });
+          doc.text(emailSafe, EMAIL_VALUE_X, fieldY, { lineBreak: false });
         }
         if (ref.phone) {
+          const phoneSafe = truncateToFit(doc, ref.phone, 'Helvetica', 9.3, PHONE_VALUE_MAX_W);
           doc.fillColor(MUTED);
-          doc.text('PHONE', TEXT_COL_X + 230, lineY, { lineBreak: false });
+          doc.text('PHONE', PHONE_LABEL_X, fieldY, { lineBreak: false });
           doc.fillColor(INK);
-          doc.text(ref.phone, TEXT_COL_X + 272, lineY, { lineBreak: false });
+          doc.text(phoneSafe, PHONE_VALUE_X, fieldY, { lineBreak: false });
         }
       }
-      y += tightLeading ? 38 : 46;
-      linesUsed += 3;
+
+      // Height for this entry: name lines (14pt each) + role lines (13pt
+      // each, plus a small gap) + the email/phone row (if either present)
+      // + trailing breathing room — mirrors exactly what was drawn above.
+      let entryH = nameLines.length * 14 + 1;
+      if (roleLines.length) entryH += roleLines.length * 13 + 1;
+      if (ref.email || ref.phone) entryH += 3 + 13;
+      entryH += tightLeading ? 10 : 16;
+
+      y += entryH;
+      linesUsed += nameLines.length + roleLines.length + (ref.email ? 1 : 0) + (ref.phone ? 1 : 0);
       if (i < refList.length - 1) y += tightLeading ? 4 : 6;
     });
     track('references', linesUsed, true);
