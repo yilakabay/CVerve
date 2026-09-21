@@ -57,9 +57,19 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.rect(0, 0, PAGE_W, PAGE_H).fill(CREAM);
     doc.rect(0, 0, SIDEBAR_W, PAGE_H).fill(EMERALD);
     doc.rect(0, 0, PAGE_W, HEADER_H).fill(EM_DARK);
-    doc.polygon([SIDEBAR_W, 0], [PAGE_W, 55], [PAGE_W, 0]).fill(CREAM);
+    // These two diagonal shapes were previously placed using literal 0/55/
+    // 59/65 as if those were distances-from-top — but in the original
+    // Python (reportlab) version they come from yt(HEADER_H), yt(HEADER_H
+    // - 55), etc: the distance-from-top fed in is HEADER_H (the header's
+    // BOTTOM edge) and HEADER_H-55 (55pt above that), not 0 (the header's
+    // TOP edge). Since PDFKit already measures y from the top — unlike
+    // reportlab's bottom-up coordinates that yt() converts — the correct
+    // translation keeps that HEADER_H-relative math, which puts the cream
+    // wedge and gold strip near the BOTTOM of the header, right where
+    // PROFILE begins, instead of cutting across the TOP of the header.
+    doc.polygon([SIDEBAR_W, HEADER_H], [PAGE_W, HEADER_H - 55], [PAGE_W, HEADER_H]).fill(CREAM);
     doc.rect(0, 0, SIDEBAR_W, HEADER_H).fill(EMERALD);
-    doc.polygon([SIDEBAR_W, 0], [SIDEBAR_W + 6, 0], [PAGE_W, 59], [PAGE_W, 65]).fill(GOLD);
+    doc.polygon([SIDEBAR_W, HEADER_H], [SIDEBAR_W + 6, HEADER_H], [PAGE_W, HEADER_H - 59], [PAGE_W, HEADER_H - 65]).fill(GOLD);
 
     hexagon(doc, PAGE_W - 38, 28, 22, EM_MID);
     hexagon(doc, PAGE_W - 22, 54, 14, EMERALD);
