@@ -1,5 +1,5 @@
 // functions/mark-notifications-read.js
-// POST body: { userId, password, notificationIds: string[] }
+// POST body: { userId, sessionToken, notificationIds: string[] }
 //
 // Marks ONLY the specified notifications as read, scoped precisely by their
 // own id via MongoDB arrayFilters. This exists specifically to avoid the
@@ -15,7 +15,7 @@
 // payment-report.js, subscribe-plan.js, and send-announcement.js for the
 // correct pattern (id: crypto.randomUUID()) when adding new notification types.
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
+const { checkSession } = require('./lib/session');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 exports.handler = async (event, context) => {
@@ -24,7 +24,7 @@ exports.handler = async (event, context) => {
   let body;
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
-  const { userId, password, notificationIds } = body;
+  const { userId, sessionToken, notificationIds } = body;
   if (!userId || !Array.isArray(notificationIds) || notificationIds.length === 0) {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId and a non-empty notificationIds array are required.' }) };
   }
@@ -34,9 +34,8 @@ exports.handler = async (event, context) => {
     const usersCol = db.collection('users');
     const user = await usersCol.findOne({ phoneNumber: userId });
     if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
-    if (password) {
-      const pwOk = await bcrypt.compare(password, user.password);
-      if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+    if (!checkSession(user, sessionToken)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
     await usersCol.updateOne(
       { phoneNumber: userId },
