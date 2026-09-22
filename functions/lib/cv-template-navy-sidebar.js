@@ -15,7 +15,7 @@
 // y + GAP_SECTION)) rather than after the previous section, so tightenGap()
 // is applied at the call site of contentHeading() instead.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 
@@ -71,10 +71,40 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.strokeColor(LIGHT_BLUE).lineWidth(0.75)
       .moveTo(SIDEBAR_MARGIN, yTop + 16.5).lineTo(SIDEBAR_MARGIN + SIDEBAR_TEXT_W, yTop + 16.5).stroke();
   }
+  // Every sidebar line MUST stay single-line — there's no room to wrap
+  // without running into the line below it — so a value too wide for
+  // SIDEBAR_TEXT_W is truncated instead of being drawn with no width
+  // bound at all (which previously let a long phone/email/language line
+  // bleed straight past the sidebar's right edge).
   function sidebarText(text, yTop, opts = {}) {
     if (!draw) return;
-    doc.font(opts.font || 'Helvetica-Bold').fontSize(opts.size || 10.5).fillColor(opts.color || WHITE);
-    doc.text(text, opts.x ?? SIDEBAR_MARGIN, yTop, { lineBreak: false });
+    const font = opts.font || 'Helvetica-Bold', size = opts.size || 10.5;
+    const maxW = opts.maxWidth ?? (SIDEBAR_TEXT_W - ((opts.x ?? SIDEBAR_MARGIN) - SIDEBAR_MARGIN));
+    const safe = truncateToFit(doc, text, font, size, maxW);
+    doc.font(font).fontSize(size).fillColor(opts.color || WHITE);
+    doc.text(safe, opts.x ?? SIDEBAR_MARGIN, yTop, { lineBreak: false });
+  }
+  // A wrapped, multi-line bullet list in the sidebar — same shape as the
+  // SKILLS loop below — used for any custom sidebar section given as a
+  // list rather than a paragraph. Returns the y position right after the
+  // last line drawn (or would-be-drawn), for chaining like every other
+  // section-drawing function in this file.
+  function sidebarBullets(items, yTop) {
+    const textW = SIDEBAR_TEXT_W - BULLET_TEXT_DX;
+    let cursor = yTop, total = 0;
+    (items || []).forEach(item => {
+      const lines = wrapLines(doc, String(item), 'Helvetica', 10, textW);
+      if (draw) {
+        doc.fillColor(BULLET_BLUE).circle(SIDEBAR_MARGIN + BULLET_DOT_DX, cursor + 10 * 0.72, 1.6).fill();
+        doc.font('Helvetica').fontSize(10).fillColor(WHITE);
+        lines.forEach(ln => { doc.text(ln, SIDEBAR_MARGIN + BULLET_TEXT_DX, cursor, { lineBreak: false }); cursor += 12.0; });
+      } else {
+        cursor += lines.length * 12.0;
+      }
+      cursor += 4.5;
+      total += lines.length;
+    });
+    return { y: cursor - 4.5, lines: total };
   }
 
   sidebarHeading('CONTACT', 225.7);
@@ -84,20 +114,38 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   sidebarHeading('EDUCATION', 329.8);
   const eduList = normalizeEducation(content.education);
   let eduY = 355.0;
+  let eduLinesUsed = 0;
   eduList.slice(0, 2).forEach((edu, i) => {
     const label = edu.level || (i === 0 ? 'HIGHER EDUCATION' : 'SECONDARY EDUCATION');
     sidebarText(`${label} ${edu.dateRange || ''}`, eduY, { font: 'Helvetica-Bold', size: 9, color: LIGHT_BLUE });
     eduY += 15.5;
+    eduLinesUsed += 1;
     const schoolLines = wrapLines(doc, (edu.school || '').toUpperCase(), 'Helvetica-Bold', 10.5, SIDEBAR_TEXT_W);
     schoolLines.forEach(ln => { sidebarText(ln, eduY, { size: 10.5 }); eduY += 13; });
+    eduLinesUsed += schoolLines.length;
     if (edu.degree) {
-      const lines = draw ? wrapLines(doc, edu.degree, 'Helvetica', 9.5, SIDEBAR_TEXT_W - (SIDEBAR_INDENT2 - SIDEBAR_MARGIN)) : [edu.degree];
+      // Previously this only called wrapLines() when draw was true, and
+      // used the UNWRAPPED single string as a stand-in during the
+      // measurement pass — so measure() always thought a degree line was
+      // one line, even when it actually wrapped to 2-3 lines on the real
+      // draw. That mismatch could let the sidebar (and therefore content
+      // hidden behind/below it) silently run taller than what was
+      // measured. wrapLines() is cheap and safe to call on every pass —
+      // there's no reason to skip it when draw is false.
+      const lines = wrapLines(doc, edu.degree, 'Helvetica', 9.5, SIDEBAR_TEXT_W - (SIDEBAR_INDENT2 - SIDEBAR_MARGIN));
       lines.forEach(ln => { sidebarText(ln, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 13; });
+      eduLinesUsed += lines.length;
     }
-    if (edu.extra) { sidebarText(edu.extra, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 15; }
+    if (edu.extra) {
+      const extraLines = wrapLines(doc, edu.extra, 'Helvetica', 9.5, SIDEBAR_TEXT_W - (SIDEBAR_INDENT2 - SIDEBAR_MARGIN)).slice(0, 2);
+      extraLines.forEach(ln => { sidebarText(ln, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 13; });
+      eduY += 2;
+      eduLinesUsed += extraLines.length;
+    }
     eduY += 10;
   });
   const eduEnd = eduY - 10;
+  track('education', eduLinesUsed, eduList.length > 0);
 
   const SECTION_GAP = 16.6 + stretchPerGap;
   const skillsHeadingTop = eduEnd + SECTION_GAP;
@@ -135,9 +183,42 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
 
   const langHeadingTop = skillsEnd + SECTION_GAP;
   sidebarHeading('LANGUAGES', langHeadingTop);
-  (content.languages || []).slice(0, 2).forEach((l, i) => {
+  const langList = (content.languages || []).slice(0, 2);
+  langList.forEach((l, i) => {
     sidebarText(`${l.name}     (${l.level})`, langHeadingTop + 26.0 + i * 13.6, { font: 'Helvetica', size: 10 });
   });
+  track('languages', langList.length, langList.length > 0);
+  let sidebarBottom = langHeadingTop + 26.0 + Math.max(langList.length, 1) * 13.6;
+
+  // ── Custom sidebar sections ──────────────────────────────────────────
+  // A user can ask the AI to add a section not in the fixed schema (e.g.
+  // "Academic Projects", "Hobbies"). Entries in content.customSections
+  // with placement:'sidebar' get their own heading + wrapped content here,
+  // via the same sidebarHeading/sidebarText/sidebarBullets helpers (and
+  // therefore the same width-safe wrapping/truncation) as every built-in
+  // sidebar section.
+  const sidebarCustom = (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar');
+  if (sidebarCustom.length) {
+    let cy = sidebarBottom + SECTION_GAP;
+    sidebarCustom.forEach(cs => {
+      sidebarHeading((cs.title || 'Section').toUpperCase(), cy);
+      let linesUsed = 0;
+      if (cs.items && cs.items.length) {
+        const r = sidebarBullets(cs.items, cy + 28.8);
+        cy = r.y;
+        linesUsed = r.lines;
+      } else if (cs.text) {
+        const lines = wrapLines(doc, cs.text, 'Helvetica', 9.5, SIDEBAR_TEXT_W);
+        let ty = cy + 28.8;
+        lines.forEach(ln => { sidebarText(ln, ty, { font: 'Helvetica', size: 9.5 }); ty += 13; });
+        cy = ty - 13;
+        linesUsed = lines.length;
+      }
+      track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+      cy += SECTION_GAP;
+    });
+    sidebarBottom = cy - SECTION_GAP;
+  }
 
   function contentHeading(label, yTop) {
     if (draw) {
@@ -175,12 +256,40 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   }
 
   if (draw) {
+    // ── Name & subtitle: neither has room to wrap to a second line —
+    // the name sits right above a fixed-height navy bar, and the
+    // subtitle sits INSIDE that same bar — so both now shrink through a
+    // size ladder and fall back to truncateToFit as a last resort,
+    // instead of being drawn with no width bound at all (which could
+    // previously run a long name/subtitle straight past the page edge).
     const whiteCenter = (SIDEBAR_W + PAGE_W) / 2;
-    doc.font('Helvetica-Bold').fontSize(28).fillColor(NAVY);
-    const nameW = doc.widthOfString((content.name || '').toUpperCase());
-    doc.text((content.name || '').toUpperCase(), whiteCenter - nameW / 2, 81.4, { lineBreak: false });
-    doc.font('Helvetica').fontSize(10.5).fillColor(WHITE);
-    const subtitle = (content.subtitle || '').split('').join(' ').toUpperCase();
+    const headerAvailW = (PAGE_W - SIDEBAR_W) - 40;
+
+    const NAME_SIZE_LADDER = [28, 24, 20, 18];
+    const upperName = (content.name || '').toUpperCase();
+    let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+    let nameText = upperName;
+    let nameFits = false;
+    for (const s of NAME_SIZE_LADDER) {
+      doc.font('Helvetica-Bold').fontSize(s);
+      if (doc.widthOfString(upperName) <= headerAvailW) { nameSize = s; nameText = upperName; nameFits = true; break; }
+    }
+    if (!nameFits) {
+      nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
+      nameText = truncateToFit(doc, upperName, 'Helvetica-Bold', nameSize, headerAvailW);
+    }
+    doc.font('Helvetica-Bold').fontSize(nameSize).fillColor(NAVY);
+    const nameW = doc.widthOfString(nameText);
+    doc.text(nameText, whiteCenter - nameW / 2, 81.4, { lineBreak: false });
+
+    doc.font('Helvetica').fontSize(10.5);
+    const rawSubtitle = (content.subtitle || '');
+    // Letter-spacing (a space between every character) roughly doubles
+    // rendered width, so estimate against a shrunk width first, then
+    // truncate the FINAL spaced string to the real available width as a
+    // hard backstop — there's no vertical room for a second line here.
+    let subtitle = truncateToFit(doc, rawSubtitle.split('').join(' ').toUpperCase(), 'Helvetica', 10.5, headerAvailW);
+    doc.fillColor(WHITE);
     const subW = doc.widthOfString(subtitle);
     doc.text(subtitle, whiteCenter - subW / 2, cyTop + 3.7, { lineBreak: false });
   }
@@ -200,16 +309,20 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     let linesUsed = 0;
     content.experience.forEach(exp => {
       if (draw) {
+        const dateText = truncateToFit(doc, exp.dateRange || '', 'Helvetica-Oblique', 10, 150);
+        doc.font('Helvetica-Oblique').fontSize(10);
+        const dw = doc.widthOfString(dateText);
+        const orgText = truncateToFit(doc, exp.org || '', 'Helvetica-Bold', 10.5, CONTENT_W - dw - 10);
         doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-        doc.text(exp.org || '', CONTENT_LEFT, y + 1, { lineBreak: false });
+        doc.text(orgText, CONTENT_LEFT, y + 1, { lineBreak: false });
         doc.font('Helvetica-Oblique').fontSize(10).fillColor(LIGHT_BLUE);
-        const dw = doc.widthOfString(exp.dateRange || '');
-        doc.text(exp.dateRange || '', CONTENT_RIGHT - dw, y + 1, { lineBreak: false });
+        doc.text(dateText, CONTENT_RIGHT - dw, y + 1, { lineBreak: false });
       }
       y += 16.5;
       if (draw) {
+        const roleText = truncateToFit(doc, exp.role || '', 'Helvetica-Oblique', 10, CONTENT_W);
         doc.font('Helvetica-Oblique').fontSize(10).fillColor(BODY_GRAY);
-        doc.text(exp.role || '', CONTENT_LEFT, y, { lineBreak: false });
+        doc.text(roleText, CONTENT_LEFT, y, { lineBreak: false });
       }
       y += 15.5;
       const r2 = contentBullets(exp.bullets || [], y);
@@ -246,28 +359,77 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
+  // ── Custom main-column sections ──────────────────────────────────────
+  // Same idea as the sidebar version above, but for content that fits
+  // better in the wide right column. Every entry with placement !==
+  // 'sidebar' (including no placement at all — main is the default)
+  // lands here, via contentHeading/contentParagraph/contentBullets.
+  const mainCustom = (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar');
+  mainCustom.forEach(cs => {
+    y = contentHeading((cs.title || 'Section').toUpperCase(), y + GAP_SECTION);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      const r4 = contentBullets(cs.items, y);
+      y = r4.y;
+      linesUsed = r4.lines;
+    } else if (cs.text) {
+      const r4 = contentParagraph(cs.text, y);
+      y = r4.y;
+      linesUsed = r4.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+  });
+
+  // References: content.references is an array (1, 2, 3+ — no cap).
+  // Name/role now wrap (up to 2 lines), and Email/Phone now wrap too
+  // instead of being drawn with literally no width bound at all — which
+  // previously let a long email or phone number run straight off the
+  // right edge of the page. Each entry's actual measured height (not a
+  // fixed 64pt constant) determines how far y advances, so a wrapped
+  // field can't overlap the next reference below it.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = contentHeading(refList.length > 1 ? 'REFERENCES' : 'REFERENCE', y + GAP_SECTION);
     let linesUsed = 0;
     refList.forEach((ref, i) => {
+      const nameLines = wrapLines(doc, ref.name || '', 'Helvetica-Bold', 10.5, CONTENT_W).slice(0, 2);
+      const roleLines = ref.role ? wrapLines(doc, ref.role, 'Helvetica', 10, CONTENT_W).slice(0, 2) : [];
+      const emailLines = ref.email ? wrapLines(doc, `Email: ${ref.email}`, 'Helvetica', 10, CONTENT_W) : [];
+      const phoneLines = ref.phone ? wrapLines(doc, `Phone: ${ref.phone}`, 'Helvetica', 10, CONTENT_W) : [];
+
       if (draw) {
         doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-        doc.text(ref.name, CONTENT_LEFT, y + 1, { lineBreak: false });
+        let ny = y + 1;
+        nameLines.forEach(ln => { doc.text(ln, CONTENT_LEFT, ny, { lineBreak: false }); ny += 15; });
+
         doc.font('Helvetica').fontSize(10).fillColor(BODY_GRAY);
-        doc.text(ref.role || '', CONTENT_LEFT, y + 18, { lineBreak: false });
-        let ly = y + 35.5;
-        if (ref.email) { doc.text(`Email: ${ref.email}`, CONTENT_LEFT, ly, { lineBreak: false }); ly += 14.5; }
-        if (ref.phone) { doc.text(`Phone: ${ref.phone}`, CONTENT_LEFT, ly, { lineBreak: false }); }
+        let ly = ny + 2;
+        roleLines.forEach(ln => { doc.text(ln, CONTENT_LEFT, ly, { lineBreak: false }); ly += 14; });
+
+        let fy = ly + (roleLines.length ? 3 : 0);
+        emailLines.forEach(ln => { doc.text(ln, CONTENT_LEFT, fy, { lineBreak: false }); fy += 14.5; });
+        phoneLines.forEach(ln => { doc.text(ln, CONTENT_LEFT, fy, { lineBreak: false }); fy += 14.5; });
       }
-      y += 64;
-      linesUsed += 4;
+
+      let entryH = nameLines.length * 15 + 2;
+      if (roleLines.length) entryH += roleLines.length * 14 + 3;
+      entryH += emailLines.length * 14.5 + phoneLines.length * 14.5;
+      entryH += tightLeading ? 8 : 14;
+
+      y += entryH;
+      linesUsed += nameLines.length + roleLines.length + emailLines.length + phoneLines.length;
       if (i < refList.length - 1) y += 6;
     });
     track('references', linesUsed, true);
   } else track('references', 0, false);
 
-  return { finalY: y, sections };
+  // The sidebar's own vertical extent was previously never factored into
+  // finalY at all — only the content column's y was returned, so a tall
+  // sidebar (a long education section, many skills, custom sidebar
+  // sections) could silently run past the bottom of the page while
+  // measure() still reported fits:true, because it only ever checked the
+  // content column's height against the page.
+  return { finalY: Math.max(y, sidebarBottom), sections };
 }
 
 const FIT_LEVELS = [
