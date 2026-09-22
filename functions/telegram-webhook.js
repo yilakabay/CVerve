@@ -7,6 +7,15 @@
 // CVcase account. A person with 10 phone numbers still only has one Telegram
 // identity, so they can only register once.
 //
+// ── Identity model (no passwords) ────────────────────────────────────────
+// A Telegram user is logged in just by being in their own Telegram — opening
+// the Mini App calls telegram-auth.js with their signed initData, which logs
+// them straight in if they already have an account, or sends them to
+// onboarding.html if they don't. This webhook's job is only to: link
+// tgUserId <-> phoneNumber when they share their contact, and hand out
+// reset/delivery OTPs for the (separate, still-password-free) web login flow
+// when a web user is verifying a phone that happens to be linked here.
+//
 // Keyboard behavior:
 //   - NOT linked yet  → a reply keyboard below the input bar with ONE button:
 //     "Share my phone number" (request_contact). Telegram only supports
@@ -80,11 +89,6 @@ async function setAppMenuButton(botToken, chatId) {
 
 async function sendMessage(botToken, chatId, text, replyMarkup) {
   const payload = { chat_id: chatId, text, parse_mode: 'Markdown' };
-  // Every call site below passes the correct keyboard explicitly (share-only
-  // reply keyboard vs inline app button) based on that user's actual linked
-  // status at that point in the flow — falls back to the share-only keyboard
-  // only if a call site somehow omits it, since that's the safer default for
-  // an unknown state.
   payload.reply_markup = replyMarkup || shareOnlyKeyboard;
   return httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, payload);
 }
@@ -99,32 +103,16 @@ function normalizePhone(phone) {
 }
 
 // ── Keyboards ────────────────────────────────────────────────────────────────
-//   - resize_keyboard: true   → keyboard sizes itself neatly instead of full-height
-//   - is_persistent: true     → keyboard stays pinned below the text input at
-//     all times, never disappearing after one tap
-// NOTE: Telegram does not support colored strokes/borders on keyboard buttons —
-//   that is a limitation of the Telegram platform itself and cannot be changed
-//   from the bot/webhook side. Likewise, request_contact buttons are only
-//   valid in a reply keyboard (below the input bar) — Telegram does not allow
-//   that button type inside an inline (in-message) keyboard.
 const shareOnlyKeyboard = {
   keyboard: [[{ text: '📱 Share my phone number', request_contact: true }]],
   resize_keyboard: true,
   is_persistent: true
 };
 
-// Inline keyboard attached directly to a message bubble (used for every
-// message once a user is linked).
 const appOnlyKeyboard = {
   inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]]
 };
 
-// Runs exactly once per Telegram user, the first time we detect they're
-// linked: removes the "Share my phone number" reply keyboard and sets the
-// chat menu button (next to the input bar) to open the app — see the note
-// at the top of this file for why the menu button, not another reply
-// keyboard, is what goes here. Safe to call on every message from a linked
-// user; it's a no-op once appMenuButtonSet is already true.
 async function ensureAppMenuButton(botToken, chatId, tgUserId, tgCol) {
   const rec = await tgCol.findOne({ tgUserId });
   if (rec && rec.appMenuButtonSet) return;
@@ -133,10 +121,6 @@ async function ensureAppMenuButton(botToken, chatId, tgUserId, tgCol) {
   await tgCol.updateOne({ tgUserId }, { $set: { appMenuButtonSet: true } }, { upsert: true });
 }
 
-// Every "user is linked" message in this file should go through this instead
-// of calling sendMessage(..., appOnlyKeyboard) directly — it guarantees the
-// menu button has actually been set (see above) before attaching the inline
-// button to this particular message.
 async function sendAppMessage(botToken, chatId, tgUserId, tgCol, text) {
   await ensureAppMenuButton(botToken, chatId, tgUserId, tgCol);
   await sendMessage(botToken, chatId, text, appOnlyKeyboard);
@@ -172,20 +156,18 @@ exports.handler = async (event, context) => {
 
     // ── /start ────────────────────────────────────────────────────────────────
     if (text === '/start' || text.startsWith('/start ')) {
-      // Check if this Telegram account is already linked to a CVcase account
-      const existing = await tgCol.findOne({ tgUserId });
-      if (existing && existing.phoneNumber) {
-        const user = await usersCol.findOne({ phoneNumber: existing.phoneNumber });
-        if (user) {
-          await sendAppMessage(botToken, chatId, tgUserId, tgCol,
-            `✅ You already have a CVcase account linked to this Telegram.\n\nPhone: \`${existing.phoneNumber}\`\n\nTap *Open CVcase App* below to get started.`
-          );
-          return { statusCode: 200, body: 'OK' };
-        }
+      // Check if this Telegram account already has a CVcase account (found by
+      // tgUserId directly now — no password/phone-account round trip needed).
+      const existingUser = await usersCol.findOne({ tgUserId });
+      if (existingUser) {
+        await sendAppMessage(botToken, chatId, tgUserId, tgCol,
+          `✅ You already have a CVcase account linked to this Telegram.\n\nTap *Open CVcase App* below to get started — you're logged in automatically, no password needed.`
+        );
+        return { statusCode: 200, body: 'OK' };
       }
 
       await sendMessage(botToken, chatId,
-        `👋 *Welcome to CVcase!*\n\nTap the button below to share your phone number and verify your account.`,
+        `👋 *Welcome to CVcase!*\n\nTap the button below to share your phone number. We'll use it to keep your account in sync with the web app — no password ever needed here.`,
         shareOnlyKeyboard
       );
       return { statusCode: 200, body: 'OK' };
@@ -207,10 +189,9 @@ exports.handler = async (event, context) => {
       const tgFirstName = msg.from.first_name || '';
 
       // ── FRAUD CHECK 1: Has this Telegram user ID already registered? ──────
-      // (Only blocks if the tgUserId is linked to a DIFFERENT phone number)
       const existingTgRecord = await tgCol.findOne({ tgUserId });
       if (existingTgRecord && existingTgRecord.phoneNumber !== phoneNumber) {
-        const prevUser = await usersCol.findOne({ phoneNumber: existingTgRecord.phoneNumber });
+        const prevUser = await usersCol.findOne({ tgUserId });
         if (prevUser) {
           await sendAppMessage(botToken, chatId, tgUserId, tgCol,
             `⛔ This Telegram account is already linked to a CVcase account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVcase account. Tap *Open CVcase App* below to use your existing account.`
@@ -220,8 +201,8 @@ exports.handler = async (event, context) => {
       }
 
       // ── CHECK: Does this phone already have a CVcase account? ────────────
-      // If yes, this is an EXISTING USER linking Telegram (e.g. for password reset).
-      // We allow it — link their Telegram and deliver any pending OTP.
+      // If yes, this is an EXISTING USER linking Telegram from the web (they
+      // still verify web logins by OTP even though there's no password).
       const existingUser = await usersCol.findOne({ phoneNumber });
       if (existingUser) {
         // ── FRAUD CHECK 2b: Is this phone already linked to a DIFFERENT Telegram? ─
@@ -234,7 +215,6 @@ exports.handler = async (event, context) => {
           return { statusCode: 200, body: 'OK' };
         }
 
-        // Link (or update) this existing user's Telegram
         await tgCol.findOneAndUpdate(
           { tgUserId },
           { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
@@ -245,20 +225,9 @@ exports.handler = async (event, context) => {
           { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
           { upsert: true }
         );
-
-        // Also update tgUserId on the user doc itself
         await usersCol.updateOne({ phoneNumber }, { $set: { tgUserId } });
 
-        // Deliver any pending reset OTP immediately
-        const pendingReset = await resetCol.findOne({ phoneNumber, verified: false });
-        if (pendingReset && new Date() < new Date(pendingReset.expiresAt)) {
-          await sendAppMessage(botToken, chatId, tgUserId, tgCol,
-            `🔑 *Your CVcase password reset code is:*\n\n\`${pendingReset.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.\n\nIf you did not request a password reset, please ignore this message.`
-          );
-          return { statusCode: 200, body: 'OK' };
-        }
-
-        // Deliver any pending registration OTP (edge case)
+        // Deliver any pending web-login OTP immediately
         const pendingOtp = await otpCol.findOne({ phoneNumber, verified: false });
         if (pendingOtp && new Date() < new Date(pendingOtp.expiresAt)) {
           await sendAppMessage(botToken, chatId, tgUserId, tgCol,
@@ -267,16 +236,13 @@ exports.handler = async (event, context) => {
           return { statusCode: 200, body: 'OK' };
         }
 
-        // No pending OTP — just confirm the link
         await sendAppMessage(botToken, chatId, tgUserId, tgCol,
           `✅ *Telegram linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nTap *Open CVcase App* below to get started.`
         );
         return { statusCode: 200, body: 'OK' };
       }
 
-      // ── NEW USER registration path ────────────────────────────────────────
-      // (No existing account for this phone — proceed with registration flow)
-
+      // ── NEW USER — no account for this phone or this Telegram ID yet ────────
       // FRAUD CHECK 3: Is this phone linked to a DIFFERENT Telegram?
       const existingPhoneRecord = await tgCol.findOne({ phoneNumber });
       if (existingPhoneRecord && existingPhoneRecord.tgUserId !== tgUserId) {
@@ -287,7 +253,10 @@ exports.handler = async (event, context) => {
         return { statusCode: 200, body: 'OK' };
       }
 
-      // All checks passed — store / update the mapping
+      // Store / update the tgUserId <-> phoneNumber mapping. No account or
+      // OTP is created here — opening the Mini App is what creates the
+      // account now (telegram-auth.js -> onboarding.html), and a web user
+      // verifying this same phone would trigger their own OTP separately.
       await tgCol.findOneAndUpdate(
         { tgUserId },
         { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
@@ -299,18 +268,17 @@ exports.handler = async (event, context) => {
         { upsert: true }
       );
 
-      // Check for a pending registration OTP and send it immediately.
-      // Phone sharing is done at this point either way, so the keyboard
-      // switches to the Open App button (both inline and below the input
-      // bar) from here on regardless of which branch runs.
       const pending = await otpCol.findOne({ phoneNumber, verified: false });
       if (pending && new Date() < new Date(pending.expiresAt)) {
+        // A web login OTP for this phone was already waiting — deliver it.
         await sendAppMessage(botToken, chatId, tgUserId, tgCol,
           `🔐 *Your CVcase verification code is:*\n\n\`${pending.otp}\`\n\nThis code expires in *10 minutes*. Do not share it with anyone.`
         );
       } else {
+        // Ordinary case: brand-new Telegram user with no pending web login.
+        // Point them at the app itself to finish setting up their account.
         await sendAppMessage(botToken, chatId, tgUserId, tgCol,
-          `✅ *Phone number linked!*\n\nYour number \`${phoneNumber}\` is now connected to this Telegram account.\n\nWhen you register on CVcase, your verification code will be sent here.`
+          `✅ *Phone number linked!*\n\nTap *Open CVcase App* below to finish setting up your account — it only takes a minute, and you're already signed in.`
         );
       }
 
@@ -318,17 +286,20 @@ exports.handler = async (event, context) => {
     }
 
     // ── Any other message ─────────────────────────────────────────────────────
-    // Look up whether this Telegram account is already linked to decide which
-    // single button to show.
-    const existingForOther = await tgCol.findOne({ tgUserId });
-    const isLinked = !!(existingForOther && existingForOther.phoneNumber);
-    if (isLinked) {
+    const existingUserForOther = await usersCol.findOne({ tgUserId });
+    if (existingUserForOther) {
       await sendAppMessage(botToken, chatId, tgUserId, tgCol, `Tap *Open CVcase App* below to use the app.`);
     } else {
-      await sendMessage(botToken, chatId,
-        `Tap the button below to share your phone number and verify your account.`,
-        shareOnlyKeyboard
-      );
+      const existingForOther = await tgCol.findOne({ tgUserId });
+      const isLinked = !!(existingForOther && existingForOther.phoneNumber);
+      if (isLinked) {
+        await sendAppMessage(botToken, chatId, tgUserId, tgCol, `Tap *Open CVcase App* below to finish setting up your account.`);
+      } else {
+        await sendMessage(botToken, chatId,
+          `Tap the button below to share your phone number and get started.`,
+          shareOnlyKeyboard
+        );
+      }
     }
 
   } catch (err) {
