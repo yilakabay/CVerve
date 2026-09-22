@@ -1,12 +1,17 @@
 // functions/verify-otp.js
-// POST body: { phoneNumber, otp, password, confirmPassword }
+// POST body: { phoneNumber, otp }
 //
-// Verifies OTP then creates the user. Also enforces:
-//   - One account per phone number
-//   - One account per Telegram user ID (tgUserId)
+// Verifies the OTP, then either:
+//   - creates a brand-new account (first time this phone has ever verified), or
+//   - logs the existing account in (returning web user)
+// and issues a sessionToken either way — this now replaces password
+// everywhere in the app as the "prove it's you" credential on every request.
+//
+// Still enforces: one account per phone number, one account per Telegram
+// user ID (tgUserId).
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
+const { generateSessionToken } = require('./lib/session');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
@@ -22,16 +27,10 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { phoneNumber, otp, password, confirmPassword } = body;
+  const { phoneNumber, otp } = body;
 
-  if (!phoneNumber || !otp || !password) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Phone number, OTP, and password are required' }) };
-  }
-  if (password !== confirmPassword) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Passwords do not match' }) };
-  }
-  if (password.length < 6) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Password must be at least 6 characters long' }) };
+  if (!phoneNumber || !otp) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Phone number and OTP are required' }) };
   }
 
   try {
@@ -58,21 +57,45 @@ exports.handler = async (event, context) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Incorrect OTP. Please check and try again.' }) };
     }
 
-    // ── Fraud checks ──────────────────────────────────────────────────────────
+    // OTP is good — consume it either way.
+    await otpCol.deleteOne({ phoneNumber });
 
-    // 1. Phone already registered?
-    const existingByPhone = await usersCol.findOne({ phoneNumber });
-    if (existingByPhone) {
-      await otpCol.deleteOne({ phoneNumber });
-      return { statusCode: 409, body: JSON.stringify({ error: 'An account with this phone number already exists.' }) };
+    const tgRecord = await tgCol.findOne({ phoneNumber });
+    const sessionToken = generateSessionToken();
+
+    // ── Existing account → this is just a login ──────────────────────────────
+    const existingUser = await usersCol.findOne({ phoneNumber });
+    if (existingUser) {
+      await usersCol.updateOne({ phoneNumber }, { $set: { sessionToken, lastLoginAt: new Date() } });
+
+      const rawNotifs     = existingUser.notifications || [];
+      const notifications = rawNotifs.map(n => ({
+        ...n,
+        id: n.id || null, type: n.type || '', amount: n.amount || 0,
+        createdAt: n.createdAt || null, read: n.read === true
+      }));
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          status:       'login',
+          success:      true,
+          sessionToken,
+          phoneNumber,
+          tokens:       existingUser.tokens || 0,
+          balance:      existingUser.tokens || 0,
+          notifications,
+          unreadCount:  notifications.filter(n => !n.read).length
+        })
+      };
     }
 
-    // 2. Telegram user ID already used for another account?
-    const tgRecord = await tgCol.findOne({ phoneNumber });
+    // ── Brand-new account ─────────────────────────────────────────────────────
+
+    // Fraud check: Telegram user ID already used for another account?
     if (tgRecord && tgRecord.tgUserId) {
       const existingByTg = await usersCol.findOne({ tgUserId: tgRecord.tgUserId });
       if (existingByTg) {
-        await otpCol.deleteOne({ phoneNumber });
         return {
           statusCode: 409,
           body: JSON.stringify({
@@ -82,24 +105,32 @@ exports.handler = async (event, context) => {
       }
     }
 
-    // ── Create user ───────────────────────────────────────────────────────────
-    const hashedPassword = await bcrypt.hash(password, 10);
     await usersCol.insertOne({
       phoneNumber,
-      password: hashedPassword,
-      tgUserId: tgRecord?.tgUserId || null,   // store tgUserId on the user doc for future checks
-      balance: 0,
-      createdAt: new Date()
+      tgUserId:       tgRecord?.tgUserId || null,
+      sessionToken,
+      balance:        0,      // legacy ETB field — unused
+      tokens:         0,      // CT balance — starts at 0, no free access
+      tokensMigrated: true,
+      notifications:  [],
+      createdAt:      new Date(),
+      lastLoginAt:    new Date()
     });
-
-    // Clean up OTP
-    await otpCol.deleteOne({ phoneNumber });
 
     console.log(`User created: ${phoneNumber} (tgUserId: ${tgRecord?.tgUserId || 'unknown'})`);
 
     return {
       statusCode: 201,
-      body: JSON.stringify({ success: true, message: 'Account created successfully! Please log in.', phoneNumber })
+      body: JSON.stringify({
+        status:      'new',
+        success:     true,
+        sessionToken,
+        phoneNumber,
+        tokens:      0,
+        balance:     0,
+        notifications: [],
+        unreadCount: 0
+      })
     };
 
   } catch (error) {
