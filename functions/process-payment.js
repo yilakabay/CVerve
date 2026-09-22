@@ -1,5 +1,5 @@
 // functions/process-payment.js
-// POST body: { userId, password, amount, senderName, chosenPlan, transactionId?, paymentMethod?, checkOnly? }
+// POST body: { userId, sessionToken, amount, senderName, chosenPlan, transactionId?, paymentMethod?, checkOnly? }
 //
 // The user picks a CT top-up pack (see lib/packs.js) BEFORE paying. That
 // choice is stored on the pending record and is the anchor for everything
@@ -30,8 +30,8 @@
 //      when to show the "Report" button (30+ minutes with no resolution).
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { checkSession } = require('./lib/session');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
@@ -60,7 +60,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, amount, senderName, chosenPlan, transactionId, paymentMethod, checkOnly } = body;
+  const { userId, sessionToken, amount, senderName, chosenPlan, transactionId, paymentMethod, checkOnly } = body;
 
   if (!userId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId is required.' }) };
@@ -74,9 +74,8 @@ exports.handler = async (event, context) => {
 
     const user = await usersCol.findOne({ phoneNumber: userId });
     if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
-    if (password) {
-      const pwOk = await bcrypt.compare(password, user.password);
-      if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+    if (!checkSession(user, sessionToken)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
 
     // ── checkOnly mode — used by the app to decide whether to show the Report button ──
