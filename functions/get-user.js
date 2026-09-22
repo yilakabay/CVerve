@@ -1,23 +1,19 @@
 // functions/get-user.js
-// POST body (normal login):  { phoneNumber, password }
-// POST body (admin lookup):  { token, userId }
+// POST body (session refresh):  { phoneNumber, sessionToken }
+// POST body (admin lookup):     { token, userId }
 //
-// Login response includes:
-//   tokens (CT balance), balance (same number — kept under the old name so
-//   login.html / app.html keep working), notifications, hasTelegram, tgUsername
+// The regular path used to be phoneNumber+password. It's now
+// phoneNumber+sessionToken — sessionToken is issued by verify-otp.js (web)
+// or telegram-auth.js (Telegram) at login and is what every other function
+// in the backend should now check in place of password (see lib/session.js).
 //
-// CT balance lives in the `tokens` field of the user document (added to by
-// top-ups, subtracted from by AI use — see lib/packs.js and lib/ai-billing.js).
-// The old `balance` field on the document was the legacy ETB balance and is
-// no longer used for anything.
-//
-// Pending payment shape (both paths): pendingId, amount, senderName,
-// chosenPlan (a CT pack id), paymentMethod, submittedAt. Matching throughout
-// the payment system is by sender name + amount only.
+// Response fields unchanged from before: tokens (CT balance), balance (same
+// number, kept for old app.html code paths), notifications, hasTelegram,
+// tgUsername.
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { checkSession } = require('./lib/session');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
@@ -26,7 +22,6 @@ const client = new MongoClient(uri, {
   maxIdleTimeMS: 30000
 });
 
-// Shapes a pending_payments doc into the fields callers actually need
 function shapePendingPayment(p) {
   if (!p) return null;
   return {
@@ -39,7 +34,8 @@ function shapePendingPayment(p) {
   };
 }
 
-// ── Admin token verification ──────────────────────────────────────────────────
+// ── Admin token verification (unchanged — admin still uses a password to log
+// in via admin-auth.js; this just verifies the signed token that login issued) ──
 function isValidAdminToken(token) {
   try {
     const lastDot = token.lastIndexOf('.');
@@ -68,7 +64,7 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  // ── Admin lookup path (token + userId) ─────────────────────────────────────
+  // ── Admin lookup path (token + userId) — unchanged ─────────────────────────
   if (body.token && body.userId) {
     const { token, userId } = body;
 
@@ -114,13 +110,13 @@ exports.handler = async (event, context) => {
     }
   }
 
-  // ── Regular user login path (phoneNumber + password) ────────────────────────
-  const { phoneNumber, password } = body;
+  // ── Regular session-refresh path (phoneNumber + sessionToken) ───────────────
+  const { phoneNumber, sessionToken } = body;
 
-  if (!phoneNumber || !password) {
+  if (!phoneNumber || !sessionToken) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'Phone number and password are required' })
+      body: JSON.stringify({ error: 'Phone number and session token are required' })
     };
   }
 
@@ -135,20 +131,13 @@ exports.handler = async (event, context) => {
       return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return { statusCode: 401, body: JSON.stringify({ error: 'Invalid password' }) };
+    if (!checkSession(user, sessionToken)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
 
     const tgCol    = db.collection('telegram_chats');
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
-    // ── Notifications ────────────────────────────────────────────────────────
-    // Pass every field through — notifications now carry many payment-specific
-    // fields (plan, resolvedBy, refundEligible, refundAmount, canUpgradeToPro,
-    // verifiedPaymentId, expiry, upgradeFromBasic, etc.) that the app's
-    // notification rendering and action buttons depend on. A narrow whitelist
-    // here would silently strip them.
     const rawNotifs     = user.notifications || [];
     const notifications = rawNotifs.map(n => ({
       ...n,
@@ -160,7 +149,6 @@ exports.handler = async (event, context) => {
     }));
     const unreadCount = notifications.filter(n => !n.read).length;
 
-    // ── Also check if there's a pending payment (useful for app.html) ─────────
     const pendingCol     = db.collection('pending_payments');
     const pendingPayment = await pendingCol.findOne({ userId: phoneNumber, status: 'pending' });
 
