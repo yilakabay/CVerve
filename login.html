@@ -45,8 +45,6 @@
             transition: background 0.15s, color 0.15s;
         }
 
-        /* ── Single centered layout (same on mobile & desktop, proportionally
-             sized) — no split side panel. ── */
         .page {
             display: flex;
             align-items: center;
@@ -72,7 +70,6 @@
             .form-box { max-width: 440px; }
         }
 
-        /* ── Logo ── */
         .mobile-logo {
             display: flex;
             flex-direction: column;
@@ -97,7 +94,6 @@
 
         .mobile-logo-text span { color: var(--text); }
 
-        /* ── Form title ── */
         .form-title {
             font-family: 'Sora', sans-serif;
             font-size: 1.6rem;
@@ -118,10 +114,7 @@
             .form-subtitle { font-size: 0.95rem; margin-bottom: 32px; }
         }
 
-        /* ── Form fields ── */
-        .field-group {
-            margin-bottom: 16px;
-        }
+        .field-group { margin-bottom: 16px; }
 
         .field-label {
             display: block;
@@ -155,31 +148,6 @@
 
         .field-input::placeholder { color: var(--text-3); }
 
-        .field-input-wrap {
-            position: relative;
-        }
-
-        .field-input-wrap .field-input {
-            padding-right: 40px;
-        }
-
-        .pw-eye {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: var(--text-3);
-            transition: color 0.15s;
-            padding: 2px;
-            display: flex;
-            align-items: center;
-        }
-        .pw-eye:hover { color: var(--text-2); }
-
-        /* OTP input */
         .otp-input {
             text-align: center;
             font-size: 1.6rem;
@@ -193,7 +161,6 @@
             box-shadow: 0 0 0 3px rgba(0,136,204,0.1);
         }
 
-        /* ── Buttons ── */
         .btn {
             display: flex;
             align-items: center;
@@ -222,14 +189,6 @@
         .btn-indigo:hover { background: var(--indigo-dark); box-shadow: 0 5px 18px rgba(0,136,204,0.35); transform: translateY(-1px); }
         .btn-indigo:active { transform: scale(0.98); }
 
-        .btn-green {
-            background: var(--green);
-            color: white;
-            box-shadow: 0 3px 12px rgba(34,197,94,0.25);
-        }
-        .btn-green:hover { background: var(--green-dark); transform: translateY(-1px); }
-        .btn-green:active { transform: scale(0.98); }
-
         .btn-blue {
             background: #3b82f6;
             color: white;
@@ -237,20 +196,7 @@
         }
         .btn-blue:hover { background: #2563eb; transform: translateY(-1px); }
 
-        .btn-outline {
-            background: var(--card);
-            color: var(--text-2);
-            border: 1.5px solid var(--border);
-        }
-        html.dark .btn-outline:hover { border-color: #52525b; }
-        .btn-outline:hover { border-color: #cbd5e1; background: var(--card-2); }
-
-        /* ── Dividers & links ── */
-        .form-divider {
-            height: 1px;
-            background: var(--border);
-            margin: 20px 0;
-        }
+        .form-divider { height: 1px; background: var(--border); margin: 20px 0; }
 
         .link-row {
             display: flex;
@@ -278,19 +224,15 @@
             color: var(--text-2);
         }
 
-        /* ── Step icons ── */
         .step-icon-wrap {
             width: 56px; height: 56px;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             margin: 0 auto 16px;
         }
-        html.dark .step-icon-wrap[style*="background:#fef3c7"] { background: rgba(245,158,11,0.18) !important; }
         html.dark .step-icon-wrap[style*="background:#dbeafe"] { background: rgba(59,130,246,0.18) !important; }
         html.dark .step-icon-wrap[style*="background:#EBF7FC"] { background: rgba(0,136,204,0.18) !important; }
-        html.dark .step-icon-wrap[style*="background:#dcfce7"] { background: rgba(34,197,94,0.18) !important; }
 
-        /* ── Toast ── */
         #toastContainer {
             position: fixed;
             top: 18px; right: 18px;
@@ -302,7 +244,6 @@
             max-width: 280px;
         }
 
-        /* ── Loading overlay ── */
         #loadingOverlay {
             display: none;
             position: fixed;
@@ -324,7 +265,6 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.2);
         }
 
-        /* Logo path animation */
         #loadLogoPath {
             stroke-dasharray: 20000;
             stroke-dashoffset: 20000;
@@ -337,7 +277,6 @@
             100% { stroke-dashoffset: -20000; }
         }
 
-        /* Spinner for polling */
         .tg-spinner {
             width: 14px; height: 14px;
             border: 2px solid var(--indigo);
@@ -348,21 +287,14 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ── Forgot-pw link row ── */
-        .forgot-row {
-            text-align: right;
-            margin-bottom: 18px;
-        }
-
-        /* ── Form step transition ── */
         .auth-step { transition: opacity 0.2s; }
         .auth-step.hidden { display: none; }
     </style>
-    <!-- Telegram Mini App SDK — used only to detect the user's Telegram theme;
-         harmless no-op when this page is opened in a normal browser. -->
+    <!-- Telegram Mini App SDK — used to detect Telegram theme, and (when this
+         page happens to be opened inside Telegram) to silently log the user
+         in without any of the phone/OTP steps below. -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
-        // ── Theme detection: Telegram dark/light mode, or device dark/light mode ──
         (function () {
             function applyTheme(isDark) {
                 document.documentElement.classList.toggle('dark', !!isDark);
@@ -385,7 +317,6 @@
 
 <div id="toastContainer"></div>
 
-<!-- Loading Overlay -->
 <div id="loadingOverlay">
     <div class="loading-box">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342" style="width:52px;height:52px;display:block;margin:0 auto 16px;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
@@ -395,106 +326,62 @@
 </div>
 
 <div class="page">
-
-    <!-- ── Form Panel (single, centered — same layout mobile & desktop) ── -->
     <div class="form-panel">
         <div class="form-box">
 
-            <!-- Logo -->
             <div class="mobile-logo">
                 <svg width="48" height="28" xmlns="http://www.w3.org/2000/svg" viewBox="278 288 562 342"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
                 <span class="mobile-logo-text">CV<span>case</span></span>
             </div>
 
-            <!-- ══════════════ LOGIN FORM ══════════════ -->
-            <div id="loginStep" class="auth-step">
-                <h2 class="form-title">Log in</h2>
-                <p class="form-subtitle">Enter your phone number and password to continue.</p>
+            <!-- ══════════════ STEP 1: PHONE NUMBER ══════════════ -->
+            <div id="phoneStep" class="auth-step">
+                <h2 class="form-title">Log in or sign up</h2>
+                <p class="form-subtitle">Enter your phone number — no password needed. We'll verify it's you over Telegram.</p>
 
                 <div class="field-group">
                     <label class="field-label" for="phoneInput">Phone Number</label>
                     <input class="field-input" type="tel" id="phoneInput"
                         placeholder="09xxxxxxxx or 07xxxxxxxx"
-                        onkeydown="if(event.key==='Enter') handleLogin()">
+                        onkeydown="if(event.key==='Enter') handleContinue()">
                 </div>
 
-                <div class="field-group">
-                    <label class="field-label" for="passwordInput">Password</label>
-                    <div class="field-input-wrap">
-                        <input class="field-input" type="password" id="passwordInput"
-                            placeholder="Your password"
-                            onkeydown="if(event.key==='Enter') handleLogin()">
-                        <button class="pw-eye" type="button" id="loginEye" onclick="togglePw('passwordInput','loginEye')" tabindex="-1">
-                            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="forgot-row">
-                    <button class="text-link" onclick="showStep('forgotStep')">Forgot password?</button>
-                </div>
-
-                <button class="btn btn-indigo" onclick="handleLogin()">
-                    Log in
+                <button class="btn btn-indigo" onclick="handleContinue()">
+                    Continue
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4-4 4M21 12H3"/></svg>
                 </button>
 
                 <div class="form-divider"></div>
                 <p class="center-text">
-                    Don't have an account?
-                    <a href="/register.html" style="color:var(--indigo);font-weight:600;text-decoration:none;">Create an account</a>
-                </p>
-                <p class="center-text" style="margin-top:10px;">
                     <a href="/" style="color:var(--text-3);font-size:0.78rem;text-decoration:none;">← Back to home</a>
                 </p>
             </div>
 
-            <!-- ══════════════ FORGOT — STEP 1: ENTER PHONE ══════════════ -->
-            <div id="forgotStep" class="auth-step hidden">
-                <div class="step-icon-wrap" style="background:#fef3c7;">
-                    <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-                </div>
-                <h2 class="form-title" style="text-align:center;">Reset Password</h2>
-                <p class="form-subtitle" style="text-align:center;">Enter your phone number and we'll send a verification code via Telegram.</p>
-
-                <div class="field-group">
-                    <label class="field-label" for="forgotPhone">Phone Number</label>
-                    <input class="field-input" type="tel" id="forgotPhone"
-                        placeholder="09xxxxxxxx or 07xxxxxxxx"
-                        onkeydown="if(event.key==='Enter') handleForgotPassword()">
-                </div>
-
-                <button class="btn btn-indigo" style="margin-bottom:12px;" onclick="handleForgotPassword()">Send Code</button>
-                <div class="center-text">
-                    <button class="text-link gray" onclick="showStep('loginStep')">← Back to Login</button>
-                </div>
-            </div>
-
-            <!-- ══════════════ FORGOT — STEP 2: TELEGRAM LINK ══════════════ -->
-            <div id="forgotTgStep" class="auth-step hidden">
+            <!-- ══════════════ STEP 2: OPEN TELEGRAM BOT ══════════════ -->
+            <div id="tgStep" class="auth-step hidden">
                 <div class="step-icon-wrap" style="background:#dbeafe;">
                     <svg viewBox="0 0 24 24" width="28" height="28" fill="#3b82f6"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 </div>
                 <h2 class="form-title" style="text-align:center;">One more step</h2>
-                <p class="form-subtitle" style="text-align:center;">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your reset code will appear here automatically.</p>
+                <p class="form-subtitle" style="text-align:center;">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.</p>
 
                 <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px;font-size:0.83rem;color:var(--text-3);">
                     <div class="tg-spinner"></div>
-                    <span id="fgtTgPollStatus">Waiting for you to share on Telegram…</span>
+                    <span id="tgPollStatus">Waiting for you to share on Telegram…</span>
                 </div>
 
-                <a id="forgotTgLink" href="https://t.me/cvcase_bot" target="_blank" rel="noopener"
+                <a id="tgBotLink" href="https://t.me/cvcase_bot" target="_blank" rel="noopener"
                     class="btn btn-blue" style="margin-bottom:12px;text-decoration:none;">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="white"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                     Open @cvcase_bot
                 </a>
                 <div class="center-text">
-                    <button class="text-link gray" onclick="stopFgtTgPolling(); showStep('forgotStep');">← Go back</button>
+                    <button class="text-link gray" onclick="stopTgPolling(); showStep('phoneStep');">← Go back</button>
                 </div>
             </div>
 
-            <!-- ══════════════ FORGOT — STEP 3: OTP ══════════════ -->
-            <div id="forgotOtpStep" class="auth-step hidden">
+            <!-- ══════════════ STEP 3: OTP ══════════════ -->
+            <div id="otpStep" class="auth-step hidden">
                 <div class="step-icon-wrap" style="background:#EBF7FC;">
                     <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="#0088CC" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                 </div>
@@ -502,60 +389,29 @@
                 <p class="form-subtitle" style="text-align:center;">Enter the 6-digit code sent to your Telegram.</p>
 
                 <div class="field-group">
-                    <input class="field-input otp-input" type="tel" id="forgotOtpInput"
+                    <input class="field-input otp-input" type="tel" id="otpInput"
                         maxlength="6" placeholder="000000"
                         oninput="this.value=this.value.replace(/\D/g,'')"
-                        onkeydown="if(event.key==='Enter') handleVerifyResetOtp()">
+                        onkeydown="if(event.key==='Enter') handleVerifyOtp()">
                 </div>
 
-                <button class="btn btn-indigo" style="margin-bottom:12px;" onclick="handleVerifyResetOtp()">Verify Code</button>
+                <button class="btn btn-indigo" style="margin-bottom:12px;" onclick="handleVerifyOtp()">Verify Code</button>
                 <div class="link-row">
-                    <button class="text-link gray" onclick="showStep('loginStep')">← Start over</button>
-                    <button class="text-link" onclick="handleResendResetOtp()">Resend code</button>
+                    <button class="text-link gray" onclick="showStep('phoneStep')">← Start over</button>
+                    <button class="text-link" onclick="handleResendOtp()">Resend code</button>
                 </div>
-            </div>
-
-            <!-- ══════════════ FORGOT — STEP 4: NEW PASSWORD ══════════════ -->
-            <div id="resetPwStep" class="auth-step hidden">
-                <div class="step-icon-wrap" style="background:#dcfce7;">
-                    <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="#16a34a" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                </div>
-                <h2 class="form-title" style="text-align:center;">New Password</h2>
-                <p class="form-subtitle" style="text-align:center;">Choose a new password for your account.</p>
-
-                <div class="field-group">
-                    <label class="field-label" for="newPasswordInput">New Password</label>
-                    <div class="field-input-wrap">
-                        <input class="field-input" type="password" id="newPasswordInput" placeholder="Min. 6 characters"
-                            onkeydown="if(event.key==='Enter') handleResetPassword()">
-                        <button class="pw-eye" type="button" id="newPwEye" onclick="togglePw('newPasswordInput','newPwEye')" tabindex="-1">
-                            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="field-group">
-                    <label class="field-label" for="confirmNewPwInput">Confirm New Password</label>
-                    <input class="field-input" type="password" id="confirmNewPwInput" placeholder="Repeat password"
-                        onkeydown="if(event.key==='Enter') handleResetPassword()">
-                </div>
-
-                <button class="btn btn-green" onclick="handleResetPassword()">Set New Password</button>
             </div>
 
         </div><!-- /.form-box -->
     </div><!-- /.form-panel -->
-
 </div><!-- /.page -->
 
 <script>
 'use strict';
 
-// ── State ──────────────────────────────────────────────────────────────────────
-var _pendingReset = null;
-var _fgtTgPollTimer = null;
+var _phoneNumber = null;
+var _tgPollTimer = null;
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
 function isValidPhone(p) { return /^(09|07)\d{8}$/.test(p); }
 
 function showLoad(msg) {
@@ -565,9 +421,7 @@ function showLoad(msg) {
 function hideLoad() { document.getElementById('loadingOverlay').classList.remove('show'); }
 
 function showStep(id) {
-    document.querySelectorAll('.auth-step').forEach(function(el) {
-        el.classList.add('hidden');
-    });
+    document.querySelectorAll('.auth-step').forEach(function(el) { el.classList.add('hidden'); });
     document.getElementById(id).classList.remove('hidden');
 }
 
@@ -575,7 +429,6 @@ function toast(type, msg) {
     var container = document.getElementById('toastContainer');
     var el = document.createElement('div');
     var isDark = document.documentElement.classList.contains('dark');
-    // Error red uses the same muted rust tone as the main app (not harsh red).
     var colors = { success: '#10b981', error: isDark ? '#e08578' : '#b3261e', info: '#f59e0b' };
     var c = colors[type] || colors.info;
     var cardBg = isDark ? '#2a2a2e' : '#fff';
@@ -591,48 +444,44 @@ function toast(type, msg) {
     }, 4800);
 }
 
-function togglePw(fieldId, btnId) {
-    var field = document.getElementById(fieldId);
-    var btn   = document.getElementById(btnId);
-    if (!field) return;
-    var show = field.type === 'password';
-    field.type = show ? 'text' : 'password';
-    btn.innerHTML = show
-        ? '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>'
-        : '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
+// ── Persist a session after a successful login/registration ────────────────
+function persistSession(phone, data) {
+    localStorage.setItem('cv_userId', phone);
+    localStorage.setItem('cv_sessionToken', data.sessionToken);
+    localStorage.setItem('cv_userBalance', data.balance || 0);
+    localStorage.setItem('cv_lastActivity', Date.now());
+    var redirect = new URLSearchParams(window.location.search).get('next') || '/app.html';
+    window.location.href = redirect;
 }
 
-// ── Login ──────────────────────────────────────────────────────────────────────
-async function handleLogin() {
+// ── Step 1: phone number submitted ──────────────────────────────────────────
+async function handleContinue() {
     var phone = document.getElementById('phoneInput').value.trim();
-    var pass  = document.getElementById('passwordInput').value;
     if (!phone) { toast('error', 'Please enter your phone number'); return; }
-    if (!pass)  { toast('error', 'Please enter your password'); return; }
+    if (!isValidPhone(phone)) { toast('error', 'Phone must start with 09 or 07 and be 10 digits'); return; }
 
-    showLoad('Logging in…');
+    _phoneNumber = phone;
+    showLoad('Checking…');
     try {
-        var res  = await fetch('/.netlify/functions/get-user', {
+        var res  = await fetch('/.netlify/functions/send-otp', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phoneNumber: phone, password: pass })
+            body: JSON.stringify({ phoneNumber: phone })
         });
         var data = await res.json();
         hideLoad();
 
-        if (res.ok) {
-            // Persist session — same keys as the original app
-            localStorage.setItem('cv_userId', phone);
-            localStorage.setItem('cv_userBalance', data.balance || 0);
-            localStorage.setItem('cv_lastActivity', Date.now());
-            localStorage.setItem('cv_userPassword', pass);
-            // Store plan data for app.html (will be expanded in Session 3)
-            if (data.plan)   localStorage.setItem('cv_userPlan', data.plan);
-            if (data.usageCounts) localStorage.setItem('cv_usageCounts', JSON.stringify(data.usageCounts));
-
-            // Redirect to app
-            var redirect = new URLSearchParams(window.location.search).get('next') || '/app.html';
-            window.location.href = redirect;
+        if (data.needsTelegram) {
+            document.getElementById('tgBotLink').href = 'https://t.me/cvcase_bot';
+            document.getElementById('tgPollStatus').textContent = 'Waiting for you to share on Telegram…';
+            showStep('tgStep');
+            startTgPolling();
+        } else if (res.ok && data.success) {
+            showStep('otpStep');
+            document.getElementById('otpInput').value = '';
+            document.getElementById('otpInput').focus();
+            toast('success', 'Code sent to your Telegram!');
         } else {
-            toast('error', data.error || 'Login failed. Please try again.');
+            toast('error', data.error || 'Could not send code. Please try again.');
         }
     } catch (e) {
         hideLoad();
@@ -640,67 +489,33 @@ async function handleLogin() {
     }
 }
 
-// ── Forgot Password — Step 1: send code ───────────────────────────────────────
-async function handleForgotPassword() {
-    var phone = document.getElementById('forgotPhone').value.trim();
-    if (!phone)              { toast('error', 'Please enter your phone number'); return; }
-    if (!isValidPhone(phone)) { toast('error', 'Phone must start with 09 or 07 and be 10 digits'); return; }
-
-    _pendingReset = { phoneNumber: phone };
-    showLoad('Sending verification code…');
-    try {
-        var res  = await fetch('/.netlify/functions/send-reset-otp', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phoneNumber: phone })
-        });
-        var data = await res.json();
-        hideLoad();
-        if (data.needsTelegram) {
-            document.getElementById('forgotTgLink').href = 'https://t.me/cvcase_bot';
-            document.getElementById('fgtTgPollStatus').textContent = 'Waiting for you to share on Telegram…';
-            showStep('forgotTgStep');
-            startFgtTgPolling();
-        } else if (res.ok && data.success) {
-            showStep('forgotOtpStep');
-            document.getElementById('forgotOtpInput').value = '';
-            document.getElementById('forgotOtpInput').focus();
-            toast('success', 'Code sent to your Telegram!');
-        } else {
-            toast('error', data.error || 'Could not send code. Please try again.');
-        }
-    } catch (e) {
-        hideLoad();
-        toast('error', 'Network error. Please try again.');
-    }
+// ── Poll until the user has shared their phone with the bot ────────────────
+function stopTgPolling() {
+    if (_tgPollTimer) { clearInterval(_tgPollTimer); _tgPollTimer = null; }
 }
 
-// ── Forgot Telegram polling ───────────────────────────────────────────────────
-function stopFgtTgPolling() {
-    if (_fgtTgPollTimer) { clearInterval(_fgtTgPollTimer); _fgtTgPollTimer = null; }
-}
-
-function startFgtTgPolling() {
-    stopFgtTgPolling();
-    _fgtTgPollTimer = setInterval(async function() {
-        if (!_pendingReset) { stopFgtTgPolling(); return; }
+function startTgPolling() {
+    stopTgPolling();
+    _tgPollTimer = setInterval(async function() {
+        if (!_phoneNumber) { stopTgPolling(); return; }
         try {
-            var res = await fetch('/.netlify/functions/send-reset-otp', {
+            var res = await fetch('/.netlify/functions/send-otp', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phoneNumber: _pendingReset.phoneNumber, checkOnly: true })
+                body: JSON.stringify({ phoneNumber: _phoneNumber, checkOnly: true })
             });
             var data = await res.json();
             if (!data.needsTelegram && res.ok) {
-                stopFgtTgPolling();
+                stopTgPolling();
                 try {
-                    var sendRes = await fetch('/.netlify/functions/send-reset-otp', {
+                    var sendRes = await fetch('/.netlify/functions/send-otp', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ phoneNumber: _pendingReset.phoneNumber })
+                        body: JSON.stringify({ phoneNumber: _phoneNumber })
                     });
                     var sendData = await sendRes.json();
                     if (sendRes.ok && sendData.success) {
-                        showStep('forgotOtpStep');
-                        document.getElementById('forgotOtpInput').value = '';
-                        document.getElementById('forgotOtpInput').focus();
+                        showStep('otpStep');
+                        document.getElementById('otpInput').value = '';
+                        document.getElementById('otpInput').focus();
                         toast('success', 'Code sent to your Telegram!');
                     } else {
                         toast('error', sendData.error || 'Could not send OTP.');
@@ -711,25 +526,22 @@ function startFgtTgPolling() {
     }, 3000);
 }
 
-// ── Forgot Password — Step 3: verify OTP ──────────────────────────────────────
-async function handleVerifyResetOtp() {
-    var otp = document.getElementById('forgotOtpInput').value.trim();
+// ── Step 3: verify OTP — logs in existing users, creates new ones ──────────
+async function handleVerifyOtp() {
+    var otp = document.getElementById('otpInput').value.trim();
     if (!otp || otp.length !== 6) { toast('error', 'Please enter the 6-digit code'); return; }
-    if (!_pendingReset) { toast('error', 'Session expired. Please start over.'); showStep('loginStep'); return; }
+    if (!_phoneNumber) { toast('error', 'Session expired. Please start over.'); showStep('phoneStep'); return; }
 
     showLoad('Verifying code…');
     try {
-        var res  = await fetch('/.netlify/functions/verify-reset-otp', {
+        var res  = await fetch('/.netlify/functions/verify-otp', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phoneNumber: _pendingReset.phoneNumber, otp })
+            body: JSON.stringify({ phoneNumber: _phoneNumber, otp })
         });
         var data = await res.json();
         hideLoad();
         if (res.ok && data.success) {
-            _pendingReset.resetToken = data.resetToken;
-            document.getElementById('newPasswordInput').value = '';
-            document.getElementById('confirmNewPwInput').value = '';
-            showStep('resetPwStep');
+            persistSession(_phoneNumber, data);
         } else {
             toast('error', data.error || 'Incorrect code. Please try again.');
         }
@@ -739,19 +551,19 @@ async function handleVerifyResetOtp() {
     }
 }
 
-async function handleResendResetOtp() {
-    if (!_pendingReset) { showStep('loginStep'); return; }
+async function handleResendOtp() {
+    if (!_phoneNumber) { showStep('phoneStep'); return; }
     showLoad('Resending code…');
     try {
-        var res  = await fetch('/.netlify/functions/send-reset-otp', {
+        var res  = await fetch('/.netlify/functions/send-otp', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phoneNumber: _pendingReset.phoneNumber })
+            body: JSON.stringify({ phoneNumber: _phoneNumber })
         });
         var data = await res.json();
         hideLoad();
         if (res.ok && data.success) {
-            document.getElementById('forgotOtpInput').value = '';
-            document.getElementById('forgotOtpInput').focus();
+            document.getElementById('otpInput').value = '';
+            document.getElementById('otpInput').focus();
             toast('success', 'A new code was sent to your Telegram.');
         } else {
             toast('error', data.error || 'Could not resend code.');
@@ -762,47 +574,50 @@ async function handleResendResetOtp() {
     }
 }
 
-// ── Reset Password — Step 4: set new password ─────────────────────────────────
-async function handleResetPassword() {
-    var newPw    = document.getElementById('newPasswordInput').value;
-    var confirmPw = document.getElementById('confirmNewPwInput').value;
-    if (!newPw)               { toast('error', 'Please enter a new password'); return; }
-    if (newPw.length < 6)     { toast('error', 'Password must be at least 6 characters'); return; }
-    if (newPw !== confirmPw)  { toast('error', 'Passwords do not match'); return; }
-    if (!(_pendingReset && _pendingReset.resetToken)) { toast('error', 'Session expired. Please start over.'); showStep('loginStep'); return; }
+// ── Silent Telegram login: if this page is opened inside the Telegram Mini
+// App itself, skip phone/OTP entirely and log the user straight in (or send
+// them to onboarding if they're brand new). ──────────────────────────────
+async function tryTelegramSilentLogin() {
+    var tg = window.Telegram && window.Telegram.WebApp;
+    if (!tg || !tg.initData) return false;
 
-    showLoad('Resetting password…');
+    showLoad('Signing you in…');
     try {
-        var res  = await fetch('/.netlify/functions/reset-password', {
+        var res  = await fetch('/.netlify/functions/telegram-auth', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                phoneNumber:     _pendingReset.phoneNumber,
-                resetToken:      _pendingReset.resetToken,
-                newPassword:     newPw,
-                confirmPassword: confirmPw
-            })
+            body: JSON.stringify({ initData: tg.initData })
         });
         var data = await res.json();
         hideLoad();
-        if (res.ok && data.success) {
-            _pendingReset = null;
-            toast('success', 'Password reset! Please log in with your new password.');
-            showStep('loginStep');
-            document.getElementById('phoneInput').value = '';
-            document.getElementById('passwordInput').value = '';
-        } else {
-            toast('error', data.error || 'Reset failed. Please try again.');
+
+        if (res.ok && data.status === 'login') {
+            localStorage.setItem('cv_userId', data.phoneNumber || '');
+            localStorage.setItem('cv_sessionToken', data.sessionToken);
+            localStorage.setItem('cv_userBalance', data.balance || 0);
+            localStorage.setItem('cv_lastActivity', Date.now());
+            var redirect = new URLSearchParams(window.location.search).get('next') || '/app.html';
+            window.location.href = redirect;
+            return true;
+        }
+        if (res.ok && data.status === 'onboard') {
+            var qp = new URLSearchParams();
+            qp.set('tgUserId', data.tgUserId);
+            if (data.phoneNumber) qp.set('userId', data.phoneNumber);
+            window.location.href = '/onboarding.html?' + qp.toString();
+            return true;
         }
     } catch (e) {
         hideLoad();
-        toast('error', 'Network error. Please try again.');
     }
+    return false;
 }
 
-// ── Auth guard: if already logged in, redirect ────────────────────────────────
+// ── Auth guard: if already logged in, redirect; otherwise try Telegram
+// silent login before showing the phone/OTP form at all. ──────────────────
 (function() {
     var saved = localStorage.getItem('cv_userId');
-    if (saved) {
+    var token = localStorage.getItem('cv_sessionToken');
+    if (saved && token) {
         var last = parseInt(localStorage.getItem('cv_lastActivity') || '0', 10);
         var expired = last && (Date.now() - last) > 2 * 60 * 60 * 1000;
         if (!expired) {
@@ -811,13 +626,7 @@ async function handleResetPassword() {
             return;
         }
     }
-    // Show success toast if arriving from register
-    var params = new URLSearchParams(window.location.search);
-    if (params.get('registered') === '1') {
-        setTimeout(function() {
-            toast('success', 'Account created! Log in to get started.');
-        }, 300);
-    }
+    tryTelegramSilentLogin();
 })();
 </script>
 </body>
