@@ -1,11 +1,15 @@
 // functions/send-otp.js
 // POST body: { phoneNumber, checkOnly? }
 //
-// If checkOnly === true:  just checks whether the user's Telegram chat_id exists
-//   and returns { needsTelegram: true/false } without generating or sending an OTP.
+// Used by the web login flow for BOTH new and returning users — there is no
+// password anymore, so "log in" and "register" are the same action: prove
+// you own this phone via a Telegram-delivered OTP. verify-otp.js decides
+// whether to create a new account or just start a session, based on whether
+// the phone already has one.
 //
-// Otherwise: looks up the user's Telegram chat_id (stored when they shared their
-//   phone with the bot), generates a 6-digit OTP, stores it, then sends it via Telegram.
+// If checkOnly === true: just checks whether this phone's Telegram chat_id
+//   is linked yet, without generating or sending an OTP (used for polling
+//   while the user is over in the bot sharing their phone).
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -60,75 +64,38 @@ exports.handler = async (event, context) => {
 
   try {
     await client.connect();
-    const db       = client.db('cverve');
-    const usersCol = db.collection('users');
-    const otpCol   = db.collection('otp_codes');
-    const tgCol    = db.collection('telegram_chats');
+    const db     = client.db('cverve');
+    const otpCol = db.collection('otp_codes');
+    const tgCol  = db.collection('telegram_chats');
 
     // ── checkOnly mode: just report whether Telegram is linked, never send ──
     if (checkOnly) {
       const tgRecord = await tgCol.findOne({ phoneNumber });
       if (!tgRecord) {
-        return {
-          statusCode: 200,
-          body: JSON.stringify({ success: false, needsTelegram: true })
-        };
+        return { statusCode: 200, body: JSON.stringify({ success: false, needsTelegram: true }) };
       }
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, needsTelegram: false })
-      };
+      return { statusCode: 200, body: JSON.stringify({ success: true, needsTelegram: false }) };
     }
 
     // ── Full send mode ────────────────────────────────────────────────────────
-
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
       return { statusCode: 500, body: JSON.stringify({ error: 'Telegram bot not configured' }) };
-    }
-
-    // Check if user already exists
-    const existing = await usersCol.findOne({ phoneNumber });
-    if (existing) {
-      return {
-        statusCode: 409,
-        body: JSON.stringify({ error: 'An account with this phone number already exists. Please log in.' })
-      };
     }
 
     // Rate-limit: max 3 OTPs per phone per 10 minutes
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const recentCount = await otpCol.countDocuments({ phoneNumber, createdAt: { $gte: tenMinutesAgo } });
     if (recentCount >= 3) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({ error: 'Too many requests. Please wait a few minutes and try again.' })
-      };
+      return { statusCode: 429, body: JSON.stringify({ error: 'Too many requests. Please wait a few minutes and try again.' }) };
     }
 
     // Look up Telegram chat_id for this phone number
     const tgRecord = await tgCol.findOne({ phoneNumber });
 
-    // Reuse an existing unexpired OTP if present — prevents double-OTP when
-    // the autopoll fires right after the initial send-otp call already stored one.
-    const existingOtp = await otpCol.findOne({ phoneNumber });
-    let otp, expiresAt;
-    if (existingOtp && !existingOtp.verified && new Date() < new Date(existingOtp.expiresAt)) {
-      otp       = existingOtp.otp;
-      expiresAt = existingOtp.expiresAt;
-    } else {
-      otp       = generateOtp();
-      expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      // Store/replace the OTP
-      await otpCol.findOneAndUpdate(
-        { phoneNumber },
-        { $set: { phoneNumber, otp, expiresAt, verified: false, createdAt: new Date() } },
-        { upsert: true }
-      );
-    }
-
     if (!tgRecord) {
-      // User hasn't linked Telegram yet — tell them to open the bot first
+      // Not linked yet — tell the client to send the user to the bot first.
+      // No OTP generated/stored yet.
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -139,7 +106,23 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Send OTP via Telegram
+    // Reuse an existing unexpired OTP if present — prevents double-OTP when
+    // a poll fires right after the initial send-otp call already stored one.
+    const existingOtp = await otpCol.findOne({ phoneNumber });
+    let otp, expiresAt;
+    if (existingOtp && !existingOtp.verified && new Date() < new Date(existingOtp.expiresAt)) {
+      otp       = existingOtp.otp;
+      expiresAt = existingOtp.expiresAt;
+    } else {
+      otp       = generateOtp();
+      expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await otpCol.findOneAndUpdate(
+        { phoneNumber },
+        { $set: { phoneNumber, otp, expiresAt, verified: false, createdAt: new Date() } },
+        { upsert: true }
+      );
+    }
+
     const result = await httpsPost(
       `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
@@ -151,10 +134,7 @@ exports.handler = async (event, context) => {
 
     if (!result.ok) {
       console.error('Telegram sendMessage failed:', result);
-      return {
-        statusCode: 502,
-        body: JSON.stringify({ error: 'Failed to send Telegram message. Please try again.' })
-      };
+      return { statusCode: 502, body: JSON.stringify({ error: 'Failed to send Telegram message. Please try again.' }) };
     }
 
     console.log(`OTP sent via Telegram to chat_id ${tgRecord.chatId} for phone ${phoneNumber}`);
