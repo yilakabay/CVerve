@@ -1,5 +1,5 @@
 // functions/send-telegram-file.js
-// POST body: { userId, password, fileBase64, filename, caption? }
+// POST body: { userId, sessionToken, fileBase64, filename, caption? }
 //
 // Delivers a file (PDF) generated client-side straight into the user's
 // Telegram chat with the CVcase bot, via Telegram's sendDocument API.
@@ -16,8 +16,8 @@
 // Telegram, and never stored server-side.
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
 const https = require('https');
+const { checkSession } = require('./lib/session');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
@@ -95,7 +95,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, fileBase64, filename, caption } = body;
+  const { userId, sessionToken, fileBase64, filename, caption } = body;
 
   if (!userId || !fileBase64 || !filename) {
     return { statusCode: 400, body: JSON.stringify({ error: 'userId, fileBase64, and filename are required.' }) };
@@ -125,9 +125,8 @@ exports.handler = async (event, context) => {
 
     const user = await usersCol.findOne({ phoneNumber: userId });
     if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
-    if (password) {
-      const pwOk = await bcrypt.compare(password, user.password);
-      if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+    if (!checkSession(user, sessionToken)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
 
     const tgRecord = await tgCol.findOne({ phoneNumber: userId });
