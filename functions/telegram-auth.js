@@ -1,5 +1,5 @@
 // functions/telegram-auth.js
-// POST body: { initData }
+// POST body: { initData, createIfMissing? }
 //
 // Silent login for the Telegram Mini App. `initData` is the raw string
 // Telegram gives the Mini App (window.Telegram.WebApp.initData) — it is
@@ -7,9 +7,18 @@
 // rather than trusting any tgUserId the client claims. Never accept a bare
 // tgUserId from the client for auth — only a verified initData string.
 //
+// createIfMissing: true is how onboarding.html finishes signup — a brand-new
+// Telegram user has no `users` document yet (this function only reported
+// status:'onboard' up to that point), so without this flag the app would
+// call telegram-auth again after onboarding, still find nothing, and bounce
+// the user right back to onboarding in a loop. Passing createIfMissing:true
+// on that final "Go to CVcase" tap creates the account right then — the
+// verified Telegram identity itself is the proof of who they are, exactly
+// like verify-otp.js creates a web account once its OTP is verified.
+//
 // Response:
-//   { status: 'login',    sessionToken, phoneNumber, tokens, ... }   — existing user, logged in
-//   { status: 'onboard',  tgUserId, phoneNumber }                     — brand new, no account yet
+//   { status: 'login',    sessionToken, phoneNumber, tokens, ... }   — existing (or just-created) user, logged in
+//   { status: 'onboard',  tgUserId, phoneNumber }                     — brand new, no account yet, createIfMissing was not set
 //   { error: '...' }                                                 — invalid/expired initData
 
 const { MongoClient } = require('mongodb');
@@ -61,7 +70,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { initData } = body;
+  const { initData, createIfMissing } = body;
   if (!initData) {
     return { statusCode: 400, body: JSON.stringify({ error: 'initData is required' }) };
   }
@@ -115,12 +124,61 @@ exports.handler = async (event, context) => {
     // phone number for this tgUserId; carry it along so onboarding can use it.
     const tgLink = await tgCol.findOne({ tgUserId });
 
+    if (!createIfMissing) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          status:      'onboard',
+          tgUserId,
+          phoneNumber: tgLink ? tgLink.phoneNumber : null
+        })
+      };
+    }
+
+    // ── Create the account now — onboarding just finished ──────────────────
+    // Fraud check: this Telegram ID must not already be attached to some
+    // other account (shouldn't happen since we just checked above, but a
+    // concurrent request could race here — cheap to double check).
+    const raceCheck = await usersCol.findOne({ tgUserId });
+    if (raceCheck) {
+      const sessionToken = generateSessionToken();
+      await usersCol.updateOne({ tgUserId }, { $set: { sessionToken, lastLoginAt: new Date() } });
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          status: 'login', sessionToken,
+          phoneNumber: raceCheck.phoneNumber || null,
+          tokens: raceCheck.tokens || 0, balance: raceCheck.tokens || 0,
+          notifications: [], unreadCount: 0
+        })
+      };
+    }
+
+    const sessionToken = generateSessionToken();
+    await usersCol.insertOne({
+      phoneNumber:    tgLink ? tgLink.phoneNumber : null,
+      tgUserId,
+      sessionToken,
+      balance:        0,      // legacy ETB field — unused
+      tokens:         0,      // CT balance — starts at 0, no free access
+      tokensMigrated: true,
+      notifications:  [],
+      createdAt:      new Date(),
+      lastLoginAt:    new Date()
+    });
+
+    console.log(`Telegram user created: tgUserId=${tgUserId} phone=${tgLink ? tgLink.phoneNumber : 'none'}`);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
-        status:      'onboard',
-        tgUserId,
-        phoneNumber: tgLink ? tgLink.phoneNumber : null
+        status:      'login',
+        sessionToken,
+        phoneNumber: tgLink ? tgLink.phoneNumber : null,
+        tokens:      0,
+        balance:     0,
+        notifications: [],
+        unreadCount: 0
       })
     };
 
