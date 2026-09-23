@@ -574,8 +574,42 @@ async function saveStep(which) {
 }
 
 function finishOnboarding() {
-  showOverlay('Taking you to the app…');
+  showOverlay('Setting up your account…');
   try { localStorage.setItem('cv_lastActivity', Date.now().toString()); } catch (_) {}
+
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var tgUserId = params.get('tgUserId');
+
+  // Telegram users have no account yet at this point — telegram-auth.js only
+  // ever reported status:'onboard' for them until now. createIfMissing:true
+  // creates it here, using the verified Telegram identity itself as proof.
+  // Without this step, app.html's own Telegram silent-login check would find
+  // no account, get 'onboard' again, and bounce the user right back here.
+  if (tgUserId && tg && tg.initData) {
+    fetch('/.netlify/functions/telegram-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData, createIfMissing: true })
+    })
+      .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
+      .then(function(result) {
+        if (result.ok && result.data.status === 'login') {
+          localStorage.setItem('cv_userId', result.data.phoneNumber || '');
+          localStorage.setItem('cv_sessionToken', result.data.sessionToken);
+          localStorage.setItem('cv_userBalance', result.data.balance || 0);
+        }
+        window.location.href = '/app.html';
+      })
+      .catch(function() {
+        // Even if this call failed, still let them into the app — app.html's
+        // own silent-login will retry telegram-auth (without createIfMissing)
+        // and, worst case, send them back here rather than getting stuck.
+        window.location.href = '/app.html';
+      });
+    return;
+  }
+
+  // Web (phone+OTP) users already have an account and session from
+  // verify-otp.js before ever reaching onboarding — nothing to create here.
   setTimeout(function() {
     window.location.href = '/app.html';
   }, 400);
