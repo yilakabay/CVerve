@@ -3,7 +3,7 @@
 // THREE actions live in this one function now:
 //
 // 1) USER REPORT (no `action` field, or action:'report')
-//    POST body: { userId, password, pendingId }
+//    POST body: { userId, sessionToken, pendingId }
 //    Called when the user taps "Report" on the account page — shown only
 //    once a payment has been pending 30+ minutes with no automatic
 //    resolution from SMS detection. Flags the pending_payments doc so it
@@ -27,7 +27,7 @@
 
 const { MongoClient, ObjectId } = require('mongodb');
 const { computeVerifyOutcome, creditTokens, resolvePack } = require('./lib/packs');
-const bcrypt = require('bcryptjs');
+const { checkSession } = require('./lib/session');
 const crypto = require('crypto');
 
 const uri    = process.env.MONGODB_URI;
@@ -205,16 +205,15 @@ exports.handler = async (event, context) => {
     }
 
     // ── USER: submit a report (default action) ────────────────────────────
-    const { userId, password, pendingId } = body;
+    const { userId, sessionToken, pendingId } = body;
     if (!userId || !pendingId) {
       return { statusCode: 400, body: JSON.stringify({ error: 'userId and pendingId are required.' }) };
     }
 
     const user = await usersCol.findOne({ phoneNumber: userId });
     if (!user) return { statusCode: 401, body: JSON.stringify({ error: 'User not found.' }) };
-    if (password) {
-      const pwOk = await bcrypt.compare(password, user.password);
-      if (!pwOk) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized.' }) };
+    if (!checkSession(user, sessionToken)) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
 
     let pending;
