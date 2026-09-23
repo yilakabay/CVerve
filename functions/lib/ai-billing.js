@@ -5,8 +5,10 @@
 // all behave the same way and can't drift apart.
 //
 // ── HOW BILLING WORKS ────────────────────────────────────────────────────
-// 1. The user's phone number + password are checked (same bcrypt check the
-//    rest of the app uses). No login = no AI.
+// 1. The user's phone number + sessionToken are checked (see lib/session.js —
+//    sessionToken is issued at login by verify-otp.js or telegram-auth.js and
+//    replaces password as the "prove it's you" credential everywhere in the
+//    app). No valid session = no AI.
 // 2. Before calling DeepSeek we make sure the user has enough CT for what
 //    they're asking (an estimate of the size of the request). If not, the
 //    call is NOT made and the app shows the Top Up screen.
@@ -28,7 +30,7 @@
 // that many CT each. Everything else adapts automatically.
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
+const { checkSession } = require('./session');
 
 const DEEPSEEK_URL   = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_MODEL  = 'deepseek-chat';
@@ -85,14 +87,18 @@ function estimateMessagesTokens(messages) {
 }
 
 // ── Authenticate ──────────────────────────────────────────────────────────
-async function authenticate(db, userId, password) {
-  if (!userId || !password) {
+// sessionToken replaces password as the "prove it's you" credential — issued
+// at login (verify-otp.js for web, telegram-auth.js for Telegram) and sent
+// back on every request exactly where password used to go. See lib/session.js.
+async function authenticate(db, userId, sessionToken) {
+  if (!userId || !sessionToken) {
     throw new AIError(401, 'Your session needs a quick refresh. Please log in again.');
   }
   const user = await db.collection('users').findOne({ phoneNumber: userId });
   if (!user) throw new AIError(401, 'Your session needs a quick refresh. Please log in again.');
-  const ok = await bcrypt.compare(String(password), user.password);
-  if (!ok) throw new AIError(401, 'Your session needs a quick refresh. Please log in again.');
+  if (!checkSession(user, sessionToken)) {
+    throw new AIError(401, 'Your session needs a quick refresh. Please log in again.');
+  }
   return user;
 }
 
@@ -221,9 +227,9 @@ async function deductTokens(db, userId, amount, meta) {
 //   is unusable. An unusable answer is retried once and NOT charged.
 //   preAuth — optional { db, user } if the caller already authenticated (e.g. to
 //   protect a URL download that happens BEFORE the AI call), so we don't repeat it.
-async function runBilledChat({ userId, password, feature, messages, maxTokens, temperature, json, validate, preAuth }) {
+async function runBilledChat({ userId, sessionToken, feature, messages, maxTokens, temperature, json, validate, preAuth }) {
   const db   = preAuth ? preAuth.db   : await getDb();
-  const user = preAuth ? preAuth.user : await authenticate(db, userId, password);
+  const user = preAuth ? preAuth.user : await authenticate(db, userId, sessionToken);
   assertCanAfford(user, estimateMessagesTokens(messages));
 
   let result, parsed, lastErr;
