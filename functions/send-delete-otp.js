@@ -2,8 +2,24 @@
 // POST body: { phoneNumber }
 //
 // Sends a Telegram OTP to confirm account deletion.
-// User must already exist and already have Telegram linked (they're logged in,
-// so both are guaranteed — but we check defensively).
+//
+// ── Finding where to send it ──────────────────────────────────────────────
+// This used to look up the chat purely by phoneNumber in telegram_chats.
+// That breaks for a Telegram-only account that never shared its phone
+// number with the bot: it has no telegram_chats record at all (the webhook
+// only creates one once a contact is actually shared), so the lookup found
+// nothing and the OTP send failed with no useful path forward.
+//
+// Fixed by preferring the user's own tgUserId (always present — it's how
+// Telegram accounts are created in the first place, see telegram-auth.js):
+//   1. Look up telegram_chats by tgUserId — gets the real chatId if the user
+//      has ever messaged the bot or shared a contact.
+//   2. If that record doesn't exist, fall back to using tgUserId itself as
+//      the chat_id. This works because in a private one-to-one chat between
+//      a user and a bot, Telegram's chat_id and the user's own id are the
+//      same number — a documented property of the Bot API, not a guess.
+// Only if neither is available (a non-Telegram account with no tgUserId at
+// all) does this fail, which is the correct behavior for that case.
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
@@ -78,12 +94,27 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Look up Telegram chat
-    const tgRecord = await tgCol.findOne({ phoneNumber });
-    if (!tgRecord) {
+    // ── Resolve where to send the OTP — see the note at the top of this file ──
+    let chatId = null;
+    if (user.tgUserId) {
+      const tgRecord = await tgCol.findOne({ tgUserId: user.tgUserId });
+      if (tgRecord && tgRecord.chatId) {
+        chatId = tgRecord.chatId;
+      } else {
+        // Fallback: private bot chat_id === the user's own Telegram id.
+        chatId = user.tgUserId;
+      }
+    } else {
+      // Legacy path for a phone-keyed record with no tgUserId on the user
+      // doc yet — try the old phoneNumber-based lookup as a last resort.
+      const tgRecord = await tgCol.findOne({ phoneNumber });
+      if (tgRecord && tgRecord.chatId) chatId = tgRecord.chatId;
+    }
+
+    if (!chatId) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'No Telegram account linked to this phone. Please contact support.' })
+        body: JSON.stringify({ error: 'No Telegram account linked. Please open the CVcase bot at least once, then try again.' })
       };
     }
 
@@ -99,7 +130,7 @@ exports.handler = async (event, context) => {
     const result = await httpsPost(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       {
-        chat_id: tgRecord.chatId,
+        chat_id: chatId,
         text: `⚠️ *CVcase Account Deletion Request*\n\nYour confirmation code is:\n\n\`${otp}\`\n\nThis code expires in *10 minutes*.\n\n*If you did not request this, ignore this message — your account is safe.*`,
         parse_mode: 'Markdown'
       }
