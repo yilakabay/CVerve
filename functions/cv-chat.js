@@ -1,6 +1,6 @@
 // functions/cv-chat.js
 //
-// POST body: { userId, messages: [...], newUserText?: string,
+// POST body: { userId, sessionToken, messages: [...], newUserText?: string,
 //              newUserFiles?: [{filename, mediaType, base64}], photoBase64?: string }
 //
 // This is the backend for "CVCase" — a conversational AI that builds a CV
@@ -8,13 +8,15 @@
 // history and re-sends it every turn (this function is stateless).
 //
 // ── BILLING (CT tokens) ──────────────────────────────────────────────────
-// The body must now also include `password` (same one used at login). Every
-// DeepSeek call made during a turn reports its real token usage; they are
-// added up and the total is deducted from the user's CT balance once the
-// turn finishes (see lib/ai-billing.js). The reply includes `tokensUsed` and
-// `tokenBalance` so the app can update the balance on screen. If the user
-// doesn't have enough CT to start a turn, nothing is sent to DeepSeek and a
-// 402 { code:'INSUFFICIENT_TOKENS' } is returned.
+// The body must include `sessionToken` (issued at login by verify-otp.js or
+// telegram-auth.js — see lib/session.js; this replaces the old password
+// field everywhere in the app). Every DeepSeek call made during a turn
+// reports its real token usage; they are added up and the total is deducted
+// from the user's CT balance once the turn finishes (see lib/ai-billing.js).
+// The reply includes `tokensUsed` and `tokenBalance` so the app can update
+// the balance on screen. If the user doesn't have enough CT to start a turn,
+// nothing is sent to DeepSeek and a 402 { code:'INSUFFICIENT_TOKENS' } is
+// returned.
 // Reading uploaded files/photos with Gemini (below) is NOT billed in CT —
 // only DeepSeek tokens are.
 //
@@ -296,7 +298,7 @@ exports.handler = async (event, context) => {
     return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
   }
 
-  let { messages, newUserText, newUserFiles, photoBase64, templateId, password } = body;
+  let { messages, newUserText, newUserFiles, photoBase64, templateId, sessionToken } = body;
   const template = resolveTemplate(templateId);
   messages = Array.isArray(messages) ? messages.slice() : [];
   if (!messages.length || messages[0].role !== 'system') {
@@ -308,7 +310,7 @@ exports.handler = async (event, context) => {
   let db;
   try {
     db = await getDb();
-    const user = await authenticate(db, body.userId, password);
+    const user = await authenticate(db, body.userId, sessionToken);
     assertCanAfford(user, estimateMessagesTokens(messages) + estimateTokens(newUserText));
   } catch (e) {
     return errorResponse(e, 'Something went wrong. Please try again.');
