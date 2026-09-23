@@ -528,7 +528,13 @@ function startTgPolling() {
             });
             var data = await res.json();
             if (!data.needsTelegram && res.ok) {
+                // Linked! Stop the "waiting to link" poll and send the real
+                // code. If THIS fails (e.g. Telegram briefly unreachable),
+                // we must not just leave the screen frozen on "Waiting for
+                // you to share…" forever — resume polling so it keeps
+                // retrying automatically instead of silently dying.
                 stopTgPolling();
+                document.getElementById('tgPollStatus').textContent = 'Linked! Sending your code…';
                 try {
                     var sendRes = await fetch('/.netlify/functions/send-otp', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -541,11 +547,17 @@ function startTgPolling() {
                         document.getElementById('otpInput').focus();
                         toast('success', 'Code sent to your Telegram!');
                     } else {
-                        toast('error', sendData.error || 'Could not send OTP.');
+                        toast('error', sendData.error || 'Could not send the code — retrying…');
+                        document.getElementById('tgPollStatus').textContent = 'Retrying…';
+                        startTgPolling();
                     }
-                } catch { toast('error', 'Network error. Please try again.'); }
+                } catch {
+                    toast('error', 'Network error — retrying…');
+                    document.getElementById('tgPollStatus').textContent = 'Retrying…';
+                    startTgPolling();
+                }
             }
-        } catch { /* keep polling */ }
+        } catch { /* transient network hiccup on the checkOnly poll itself — keep polling as-is */ }
     }, 3000);
 }
 
