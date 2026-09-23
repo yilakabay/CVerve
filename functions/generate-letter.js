@@ -1,5 +1,5 @@
 // functions/generate-letter.js
-// POST body: { userId, password, fullName, phone, email, address, appDate, cvText,
+// POST body: { userId, sessionToken, fullName, phone, email, address, appDate, cvText,
 //              jdText, jdUrl, targetPosition, extraPrompt }
 //
 // Writes the application letter with DeepSeek and charges the user's CT
@@ -59,7 +59,7 @@ exports.handler = async (event, context) => {
   let parsedBody;
   try { parsedBody = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
-  const { userId, password, fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = parsedBody;
+  const { userId, sessionToken, fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = parsedBody;
 
   if (!process.env.DEEPSEEK_API_KEY) {
     console.error('generate-letter: Missing DEEPSEEK_API_KEY');
@@ -73,7 +73,7 @@ exports.handler = async (event, context) => {
   try {
     // Log-in check FIRST — before we download any URL or spend anything.
     const db   = await getDb();
-    const user = await authenticate(db, userId, password);
+    const user = await authenticate(db, userId, sessionToken);
 
     if (!cvText || cvText.length < 20) {
       return { statusCode: 400, body: JSON.stringify({ error: 'CV text is required and must contain sufficient content' }) };
@@ -179,7 +179,7 @@ exports.handler = async (event, context) => {
     // Ask DeepSeek, then charge the real tokens it used. Retries on temporary
     // DeepSeek failures happen inside runBilledChat and are never charged.
     const { text, tokensUsed, tokenBalance } = await runBilledChat({
-      userId, password,
+      userId, sessionToken,
       feature: 'letter',
       preAuth: { db, user },
       messages: [
