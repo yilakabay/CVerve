@@ -1,5 +1,5 @@
 // functions/fit-check.js
-// POST body: { userId, password, cvText, position: { title, company, qualification, experience, salary, expireDate, fullDescription } }
+// POST body: { userId, sessionToken, cvText, position: { title, company, qualification, experience, salary, expireDate, fullDescription } }
 //
 // Checks ONE specific job in depth and returns a short, human verdict, using
 // DeepSeek. The user is charged the REAL tokens DeepSeek used (lib/ai-billing.js).
@@ -34,7 +34,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, cvText, position } = body;
+  const { userId, sessionToken, cvText, position } = body;
 
   if (!process.env.DEEPSEEK_API_KEY) {
     console.error('fit-check: Missing DEEPSEEK_API_KEY');
@@ -129,7 +129,7 @@ exports.handler = async (event, context) => {
     };
 
     const { parsed, tokensUsed, tokenBalance } = await runBilledChat({
-      userId, password,
+      userId, sessionToken,
       feature: 'fit-check',
       messages: [
         { role: 'system', content: 'You are a fair, practical career advisor. You reply with valid JSON only.' },
