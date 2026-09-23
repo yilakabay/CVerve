@@ -362,8 +362,8 @@
                 <div class="step-icon-wrap" style="background:#dbeafe;">
                     <svg viewBox="0 0 24 24" width="28" height="28" fill="#3b82f6"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
                 </div>
-                <h2 class="form-title" style="text-align:center;">One more step</h2>
-                <p class="form-subtitle" style="text-align:center;">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.</p>
+                <h2 id="tgStepTitle" class="form-title" style="text-align:center;">One more step</h2>
+                <p id="tgStepSubtitle" class="form-subtitle" style="text-align:center;">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.</p>
 
                 <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px;font-size:0.83rem;color:var(--text-3);">
                     <div class="tg-spinner"></div>
@@ -471,15 +471,18 @@ async function handleContinue() {
         hideLoad();
 
         if (data.needsTelegram) {
-            document.getElementById('tgBotLink').href = 'https://t.me/cvcase_bot';
-            document.getElementById('tgPollStatus').textContent = 'Waiting for you to share on Telegram…';
-            showStep('tgStep');
-            startTgPolling();
+            showTelegramStep({ polling: true });
         } else if (res.ok && data.success) {
             showStep('otpStep');
             document.getElementById('otpInput').value = '';
             document.getElementById('otpInput').focus();
             toast('success', 'Code sent to your Telegram!');
+        } else if (res.status === 502) {
+            // Telegram itself refused/failed to deliver the message — almost
+            // always because the bot has never actually messaged this chat
+            // (no phone shared yet) or the user blocked the bot. Guide them
+            // back to the bot instead of a bare, unexplained error.
+            showTelegramStep({ polling: true, unreachable: true });
         } else {
             toast('error', data.error || 'Could not send code. Please try again.');
         }
@@ -487,6 +490,26 @@ async function handleContinue() {
         hideLoad();
         toast('error', 'Network error. Please check your connection.');
     }
+}
+
+// Shows the "go open the bot" step. `unreachable: true` is the case where we
+// tried to send and Telegram itself failed — same fix (share phone with the
+// bot) as `needsTelegram`, just a clearer message since a code send was
+// actually attempted and failed rather than never being possible in the
+// first place.
+function showTelegramStep(opts) {
+    opts = opts || {};
+    document.getElementById('tgBotLink').href = 'https://t.me/cvcase_bot';
+    if (opts.unreachable) {
+        document.getElementById('tgStepTitle').textContent = "We can't reach you on Telegram";
+        document.getElementById('tgStepSubtitle').innerHTML = 'We couldn\'t get your number from Telegram yet. Please open our bot and tap <strong>"Share my phone number"</strong> — your code will appear here automatically once you do.';
+    } else {
+        document.getElementById('tgStepTitle').textContent = 'One more step';
+        document.getElementById('tgStepSubtitle').innerHTML = 'Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.';
+    }
+    document.getElementById('tgPollStatus').textContent = 'Waiting for you to share on Telegram…';
+    showStep('tgStep');
+    if (opts.polling) startTgPolling();
 }
 
 // ── Poll until the user has shared their phone with the bot ────────────────
