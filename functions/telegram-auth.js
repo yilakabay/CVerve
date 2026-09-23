@@ -155,8 +155,17 @@ exports.handler = async (event, context) => {
     }
 
     const sessionToken = generateSessionToken();
+    // Every account needs a non-null, unique `phoneNumber` — it's the key
+    // every other function in the backend looks the user up by. A user who
+    // hasn't shared their phone with the bot yet doesn't have one, so give
+    // them a stable synthetic id instead of null: null would silently match
+    // *every* other phoneless account in a findOne({phoneNumber}) lookup
+    // elsewhere in the backend, which is exactly the kind of bug that's easy
+    // to miss until two phoneless users collide. Real phone numbers (09.../
+    // 07...) never start with "tg_", so this can never collide with one.
+    const identifier = (tgLink && tgLink.phoneNumber) ? tgLink.phoneNumber : ('tg_' + tgUserId);
     await usersCol.insertOne({
-      phoneNumber:    tgLink ? tgLink.phoneNumber : null,
+      phoneNumber:    identifier,
       tgUserId,
       sessionToken,
       balance:        0,      // legacy ETB field — unused
@@ -167,14 +176,14 @@ exports.handler = async (event, context) => {
       lastLoginAt:    new Date()
     });
 
-    console.log(`Telegram user created: tgUserId=${tgUserId} phone=${tgLink ? tgLink.phoneNumber : 'none'}`);
+    console.log(`Telegram user created: tgUserId=${tgUserId} phone=${identifier}`);
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         status:      'login',
         sessionToken,
-        phoneNumber: tgLink ? tgLink.phoneNumber : null,
+        phoneNumber: identifier,
         tokens:      0,
         balance:     0,
         notifications: [],
