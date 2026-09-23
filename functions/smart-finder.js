@@ -1,5 +1,5 @@
 // functions/smart-finder.js
-// POST body: { userId, password, cvText, jobs: [{ jobId, positionIndex, company, title, qualification, experience, shortDescription }] }
+// POST body: { userId, sessionToken, cvText, jobs: [{ jobId, positionIndex, company, title, qualification, experience, shortDescription }] }
 //
 // Sends the user's CV plus a compact list of open positions to DeepSeek and
 // asks it to return only the positions that are a reasonable fit, each with a
@@ -30,7 +30,7 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, cvText, jobs } = body;
+  const { userId, sessionToken, cvText, jobs } = body;
 
   if (!process.env.DEEPSEEK_API_KEY) {
     console.error('smart-finder: Missing DEEPSEEK_API_KEY');
@@ -97,7 +97,7 @@ exports.handler = async (event, context) => {
     };
 
     const { parsed, tokensUsed, tokenBalance } = await runBilledChat({
-      userId, password,
+      userId, sessionToken,
       feature: 'smart-finder',
       messages: [
         { role: 'system', content: 'You are a careful job-matching assistant. You reply with valid JSON only.' },
