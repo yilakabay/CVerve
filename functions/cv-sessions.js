@@ -5,7 +5,7 @@
 // once the browser's storage filled up. Everything now lives in MongoDB, in
 // the `cv_sessions` collection, one document per chat.
 //
-// POST body: { userId, password, action, ...action-specific fields }
+// POST body: { userId, sessionToken, action, ...action-specific fields }
 //
 // Actions:
 //   'list'   → { sessions: [{ sessionId, title, titleManual, templateId,
@@ -44,7 +44,7 @@
 //          record, the file itself would need to be regenerated)
 
 const { MongoClient } = require('mongodb');
-const bcrypt = require('bcryptjs');
+const { checkSession } = require('./lib/session');
 
 const MAX_SESSIONS_PER_USER = 10;
 const MAX_MESSAGES          = 120;
@@ -57,12 +57,13 @@ async function getCol() {
   return mongo.db('cverve').collection('cv_sessions');
 }
 
-async function authenticate(userId, password) {
+// sessionToken replaces password here too — see lib/session.js.
+async function authenticate(userId, sessionToken) {
   await mongo.connect();
   const users = mongo.db('cverve').collection('users');
   const user = await users.findOne({ phoneNumber: userId });
   if (!user) return false;
-  return bcrypt.compare(String(password || ''), user.password);
+  return checkSession(user, sessionToken);
 }
 
 // Bounds one session document before it's written. Priority when trimming:
@@ -111,13 +112,13 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { userId, password, action } = body;
-  if (!userId || !password) {
+  const { userId, sessionToken, action } = body;
+  if (!userId || !sessionToken) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Your session needs a quick refresh. Please log in again.' }) };
   }
 
   try {
-    const ok = await authenticate(userId, password);
+    const ok = await authenticate(userId, sessionToken);
     if (!ok) return { statusCode: 401, body: JSON.stringify({ error: 'Your session needs a quick refresh. Please log in again.' }) };
 
     const col = await getCol();
