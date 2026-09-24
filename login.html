@@ -543,7 +543,7 @@ function showTgTimeout() {
 // Gives up after TG_WAIT_TIMEOUT_MS with a clear explanation instead of
 // spinning forever, since the most common cause by far is a typo, or a
 // phone number that simply isn't the one their Telegram account uses.
-var TG_WAIT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+var TG_WAIT_TIMEOUT_MS = 60 * 1000; // 1 minute
 var _tgWaitStartedAt = null;
 
 function stopTgPolling() {
