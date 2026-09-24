@@ -497,9 +497,11 @@ async function handleContinue() {
         } else if (res.status === 502) {
             // Telegram itself refused/failed to deliver the message — almost
             // always because the bot has never actually messaged this chat
-            // (no phone shared yet) or the user blocked the bot. Guide them
-            // back to the bot instead of a bare, unexplained error.
-            showTelegramStep({ polling: true, unreachable: true });
+            // (no phone shared yet) or the user blocked the bot. Don't alarm
+            // them immediately though — show the same calm "waiting" screen
+            // as needsTelegram and let the 1-minute timeout (below) explain
+            // things only if it's still not resolved by then.
+            showTelegramStep({ polling: true });
         } else {
             toast('error', data.error || 'Could not send code. Please try again.');
         }
