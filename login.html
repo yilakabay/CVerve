@@ -365,18 +365,34 @@
                 <h2 id="tgStepTitle" class="form-title" style="text-align:center;">One more step</h2>
                 <p id="tgStepSubtitle" class="form-subtitle" style="text-align:center;">Open our Telegram bot and tap <strong>"Share my phone number"</strong>. Your code will appear here automatically.</p>
 
-                <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px;font-size:0.83rem;color:var(--text-3);">
-                    <div class="tg-spinner"></div>
-                    <span id="tgPollStatus">Waiting for you to share on Telegram…</span>
+                <!-- Waiting state -->
+                <div id="tgWaitingBlock">
+                    <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px;font-size:0.83rem;color:var(--text-3);">
+                        <div class="tg-spinner"></div>
+                        <span id="tgPollStatus">Waiting for you to share on Telegram…</span>
+                    </div>
+
+                    <a id="tgBotLink" href="https://t.me/cvcase_bot" target="_blank" rel="noopener"
+                        class="btn btn-blue" style="margin-bottom:12px;text-decoration:none;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="white"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
+                        Open @cvcase_bot
+                    </a>
                 </div>
 
-                <a id="tgBotLink" href="https://t.me/cvcase_bot" target="_blank" rel="noopener"
-                    class="btn btn-blue" style="margin-bottom:12px;text-decoration:none;">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="white"><path d="M11.944 0A12 12 0 1 0 24 12 12 12 0 0 0 11.944 0zm5.95 7.027-2.023 9.531c-.15.664-.54.826-1.093.514l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.928l-2.95-.924c-.642-.2-.654-.642.136-.953l11.527-4.444c.535-.194 1.003.13.921.42z"/></svg>
-                    Open @cvcase_bot
-                </a>
+                <!-- Timeout state — shown instead of the waiting block once the
+                     wait has gone on too long with no phone share detected. -->
+                <div id="tgTimeoutBlock" class="hidden">
+                    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+                        <p style="font-size:0.85rem;color:#b3261e;line-height:1.5;margin:0;">
+                            We couldn't confirm your phone number on Telegram. This usually means the number you typed here is different from the one registered on your Telegram account, or you haven't shared it with the bot yet.
+                            Please sign in again using the same phone number your Telegram account is registered with.
+                        </p>
+                    </div>
+                    <button class="btn btn-indigo" style="margin-bottom:12px;" onclick="stopTgPolling(); _tgWaitStartedAt = null; showStep('phoneStep'); document.getElementById('phoneInput').focus();">Try again</button>
+                </div>
+
                 <div class="center-text">
-                    <button class="text-link gray" onclick="stopTgPolling(); showStep('phoneStep');">← Go back</button>
+                    <button class="text-link gray" onclick="stopTgPolling(); _tgWaitStartedAt = null; showStep('phoneStep');">← Go back</button>
                 </div>
             </div>
 
@@ -461,6 +477,7 @@ async function handleContinue() {
     if (!isValidPhone(phone)) { toast('error', 'Phone must start with 09 or 07 and be 10 digits'); return; }
 
     _phoneNumber = phone;
+    _tgWaitStartedAt = null;
     showLoad('Checking…');
     try {
         var res  = await fetch('/.netlify/functions/send-otp', {
@@ -500,6 +517,8 @@ async function handleContinue() {
 function showTelegramStep(opts) {
     opts = opts || {};
     document.getElementById('tgBotLink').href = 'https://t.me/cvcase_bot';
+    document.getElementById('tgWaitingBlock').classList.remove('hidden');
+    document.getElementById('tgTimeoutBlock').classList.add('hidden');
     if (opts.unreachable) {
         document.getElementById('tgStepTitle').textContent = "We can't reach you on Telegram";
         document.getElementById('tgStepSubtitle').innerHTML = 'We couldn\'t get your number from Telegram yet. Please open our bot and tap <strong>"Share my phone number"</strong> — your code will appear here automatically once you do.';
@@ -512,15 +531,36 @@ function showTelegramStep(opts) {
     if (opts.polling) startTgPolling();
 }
 
+function showTgTimeout() {
+    stopTgPolling();
+    document.getElementById('tgWaitingBlock').classList.add('hidden');
+    document.getElementById('tgTimeoutBlock').classList.remove('hidden');
+    document.getElementById('tgStepTitle').textContent = 'Still waiting';
+    document.getElementById('tgStepSubtitle').textContent = '';
+}
+
 // ── Poll until the user has shared their phone with the bot ────────────────
+// Gives up after TG_WAIT_TIMEOUT_MS with a clear explanation instead of
+// spinning forever, since the most common cause by far is a typo, or a
+// phone number that simply isn't the one their Telegram account uses.
+var TG_WAIT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+var _tgWaitStartedAt = null;
+
 function stopTgPolling() {
     if (_tgPollTimer) { clearInterval(_tgPollTimer); _tgPollTimer = null; }
 }
 
 function startTgPolling() {
     stopTgPolling();
+    if (_tgWaitStartedAt === null) _tgWaitStartedAt = Date.now();
     _tgPollTimer = setInterval(async function() {
         if (!_phoneNumber) { stopTgPolling(); return; }
+
+        if (Date.now() - _tgWaitStartedAt >= TG_WAIT_TIMEOUT_MS) {
+            showTgTimeout();
+            return;
+        }
+
         try {
             var res = await fetch('/.netlify/functions/send-otp', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -532,7 +572,8 @@ function startTgPolling() {
                 // code. If THIS fails (e.g. Telegram briefly unreachable),
                 // we must not just leave the screen frozen on "Waiting for
                 // you to share…" forever — resume polling so it keeps
-                // retrying automatically instead of silently dying.
+                // retrying automatically instead of silently dying (still
+                // subject to the same overall timeout above).
                 stopTgPolling();
                 document.getElementById('tgPollStatus').textContent = 'Linked! Sending your code…';
                 try {
