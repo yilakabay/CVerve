@@ -489,20 +489,26 @@ async function handleContinue() {
             document.getElementById('otpInput').value = '';
             document.getElementById('otpInput').focus();
             toast('success', 'Code sent to your Telegram!');
-        } else if (res.status === 502) {
-            // Telegram itself refused/failed to deliver the message — almost
-            // always because the bot has never actually messaged this chat
-            // (no phone shared yet) or the user blocked the bot. Don't alarm
-            // them immediately though — show the same calm "waiting" screen
-            // as needsTelegram and let the 1-minute timeout (below) explain
-            // things only if it's still not resolved by then.
-            showTelegramStep({ polling: true });
+        } else if (res.status === 429) {
+            // Rate-limited — a real, actionable message the user needs right
+            // now, not something a minute of quiet waiting would resolve.
+            toast('error', data.error || 'Too many attempts. Please wait a few minutes and try again.');
         } else {
-            toast('error', data.error || 'Could not send code. Please try again.');
+            // Any other failure (Telegram send failed, a transient backend
+            // error, etc.) — never show a raw error toast for this. Just
+            // treat it exactly like needsTelegram: show the calm waiting
+            // screen and let the 1-minute timer explain things ONLY if it's
+            // still not resolved by then. This deliberately does not depend
+            // on matching one specific status code, so it can't regress if
+            // the backend's exact error shape ever changes.
+            showTelegramStep({ polling: true });
         }
     } catch (e) {
         hideLoad();
-        toast('error', 'Network error. Please check your connection.');
+        // Even a network hiccup on this very first call shouldn't show an
+        // alarming toast immediately — same reasoning as above. Polling will
+        // just keep retrying, and the 1-minute timeout covers a real dead end.
+        showTelegramStep({ polling: true });
     }
 }
 
