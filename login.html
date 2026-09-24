@@ -462,6 +462,17 @@ function persistSession(phone, data) {
     localStorage.setItem('cv_sessionToken', data.sessionToken);
     localStorage.setItem('cv_userBalance', data.balance || 0);
     localStorage.setItem('cv_lastActivity', Date.now());
+
+    // A brand-new account (verify-otp.js returns status:'new' the very first
+    // time a phone verifies) goes to onboarding, same as a brand-new
+    // Telegram signup — it was silently skipping this before and dropping
+    // new web users straight into the app with no profile set up at all.
+    // Returning users (status:'login') keep going straight to the app.
+    if (data.status === 'new') {
+        window.location.href = '/onboarding.html?userId=' + encodeURIComponent(phone);
+        return;
+    }
+
     var redirect = new URLSearchParams(window.location.search).get('next') || '/app.html';
     window.location.href = redirect;
 }
