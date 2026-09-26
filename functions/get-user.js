@@ -9,7 +9,9 @@
 //
 // Response fields unchanged from before: tokens (CT balance), balance (same
 // number, kept for old app.html code paths), notifications, hasTelegram,
-// tgUsername.
+// tgUsername. Also always includes `phoneNumber` — see the identity-recovery
+// note below for why the client should always trust and re-save whatever
+// phoneNumber comes back here, not assume it matches what it sent.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -125,7 +127,23 @@ exports.handler = async (event, context) => {
     const db         = client.db('cverve');
     const collection = db.collection('users');
 
-    const user = await collection.findOne({ phoneNumber });
+    let user = await collection.findOne({ phoneNumber });
+
+    // ── Identity recovery ──────────────────────────────────────────────────
+    // The phoneNumber a client sends here is whatever it last had cached
+    // (localStorage on the web/Telegram app) — it can go stale the moment a
+    // Telegram synthetic account ("tg_<id>") gets merged onto a real phone
+    // number after the user shares it with the bot (see telegram-webhook.js).
+    // Without this fallback, that client's NEXT session refresh would miss
+    // on phoneNumber, get a bare 404, and be forced through a confusing
+    // "account deleted" logout even though the account is completely intact
+    // — just renamed. sessionToken is a long random value unique to exactly
+    // one account, so it's a safe secondary key to recover identity by: if
+    // the phoneNumber lookup misses but the token itself resolves to a real
+    // account, this is that exact stale-cache case, not a deleted account.
+    if (!user) {
+      user = await collection.findOne({ sessionToken });
+    }
 
     if (!user) {
       return { statusCode: 404, body: JSON.stringify({ error: 'User not found' }) };
@@ -136,7 +154,7 @@ exports.handler = async (event, context) => {
     }
 
     const tgCol    = db.collection('telegram_chats');
-    const tgRecord = await tgCol.findOne({ phoneNumber });
+    const tgRecord = await tgCol.findOne({ phoneNumber: user.phoneNumber });
 
     const rawNotifs     = user.notifications || [];
     const notifications = rawNotifs.map(n => ({
@@ -150,11 +168,15 @@ exports.handler = async (event, context) => {
     const unreadCount = notifications.filter(n => !n.read).length;
 
     const pendingCol     = db.collection('pending_payments');
-    const pendingPayment = await pendingCol.findOne({ userId: phoneNumber, status: 'pending' });
+    const pendingPayment = await pendingCol.findOne({ userId: user.phoneNumber, status: 'pending' });
 
     return {
       statusCode: 200,
       body: JSON.stringify({
+        // Always the CURRENT phoneNumber on the account, which may differ
+        // from what the client sent (see the identity-recovery note above).
+        // The client should overwrite its own cached cv_userId with this
+        // value every time, not assume it echoes back what it sent.
         phoneNumber:    user.phoneNumber,
         tokens:         user.tokens     || 0,
         balance:        user.tokens     || 0,
