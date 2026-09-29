@@ -3,31 +3,6 @@ const mammoth  = require('mammoth');
 const tesseract = require('tesseract.js');
 const sharp    = require('sharp');
 
-// ── Tesseract on serverless: the tesseract-core-simd.wasm file that ships in
-// node_modules/tesseract.js-core is a binary asset, not JS — Netlify's (and
-// most other) function bundlers skip or tree-shake it, so it never actually
-// reaches /var/task in production even though it exists locally. Pointing
-// corePath at a CDN-hosted copy instead sidesteps bundling entirely: it
-// downloads the core at cold start and caches it in /tmp for any warm
-// invocations that follow.
-//
-// workerPath is deliberately NOT redirected to a URL: in Node, Tesseract's
-// worker runs on worker_threads, which only accepts a local file path (an
-// absolute path or one starting with "./"/"../") — a URL throws exactly the
-// "must be an absolute path or a relative path..." error. worker.min.js is a
-// plain .js file, not a binary, so bundlers include it normally and the
-// default local resolution just works.
-//
-// IMPORTANT: corePath must be the SAME major version as the "tesseract.js"
-// version in your package.json, or recognition can fail with a version-
-// mismatch error. Check your installed version with `npm ls tesseract.js`
-// and adjust the "@5" below if it's different.
-const TESSERACT_OPTS = {
-  corePath:  'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd.wasm.js',
-  langPath:  'https://tessdata.projectnaptha.com/4.0.0',
-  cachePath: '/tmp',
-};
-
 /**
  * OCR a single image buffer with tesseract (with sharp pre-processing).
  */
@@ -42,7 +17,6 @@ async function ocrImageBuffer(imageBuffer) {
   } catch (e) { /* use original if sharp fails */ }
 
   const { data: { text } } = await tesseract.recognize(processed, 'eng', {
-    ...TESSERACT_OPTS,
     logger: m => {
       if (m.status === 'recognizing text') {
         console.log(`OCR progress: ${(m.progress * 100).toFixed(0)}%`);
@@ -87,7 +61,7 @@ async function extractTextFromImage(imageBuffer) {
   } catch (error) {
     console.error('Image OCR failed:', error.message);
     try {
-      const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng', TESSERACT_OPTS);
+      const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
       return text || '[No text could be extracted from the image]';
     } catch (e) {
       throw new Error('Could not extract text from image. The image may be too low quality or contain no text.');
