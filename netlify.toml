@@ -1,0 +1,20 @@
+# If you already have a netlify.toml, do NOT overwrite it with this file —
+# instead, copy the [functions] block below into your existing one. Netlify
+# only reads one netlify.toml per site, so having two does nothing useful.
+
+[build]
+  functions = "functions"
+
+[functions]
+  # Netlify's default esbuild bundler only understands JavaScript — it skips
+  # (or tree-shakes away) binary assets like tesseract.js-core's .wasm files,
+  # so they never make it into the deployed function even though they exist
+  # in your local node_modules. included_files forces Netlify to physically
+  # copy these into the function's deployment package regardless of what the
+  # JS bundler decides to keep.
+  #
+  # We include the whole tesseract.js-core folder (not just one .wasm file)
+  # because Tesseract picks between a few variants at runtime depending on
+  # the CPU's SIMD support (tesseract-core-simd.wasm vs tesseract-core.wasm,
+  # etc.) — including all of them means it always finds the one it needs.
+  included_files = ["node_modules/tesseract.js-core/**"]
