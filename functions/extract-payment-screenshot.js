@@ -3,7 +3,7 @@
 //
 // Used by the payment flow for ALL payment methods (CBE, CBEBirr, Telebirr).
 // The user uploads a screenshot of their own payment confirmation; this
-// function reads it with Gemini vision and extracts:
+// function reads it with DeepSeek vision and extracts:
 //   - amount       (ETB transferred) — REQUIRED
 //   - senderName   (full name on the sending account) — REQUIRED
 //   - transactionId (bank reference number) — OPTIONAL, may not be present
@@ -23,27 +23,27 @@
 // here, before any pending_payments record is written, so a reused screenshot
 // never reaches the backend as a new "pending" entry.
 //
-// IMPORTANT — error message accuracy: a failure calling Gemini (quota limit,
+// IMPORTANT — error message accuracy: a failure calling DeepSeek (quota limit,
 // network issue, service outage) is NOT the same thing as "the screenshot is
 // unreadable", and must never be presented to the user as if it were. Telling
 // a user their perfectly clear screenshot is bad when the real cause is our
 // own API quota is misleading and erodes trust. This function distinguishes:
-//   - Gemini/service/network failure  → generic "unable to complete" message
-//   - Gemini succeeded but the image genuinely doesn't show amount/sender,
+//   - DeepSeek/service/network failure → generic "unable to complete" message
+//   - DeepSeek succeeded but the image genuinely doesn't show amount/sender,
 //     or returned unparseable output → the "could not read the screenshot"
 //     message, which is accurate in that case.
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// Classifies a Gemini/network failure as a service-side issue (quota, rate
-// limit, outage, connectivity) rather than an image-content problem. These
-// should NEVER be shown to the user as "your screenshot is unreadable".
+// Classifies a DeepSeek/network failure as a service-side issue (quota, rate
+// limit, outage, connectivity, billing) rather than an image-content problem.
+// These should NEVER be shown to the user as "your screenshot is unreadable".
 function isServiceFailure(err) {
+  if (err && err.isService) return true; // any non-OK HTTP reply from DeepSeek
   const msg = (err && err.message ? err.message : '').toLowerCase();
   return msg.includes('429') || msg.includes('quota') || msg.includes('503') ||
          msg.includes('high demand') || msg.includes('rate limit') ||
@@ -51,10 +51,7 @@ function isServiceFailure(err) {
          msg.includes('econnreset') || msg.includes('enotfound');
 }
 
-async function extractWithGemini(base64, mime) {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' }, { apiVersion: 'v1beta' });
-
+async function extractWithDeepSeek(base64, mime) {
   const prompt = `This is a screenshot of a bank/mobile-money payment confirmation
 (Ethiopian bank or wallet — CBE, CBE Birr, or Telebirr).
 Extract exactly these three fields:
@@ -67,11 +64,37 @@ Reply ONLY with valid JSON, no markdown, no explanation, in exactly this shape:
 
 If amount or senderName cannot be found, use null for that field.`;
 
-  const result = await model.generateContent([
-    { inlineData: { data: base64, mimeType: mime || 'image/jpeg' } },
-    { text: prompt }
-  ]);
-  const text = result.response.text().trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+  const res = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
+    },
+    body: JSON.stringify({
+      model: 'deepseek-flash',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mime || 'image/jpeg'};base64,${base64}` } }
+        ]
+      }]
+    }),
+    signal: AbortSignal.timeout(20000)
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    const err = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+    err.isService = true; // our API key / quota / outage — not the user's screenshot
+    throw err;
+  }
+
+  const data = await res.json();
+  const raw = data && data.choices && data.choices[0] && data.choices[0].message
+    ? data.choices[0].message.content
+    : '';
+  const text = String(raw || '').trim().replace(/```json/gi, '').replace(/```/g, '').trim();
   return JSON.parse(text);
 }
 
@@ -94,8 +117,8 @@ exports.handler = async (event, context) => {
   if (!imageBase64) {
     return { statusCode: 400, body: JSON.stringify({ error: 'A payment screenshot is required.' }) };
   }
-  if (!process.env.GEMINI_API_KEY) {
-    console.error('extract-payment-screenshot: Missing Gemini API key');
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.error('extract-payment-screenshot: Missing DeepSeek API key');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
@@ -122,18 +145,18 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // ── Extract with Gemini vision ──────────────────────────────────────────
+    // ── Extract with DeepSeek vision ──────────────────────────────────────────
     let extracted;
     try {
-      extracted = await extractWithGemini(imageBase64, imageMime);
+      extracted = await extractWithDeepSeek(imageBase64, imageMime);
     } catch (err) {
-      console.error('extract-payment-screenshot Gemini error:', err.message);
+      console.error('extract-payment-screenshot DeepSeek error:', err.message);
       if (isServiceFailure(err)) {
         // Our own API quota/rate-limit/outage/connectivity issue — NOT the
         // user's screenshot. Never blame their photo for our own service problem.
         return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
       }
-      // Genuine parse/read failure (e.g. Gemini returned non-JSON for this
+      // Genuine parse/read failure (e.g. DeepSeek returned non-JSON for this
       // specific image) — accurate to describe as a screenshot-reading issue.
       return { statusCode: 500, body: JSON.stringify({ error: 'Could not read the screenshot. Please upload a clear, uncropped screenshot of your payment confirmation.' }) };
     }
