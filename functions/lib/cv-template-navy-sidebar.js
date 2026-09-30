@@ -282,16 +282,37 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const nameW = doc.widthOfString(nameText);
     doc.text(nameText, whiteCenter - nameW / 2, 81.4, { lineBreak: false });
 
-    doc.font('Helvetica').fontSize(10.5);
+    // ── Subtitle (professional title): shrink through a size ladder first
+    // — same idea as the name above it — so a normal-length title (the
+    // vast majority) is drawn at a readable size with NO "…" at all.
+    // Letter-spacing (a space inserted between every character) roughly
+    // doubles rendered width, so it's applied once up front and every
+    // candidate size is measured against that already-spaced string.
+    // truncateToFit() only ever gets used as a last-resort backstop, for
+    // a title so long even the smallest size in the ladder can't fit it.
     const rawSubtitle = (content.subtitle || '');
-    // Letter-spacing (a space between every character) roughly doubles
-    // rendered width, so estimate against a shrunk width first, then
-    // truncate the FINAL spaced string to the real available width as a
-    // hard backstop — there's no vertical room for a second line here.
-    let subtitle = truncateToFit(doc, rawSubtitle.split('').join(' ').toUpperCase(), 'Helvetica', 10.5, headerAvailW);
-    doc.fillColor(WHITE);
+    const spacedSubtitle = rawSubtitle.split('').join(' ').toUpperCase();
+    const SUBTITLE_SIZE_LADDER = [10.5, 9.5, 8.5, 7.5, 6.5];
+    let subtitleSize = SUBTITLE_SIZE_LADDER[SUBTITLE_SIZE_LADDER.length - 1];
+    let subtitle = spacedSubtitle;
+    let subtitleFits = false;
+    for (const s of SUBTITLE_SIZE_LADDER) {
+      doc.font('Helvetica').fontSize(s);
+      if (doc.widthOfString(spacedSubtitle) <= headerAvailW) { subtitleSize = s; subtitleFits = true; break; }
+    }
+    if (!subtitleFits) {
+      subtitleSize = SUBTITLE_SIZE_LADDER[SUBTITLE_SIZE_LADDER.length - 1];
+      subtitle = truncateToFit(doc, spacedSubtitle, 'Helvetica', subtitleSize, headerAvailW);
+    }
+    doc.font('Helvetica').fontSize(subtitleSize).fillColor(WHITE);
     const subW = doc.widthOfString(subtitle);
-    doc.text(subtitle, whiteCenter - subW / 2, cyTop + 3.7, { lineBreak: false });
+    // Vertically centered in the bar: cyTop is the bar's own vertical
+    // center, and doc.text's y is the TOP of the glyph box — so the top
+    // needs to sit half a line-height above that center, not at a fixed
+    // +3.7 offset (which is what was pushing it visibly low for anything
+    // other than the exact original 10.5pt size).
+    const subH = doc.currentLineHeight();
+    doc.text(subtitle, whiteCenter - subW / 2, cyTop - subH / 2, { lineBreak: false });
   }
 
   let y = 160.2;
