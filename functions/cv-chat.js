@@ -10,15 +10,16 @@
 // ── BILLING (CT tokens) ──────────────────────────────────────────────────
 // The body must include `sessionToken` (issued at login by verify-otp.js or
 // telegram-auth.js — see lib/session.js; this replaces the old password
-// field everywhere in the app). Every DeepSeek call made during a turn
+// field everywhere in the app). Every DeepSeek chat call made during a turn
 // reports its real token usage; they are added up and the total is deducted
 // from the user's CT balance once the turn finishes (see lib/ai-billing.js).
 // The reply includes `tokensUsed` and `tokenBalance` so the app can update
 // the balance on screen. If the user doesn't have enough CT to start a turn,
 // nothing is sent to DeepSeek and a 402 { code:'INSUFFICIENT_TOKENS' } is
 // returned.
-// Reading uploaded files/photos with Gemini (below) is NOT billed in CT —
-// only DeepSeek tokens are.
+// Reading uploaded files/photos (DeepSeek vision for images, pdf-parse for
+// PDFs — see extractDocumentText() below) is NOT billed in CT — only the
+// DeepSeek chat-loop tokens are.
 //
 // ── MODEL: DeepSeek (deepseek-chat), not Claude ──────────────────────────
 // This file was switched from the Anthropic API to DeepSeek's
@@ -30,12 +31,17 @@
 //      old format and will not resume correctly — start a fresh session
 //      after deploying this.
 //
-//   2. DeepSeek's chat API is TEXT-ONLY — it cannot read an image or a PDF
-//      directly the way Claude could. So any uploaded document or
-//      certificate photo is first run through Gemini (already used
-//      elsewhere in this app, e.g. receive-sms.js) to extract its text,
-//      and DeepSeek only ever sees that extracted text, never the raw
-//      file. See extractDocumentText() below.
+//   2. The main conversation/tool loop (callDeepSeek) is TEXT-ONLY — it
+//      never receives a raw image or PDF. Uploaded files are converted to
+//      text first, in extractDocumentText():
+//        - images  → DeepSeek vision (same model/endpoint shape used by
+//                    extract-payment-screenshot.js)
+//        - PDFs    → pdf-parse (text-based PDFs only; DeepSeek can't take a
+//                    PDF as input, and cv.html doesn't rasterise PDFs before
+//                    sending, so scanned/image-only PDFs can't be read here
+//                    and the user is asked to upload page photos instead)
+//      The conversation model then only ever sees that extracted text,
+//      labelled with the filename, never the raw file.
 //
 // ── WHY A TOOL-USE LOOP, NOT JUST A CHAT ────────────────────────────────
 // The model is good at conversation, judgment, and writing — but must
@@ -128,7 +134,7 @@ const DEFAULT_TEMPLATE_ID = 'minimal';
 function resolveTemplate(templateId) {
   return TEMPLATES[templateId] || TEMPLATES[DEFAULT_TEMPLATE_ID];
 }
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const pdfParse = require('pdf-parse');
 const { sendPdfDocument } = require('./lib/telegram-send');
 
 const {
@@ -232,19 +238,67 @@ const TOOLS = [
   }
 ];
 
-// ── Document/photo text extraction via Gemini (DeepSeek can't read files) ──
+// ── Document/photo text extraction via DeepSeek (images) + pdf-parse (PDFs) ──
+// The conversation loop is text-only, so every attachment is turned into
+// plain text here before the model ever sees it. See the MODEL note at the
+// top of this file for why PDFs and images take different paths.
+const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model extract-payment-screenshot.js uses
+
+const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written.';
+
+const UNREADABLE_FILE_MSG = '[Could not read this file — please describe its contents in your message instead.]';
+
 async function extractDocumentText(file) {
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
-    const result = await model.generateContent([
-      { inlineData: { mimeType: file.mediaType, data: file.base64 } },
-      { text: 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written.' }
-    ]);
-    return result.response.text().trim();
+    const mime = (file && file.mediaType) || '';
+
+    // PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
+    if (mime.includes('pdf')) {
+      const data = await pdfParse(Buffer.from(file.base64, 'base64'));
+      const text = (data.text || '').trim();
+      if (text) return text;
+      // Scanned / image-only PDF: no text layer, and cv.html doesn't
+      // rasterise PDFs before sending them.
+      return '[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]';
+    }
+
+    // Images: DeepSeek vision
+    if (mime.startsWith('image/')) {
+      const res = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
+        },
+        body: JSON.stringify({
+          model: DEEPSEEK_VISION_MODEL,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: EXTRACT_PROMPT },
+              { type: 'image_url', image_url: { url: `data:${mime};base64,${file.base64}` } }
+            ]
+          }]
+        }),
+        signal: AbortSignal.timeout(25000)
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const text = data && data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content
+        : '';
+      return String(text || '').trim() || UNREADABLE_FILE_MSG;
+    }
+
+    return UNREADABLE_FILE_MSG;
   } catch (e) {
     console.error('extractDocumentText error:', e.message);
-    return '[Could not read this file — please describe its contents in your message instead.]';
+    return UNREADABLE_FILE_MSG;
   }
 }
 
@@ -326,8 +380,9 @@ exports.handler = async (event, context) => {
     return deductTokens(db, body.userId, usedCost, { feature: 'cv-chat', promptTokens: usedPrompt, completionTokens: usedCompletion });
   }
 
-  // Any attached file is read via Gemini FIRST (DeepSeek is text-only) and
-  // folded into the user's message as clearly-labelled extracted text.
+  // Any attached file is converted to text FIRST (images via DeepSeek vision,
+  // PDFs via pdf-parse — the chat loop itself is text-only) and folded into
+  // the user's message as clearly-labelled extracted text.
   if (newUserText || (newUserFiles && newUserFiles.length)) {
     let combinedText = newUserText || '';
     for (const f of (newUserFiles || [])) {
