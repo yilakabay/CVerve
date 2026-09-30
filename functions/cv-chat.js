@@ -242,24 +242,73 @@ const TOOLS = [
 // The conversation loop is text-only, so every attachment is turned into
 // plain text here before the model ever sees it. See the MODEL note at the
 // top of this file for why PDFs and images take different paths.
+//
+// ── LIMITS (why they exist) ──────────────────────────────────────────────
+// Extracted text is pasted into the conversation, and the WHOLE conversation
+// is re-sent to DeepSeek (and billed as prompt tokens) on every later turn.
+// So a huge PDF doesn't just cost once — it makes every following message
+// more expensive, and can overflow the model's context. These caps keep that
+// bounded. Raise/lower them here; nothing else needs to change.
+const MAX_FILES_PER_TURN   = 5;            // keep in step with MAX_FILES_PER_MESSAGE in cv.html; extra files are not read (user is told)
+const MAX_PDF_PAGES        = 10;           // pdf-parse only reads this many pages
+const MAX_CHARS_PER_FILE   = 15000;        // ~4k tokens per file
+const MAX_CHARS_TOTAL      = 30000;        // across all files in one message
+const MAX_FILE_BASE64_CHARS = 5.5 * 1024 * 1024; // skip absurdly large single files
+const EXTRACTION_TIME_BUDGET_MS = 15000; // files are read one at a time; once this much time has
+                                         // passed, remaining files are skipped (and flagged) so the turn
+                                         // still has time left for the chat model. Keep this comfortably
+                                         // under the function's timeout.
+
 const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model extract-payment-screenshot.js uses
 
 const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written.';
 
 const UNREADABLE_FILE_MSG = '[Could not read this file — please describe its contents in your message instead.]';
 
-async function extractDocumentText(file) {
+// Cuts text to `limit` characters and tells the model (and so the user) it
+// was cut, instead of silently dropping the rest.
+function clipText(text, limit, label) {
+  if (text.length <= limit) return text;
+  return text.slice(0, limit) + `\n[...${label} was cut short: only the first ${limit} characters were kept.]`;
+}
+
+// Turns DeepSeek vision token usage into CT. Images are the ONLY extraction
+// step that calls a paid API (pdf-parse runs locally and is free — the PDF's
+// text is billed anyway, as prompt tokens, when it goes through the chat loop).
+//
+// >>> This must use the SAME pricing formula callDeepSeek() uses inside
+// >>> lib/ai-billing.js so image reads are charged at the real rate. Replace
+// >>> the body below with that formula (or a call to a helper exported from
+// >>> ai-billing.js). Until then it returns 0, meaning image reads are not
+// >>> yet charged — the token counts ARE still recorded in the billing log.
+function extractionCostCT(usage) {
+  return 0;
+}
+
+// Returns { text, usage } — usage is DeepSeek's reported token usage for this
+// file (null for PDFs, which make no API call).
+async function extractDocumentText(file, timeoutMs) {
   try {
     const mime = (file && file.mediaType) || '';
 
+    if (!file || !file.base64) return { text: UNREADABLE_FILE_MSG, usage: null };
+    if (file.base64.length > MAX_FILE_BASE64_CHARS) {
+      return { text: '[This file is too large to read. Please upload a smaller or lower-resolution version, or describe its contents in your message.]', usage: null };
+    }
+
     // PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
     if (mime.includes('pdf')) {
-      const data = await pdfParse(Buffer.from(file.base64, 'base64'));
-      const text = (data.text || '').trim();
-      if (text) return text;
-      // Scanned / image-only PDF: no text layer, and cv.html doesn't
-      // rasterise PDFs before sending them.
-      return '[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]';
+      const data = await pdfParse(Buffer.from(file.base64, 'base64'), { max: MAX_PDF_PAGES });
+      let text = (data.text || '').trim();
+      if (!text) {
+        // Scanned / image-only PDF: no text layer, and cv.html doesn't
+        // rasterise PDFs before sending them.
+        return { text: '[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]', usage: null };
+      }
+      if (data.numpages && data.numpages > MAX_PDF_PAGES) {
+        text += `\n[Only the first ${MAX_PDF_PAGES} of ${data.numpages} pages were read.]`;
+      }
+      return { text, usage: null };
     }
 
     // Images: DeepSeek vision
@@ -280,7 +329,7 @@ async function extractDocumentText(file) {
             ]
           }]
         }),
-        signal: AbortSignal.timeout(25000)
+        signal: AbortSignal.timeout(timeoutMs || 20000)
       });
 
       if (!res.ok) {
@@ -292,13 +341,13 @@ async function extractDocumentText(file) {
       const text = data && data.choices && data.choices[0] && data.choices[0].message
         ? data.choices[0].message.content
         : '';
-      return String(text || '').trim() || UNREADABLE_FILE_MSG;
+      return { text: String(text || '').trim() || UNREADABLE_FILE_MSG, usage: data.usage || null };
     }
 
-    return UNREADABLE_FILE_MSG;
+    return { text: UNREADABLE_FILE_MSG, usage: null };
   } catch (e) {
     console.error('extractDocumentText error:', e.message);
-    return UNREADABLE_FILE_MSG;
+    return { text: UNREADABLE_FILE_MSG, usage: null };
   }
 }
 
@@ -362,10 +411,10 @@ exports.handler = async (event, context) => {
 
   // ── Log-in + "can they afford to start this turn?" — BEFORE any file is
   // read or anything is sent to DeepSeek.
-  let db;
+  let db, user;
   try {
     db = await getDb();
-    const user = await authenticate(db, body.userId, sessionToken);
+    user = await authenticate(db, body.userId, sessionToken);
     assertCanAfford(user, estimateMessagesTokens(messages) + estimateTokens(newUserText));
   } catch (e) {
     return errorResponse(e, 'Something went wrong. Please try again.');
@@ -383,13 +432,67 @@ exports.handler = async (event, context) => {
   // Any attached file is converted to text FIRST (images via DeepSeek vision,
   // PDFs via pdf-parse — the chat loop itself is text-only) and folded into
   // the user's message as clearly-labelled extracted text.
+  //  - Files are read ONE AT A TIME (avoids hitting DeepSeek with several
+  //    simultaneous requests), under a total time budget so a slow batch can't
+  //    use up the function's whole time limit before the chat model runs.
+  //  - At most MAX_FILES_PER_TURN files are read; the rest are flagged so the
+  //    user can resend them.
+  //  - Text is capped per file and in total (see LIMITS above).
+  //  - Vision token usage is added to this turn's billing totals.
   if (newUserText || (newUserFiles && newUserFiles.length)) {
     let combinedText = newUserText || '';
-    for (const f of (newUserFiles || [])) {
-      const extracted = await extractDocumentText(f);
-      combinedText += `\n\n[Attached file: ${f.filename}]\n${extracted}`;
+    const allFiles = Array.isArray(newUserFiles) ? newUserFiles : [];
+    const toRead  = allFiles.slice(0, MAX_FILES_PER_TURN);
+    const skipped = allFiles.slice(MAX_FILES_PER_TURN);
+
+    // One at a time, in the order attached. Stops starting new files once the
+    // time budget is spent; each vision call is also capped to the time left.
+    const results = [];
+    const extractStart = Date.now();
+    for (const f of toRead) {
+      const left = EXTRACTION_TIME_BUDGET_MS - (Date.now() - extractStart);
+      if (left <= 1500) {
+        results.push({ text: '[Not read: ran out of time reading the earlier files. Please send this one in a separate message.]', usage: null });
+        continue;
+      }
+      results.push(await extractDocumentText(f, Math.min(20000, left)));
     }
+
+    let charsLeft = MAX_CHARS_TOTAL;
+    results.forEach((r, i) => {
+      const f = toRead[i];
+      if (r.usage) {
+        const pt = r.usage.prompt_tokens || 0, ct = r.usage.completion_tokens || 0;
+        usedPrompt     += pt;
+        usedCompletion += ct;
+        usedCost       += extractionCostCT(r.usage);
+      }
+      let text;
+      if (charsLeft <= 0) {
+        text = '[Not included: the files above already used up the text limit for this message. Please send this one in a separate message.]';
+      } else {
+        text = clipText(r.text, Math.min(MAX_CHARS_PER_FILE, charsLeft), f.filename || 'This file');
+        charsLeft -= text.length;
+      }
+      combinedText += `\n\n[Attached file: ${f.filename}]\n${text}`;
+    });
+
+    skipped.forEach(f => {
+      combinedText += `\n\n[Attached file: ${f.filename}]\n[Not read: only the first ${MAX_FILES_PER_TURN} files per message are read. Please send this one in a separate message.]`;
+    });
+
     messages.push({ role: 'user', content: combinedText.trim() || '(no message)' });
+
+    // The affordability check at the start only saw the typed text. Now that
+    // the real extracted text is in the conversation, check again — and if the
+    // user can't cover it, charge only what extraction already used and stop
+    // BEFORE the (much bigger) chat-loop calls.
+    try {
+      assertCanAfford(user, estimateMessagesTokens(messages));
+    } catch (e) {
+      try { await chargeOnce(); } catch (chargeErr) { console.error('cv-chat: charge after affordability failure:', chargeErr.message); }
+      return errorResponse(e, 'Something went wrong. Please try again.');
+    }
   }
 
   let finalPdfBase64 = null;
