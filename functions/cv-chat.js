@@ -44,6 +44,21 @@
 //      The conversation model then only ever sees that extracted text,
 //      labelled with the filename, never the raw file.
 //
+// ── FEATURE: unread files + "Retry" box ──────────────────────────────────
+// When a file can't be read (vision failed, ran out of time, over the
+// per-message file limit, too large, no text inside...), three things happen:
+//   1. The file is still listed in the conversation with a "[NOT READ: ...]"
+//      marker, plus a system note telling the model which files were missed
+//      and how to advise the user (continue without them if the info that
+//      WAS read is enough, or press Retry if the missing files look key).
+//   2. The response includes `unreadFiles: [{index, filename, reason,
+//      retryable}]` — `index` is the file's position in newUserFiles.
+//   3. cv.html shows a box at the end of the chat listing those files with a
+//      Retry button. Retry sends ONLY the retryable files as a new turn on
+//      top of the existing conversation, so everything already read is kept
+//      and nothing is read twice. If the user just keeps chatting instead,
+//      the conversation continues with what was read.
+//
 // ── WHY A TOOL-USE LOOP, NOT JUST A CHAT ────────────────────────────────
 // The model is good at conversation, judgment, and writing — but must
 // never "eyeball" whether a block of text fits a fixed-size PDF section.
@@ -160,6 +175,7 @@ function buildSystemPrompt(templateName) {
 
 ## Your job, step by step
 1. Greet the user briefly and ask them to describe themselves OR upload documents (certificates, transcripts, old CV) — either is fine. Any document or image the user attaches has ALREADY been read for you and appears in the conversation as extracted text labelled with its filename — read that text as the source of information, you never see the raw file yourself.
+   - If a file could NOT be read, it appears as "[NOT READ: ...]" (or "[Could not read this file.]") under its filename, followed by a system note. The app shows the user a box with a Retry button for those files, so never ask them to re-upload or resend them. Name the unread files, then decide: if what was read is already enough to build a good CV, say the missing files probably aren't essential and suggest continuing; if they likely hold key information, recommend pressing Retry first. Never guess what an unread file contains.
 2. Build a content object matching this exact schema:
    {
      name, subtitle, contact: {phone,email,location},
@@ -251,7 +267,7 @@ const TOOLS = [
 // So a huge PDF doesn't just cost once — it makes every following message
 // more expensive, and can overflow the model's context. These caps keep that
 // bounded. Raise/lower them here; nothing else needs to change.
-const MAX_FILES_PER_TURN   = 5;            // keep in step with MAX_FILES_PER_MESSAGE in cv.html; extra files are not read (user is told)
+const MAX_FILES_PER_TURN   = 5;            // keep in step with MAX_FILES_PER_MESSAGE in cv.html; extra files are not read (user gets a Retry box)
 const MAX_SCANNED_PAGES    = 4;            // keep in step with MAX_SCANNED_PAGES in cv.html
 const MAX_PDF_PAGES        = 10;           // pdf-parse only reads this many pages
 const MAX_CHARS_PER_FILE   = 15000;        // ~4k tokens per file
@@ -266,7 +282,15 @@ const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model extract-payment-sc
 
 const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written.';
 
-const UNREADABLE_FILE_MSG = '[Could not read this file — please describe its contents in your message instead.]';
+const UNREADABLE_FILE_MSG = '[Could not read this file.]';
+
+// Result for a file that could NOT be read. `reason` is a short label shown
+// to the user in cv.html's "couldn't be read" box; `retryable` says whether
+// pressing Retry could plausibly succeed (false for things like "too large"
+// or "no text inside", where reading it again would fail the same way).
+function unread(text, reason, retryable) {
+  return { text, usage: null, failed: true, reason, retryable };
+}
 
 // Cuts text to `limit` characters and tells the model (and so the user) it
 // was cut, instead of silently dropping the rest.
@@ -323,12 +347,14 @@ async function visionRead(base64, mime, timeoutMs) {
 
 // Returns { text, usage } — usage is DeepSeek's reported token usage for this
 // file (null when no API call was made, e.g. text PDFs and Word files).
+// When the file could not be read the result also has failed:true, a short
+// `reason` and `retryable` (see unread() above).
 // `timeoutMs` is the time left in this turn's extraction budget.
 async function extractDocumentText(file, timeoutMs) {
   const started = Date.now();
   const budget = timeoutMs || 20000;
   try {
-    if (!file) return { text: UNREADABLE_FILE_MSG, usage: null };
+    if (!file) return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
     const mime = file.mediaType || '';
     const name = file.filename || '';
 
@@ -336,20 +362,22 @@ async function extractDocumentText(file, timeoutMs) {
     if (Array.isArray(file.pages) && file.pages.length) {
       const totalChars = file.pages.reduce((n, pg) => n + (pg ? pg.length : 0), 0);
       if (totalChars > MAX_FILE_BASE64_CHARS) {
-        return { text: '[This scanned PDF is too large to read. Please upload a smaller version, or describe its contents in your message.]', usage: null };
+        return unread('[This scanned PDF is too large to read. Please upload a smaller version, or describe its contents in your message.]', 'Too large', false);
       }
       const pages = file.pages.slice(0, MAX_SCANNED_PAGES);
       const parts = [];
       let pt = 0, ct = 0;
+      let okPages = 0; // pages that were actually read
       for (let i = 0; i < pages.length; i++) {
         const left = budget - (Date.now() - started);
         if (left <= 1500) {
-          parts.push(`[Pages ${i + 1}-${pages.length} were not read: ran out of time. Please send them in a separate message.]`);
+          parts.push(`[Pages ${i + 1}-${pages.length} were not read: ran out of time.]`);
           break;
         }
         try {
           const r = await visionRead(pages[i], 'image/jpeg', Math.min(20000, left));
           parts.push(`--- Page ${i + 1} ---\n${r.text || '[No readable text on this page.]'}`);
+          if (r.text) okPages++;
           if (r.usage) { pt += r.usage.prompt_tokens || 0; ct += r.usage.completion_tokens || 0; }
         } catch (e) {
           console.error('extractDocumentText scanned page error:', e.message);
@@ -359,19 +387,30 @@ async function extractDocumentText(file, timeoutMs) {
       if (file.pageCount && file.pageCount > pages.length) {
         parts.push(`[Only the first ${pages.length} of ${file.pageCount} pages were read.]`);
       }
-      return { text: parts.join('\n\n'), usage: { prompt_tokens: pt, completion_tokens: ct } };
+      const usage = { prompt_tokens: pt, completion_tokens: ct };
+      // Nothing at all could be read from any page → treat the whole file as unread.
+      // (If at least one page was read, the file counts as read; the text notes which pages were missed.)
+      if (okPages === 0) {
+        const res = unread(parts.join('\n\n'), "Pages couldn't be read", true);
+        res.usage = usage; // tokens were still spent
+        return res;
+      }
+      return { text: parts.join('\n\n'), usage };
     }
 
-    if (!file.base64) return { text: UNREADABLE_FILE_MSG, usage: null };
+    if (!file.base64) return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
     if (file.base64.length > MAX_FILE_BASE64_CHARS) {
-      return { text: '[This file is too large to read. Please upload a smaller or lower-resolution version, or describe its contents in your message.]', usage: null };
+      return unread('[This file is too large to read. Please upload a smaller or lower-resolution version, or describe its contents in your message.]', 'Too large', false);
     }
 
     // Word (.docx) — read the text with mammoth.
     if (mime.includes('wordprocessingml') || /\.docx$/i.test(name)) {
       const result = await mammoth.extractRawText({ buffer: Buffer.from(file.base64, 'base64') });
       const text = (result.value || '').trim();
-      return { text: text || '[This Word file has no readable text (it may contain only images). Please describe its contents in your message instead.]', usage: null };
+      if (!text) {
+        return unread('[This Word file has no readable text (it may contain only images). Please describe its contents in your message instead.]', 'No readable text', false);
+      }
+      return { text, usage: null };
     }
 
     // Text PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
@@ -380,7 +419,7 @@ async function extractDocumentText(file, timeoutMs) {
       let text = (data.text || '').trim();
       if (!text) {
         // Backup only: cv.html normally catches scanned PDFs before sending.
-        return { text: '[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]', usage: null };
+        return unread('[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]', 'No readable text', false);
       }
       if (data.numpages && data.numpages > MAX_PDF_PAGES) {
         text += `\n[Only the first ${MAX_PDF_PAGES} of ${data.numpages} pages were read.]`;
@@ -391,13 +430,18 @@ async function extractDocumentText(file, timeoutMs) {
     // Images: DeepSeek vision
     if (mime.startsWith('image/')) {
       const r = await visionRead(file.base64, mime, Math.min(20000, budget));
-      return { text: r.text || UNREADABLE_FILE_MSG, usage: r.usage };
+      if (!r.text) {
+        const res = unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
+        res.usage = r.usage; // tokens were still spent
+        return res;
+      }
+      return { text: r.text, usage: r.usage };
     }
 
-    return { text: UNREADABLE_FILE_MSG, usage: null };
+    return unread(UNREADABLE_FILE_MSG, 'Unsupported file type', false);
   } catch (e) {
     console.error('extractDocumentText error:', e.message);
-    return { text: UNREADABLE_FILE_MSG, usage: null };
+    return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
   }
 }
 
@@ -479,6 +523,11 @@ exports.handler = async (event, context) => {
     return deductTokens(db, body.userId, usedCost, { feature: 'cv-chat', promptTokens: usedPrompt, completionTokens: usedCompletion });
   }
 
+  // Files that couldn't be read this turn — sent back to cv.html, which shows
+  // them in a box with a Retry button. `index` is the position in newUserFiles
+  // (so the client can find the original file data again).
+  const unreadFiles = [];
+
   // Any attached file is converted to text FIRST (images via DeepSeek vision,
   // PDFs via pdf-parse — the chat loop itself is text-only) and folded into
   // the user's message as clearly-labelled extracted text.
@@ -486,7 +535,7 @@ exports.handler = async (event, context) => {
   //    simultaneous requests), under a total time budget so a slow batch can't
   //    use up the function's whole time limit before the chat model runs.
   //  - At most MAX_FILES_PER_TURN files are read; the rest are flagged so the
-  //    user can resend them.
+  //    user can retry them.
   //  - Text is capped per file and in total (see LIMITS above).
   //  - Vision token usage is added to this turn's billing totals.
   if (newUserText || (newUserFiles && newUserFiles.length)) {
@@ -502,7 +551,7 @@ exports.handler = async (event, context) => {
     for (const f of toRead) {
       const left = EXTRACTION_TIME_BUDGET_MS - (Date.now() - extractStart);
       if (left <= 1500) {
-        results.push({ text: '[Not read: ran out of time reading the earlier files. Please send this one in a separate message.]', usage: null });
+        results.push(unread('[NOT READ: ran out of time reading the earlier files.]', 'Ran out of time', true));
         continue;
       }
       results.push(await extractDocumentText(f, Math.min(20000, left)));
@@ -519,17 +568,36 @@ exports.handler = async (event, context) => {
       }
       let text;
       if (charsLeft <= 0) {
-        text = '[Not included: the files above already used up the text limit for this message. Please send this one in a separate message.]';
+        text = '[NOT READ: the files above already used up the text limit for this message.]';
+        unreadFiles.push({ index: i, filename: f.filename || 'File', reason: 'Message size limit', retryable: true });
       } else {
+        if (r.failed) {
+          unreadFiles.push({ index: i, filename: f.filename || 'File', reason: r.reason || "Couldn't be read", retryable: !!r.retryable });
+        }
         text = clipText(r.text, Math.min(MAX_CHARS_PER_FILE, charsLeft), f.filename || 'This file');
         charsLeft -= text.length;
       }
       combinedText += `\n\n[Attached file: ${f.filename}]\n${text}`;
     });
 
-    skipped.forEach(f => {
-      combinedText += `\n\n[Attached file: ${f.filename}]\n[Not read: only the first ${MAX_FILES_PER_TURN} files per message are read. Please send this one in a separate message.]`;
+    skipped.forEach((f, k) => {
+      combinedText += `\n\n[Attached file: ${f.filename}]\n[NOT READ: only the first ${MAX_FILES_PER_TURN} files per message are read.]`;
+      unreadFiles.push({ index: MAX_FILES_PER_TURN + k, filename: f.filename || 'File', reason: 'Over the file limit', retryable: true });
     });
+
+    // Tell the model which files were missed and how to advise the user. This
+    // note is part of the conversation, so it also works for sessions that
+    // started with an older system prompt.
+    if (unreadFiles.length) {
+      const names = unreadFiles.map(u => u.filename).join(', ');
+      const canRetry = unreadFiles.some(u => u.retryable);
+      const cannotRetry = unreadFiles.filter(u => !u.retryable).map(u => u.filename);
+      combinedText += `\n\n[System note, not from the user: these files could NOT be read: ${names}.` +
+        (canRetry ? ` The app shows the user a box with a Retry button under your next reply; it reads only the unread files and keeps everything already read, so never ask the user to re-upload or resend them.` : '') +
+        ` Say plainly which file names were not read. Then judge: if what WAS read already gives enough to build a good CV, say the missing files probably aren't essential and suggest continuing with what you have (Retry stays available if they change their mind). If the missing files likely hold key information (e.g. the only transcript or an old CV), recommend pressing Retry first.` +
+        (cannotRetry.length ? ` These cannot be read even on retry (${cannotRetry.join(', ')}): ask the user to describe what's in them if it matters.` : '') +
+        ` Keep this to one or two sentences and never guess what an unread file contains.]`;
+    }
 
     messages.push({ role: 'user', content: combinedText.trim() || '(no message)' });
 
@@ -566,7 +634,7 @@ exports.handler = async (event, context) => {
         const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance })
+          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
         };
       }
 
@@ -596,7 +664,7 @@ exports.handler = async (event, context) => {
     const tokenBalance = await chargeOnce();
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
     };
 
   } catch (error) {
