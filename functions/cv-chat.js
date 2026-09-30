@@ -36,10 +36,11 @@
 //      text first, in extractDocumentText():
 //        - images  → DeepSeek vision (same model/endpoint shape used by
 //                    extract-payment-screenshot.js)
-//        - PDFs    → pdf-parse (text-based PDFs only; DeepSeek can't take a
-//                    PDF as input, and cv.html doesn't rasterise PDFs before
-//                    sending, so scanned/image-only PDFs can't be read here
-//                    and the user is asked to upload page photos instead)
+//        - PDFs    → pdf-parse (text PDFs; DeepSeek can't take a PDF as input)
+//        - scanned PDFs → cv.html detects these with PDF.js, draws the first
+//                    pages to images and sends them as file.pages (no PDF);
+//                    each page image is then read with DeepSeek vision
+//        - Word (.docx) → mammoth (old .doc is rejected in cv.html)
 //      The conversation model then only ever sees that extracted text,
 //      labelled with the filename, never the raw file.
 //
@@ -135,6 +136,7 @@ function resolveTemplate(templateId) {
   return TEMPLATES[templateId] || TEMPLATES[DEFAULT_TEMPLATE_ID];
 }
 const pdfParse = require('pdf-parse');
+const mammoth  = require('mammoth');
 const { sendPdfDocument } = require('./lib/telegram-send');
 
 const {
@@ -250,6 +252,7 @@ const TOOLS = [
 // more expensive, and can overflow the model's context. These caps keep that
 // bounded. Raise/lower them here; nothing else needs to change.
 const MAX_FILES_PER_TURN   = 5;            // keep in step with MAX_FILES_PER_MESSAGE in cv.html; extra files are not read (user is told)
+const MAX_SCANNED_PAGES    = 4;            // keep in step with MAX_SCANNED_PAGES in cv.html
 const MAX_PDF_PAGES        = 10;           // pdf-parse only reads this many pages
 const MAX_CHARS_PER_FILE   = 15000;        // ~4k tokens per file
 const MAX_CHARS_TOTAL      = 30000;        // across all files in one message
@@ -285,24 +288,98 @@ function extractionCostCT(usage) {
   return 0;
 }
 
-// Returns { text, usage } — usage is DeepSeek's reported token usage for this
-// file (null for PDFs, which make no API call).
-async function extractDocumentText(file, timeoutMs) {
-  try {
-    const mime = (file && file.mediaType) || '';
+// One DeepSeek vision call on one image. Returns { text, usage }.
+async function visionRead(base64, mime, timeoutMs) {
+  const res = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_VISION_MODEL,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACT_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+        ]
+      }]
+    }),
+    signal: AbortSignal.timeout(timeoutMs || 20000)
+  });
 
-    if (!file || !file.base64) return { text: UNREADABLE_FILE_MSG, usage: null };
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message
+    ? data.choices[0].message.content
+    : '';
+  return { text: String(text || '').trim(), usage: data.usage || null };
+}
+
+// Returns { text, usage } — usage is DeepSeek's reported token usage for this
+// file (null when no API call was made, e.g. text PDFs and Word files).
+// `timeoutMs` is the time left in this turn's extraction budget.
+async function extractDocumentText(file, timeoutMs) {
+  const started = Date.now();
+  const budget = timeoutMs || 20000;
+  try {
+    if (!file) return { text: UNREADABLE_FILE_MSG, usage: null };
+    const mime = file.mediaType || '';
+    const name = file.filename || '';
+
+    // Scanned PDF — cv.html already drew its first pages to JPEG images.
+    if (Array.isArray(file.pages) && file.pages.length) {
+      const totalChars = file.pages.reduce((n, pg) => n + (pg ? pg.length : 0), 0);
+      if (totalChars > MAX_FILE_BASE64_CHARS) {
+        return { text: '[This scanned PDF is too large to read. Please upload a smaller version, or describe its contents in your message.]', usage: null };
+      }
+      const pages = file.pages.slice(0, MAX_SCANNED_PAGES);
+      const parts = [];
+      let pt = 0, ct = 0;
+      for (let i = 0; i < pages.length; i++) {
+        const left = budget - (Date.now() - started);
+        if (left <= 1500) {
+          parts.push(`[Pages ${i + 1}-${pages.length} were not read: ran out of time. Please send them in a separate message.]`);
+          break;
+        }
+        try {
+          const r = await visionRead(pages[i], 'image/jpeg', Math.min(20000, left));
+          parts.push(`--- Page ${i + 1} ---\n${r.text || '[No readable text on this page.]'}`);
+          if (r.usage) { pt += r.usage.prompt_tokens || 0; ct += r.usage.completion_tokens || 0; }
+        } catch (e) {
+          console.error('extractDocumentText scanned page error:', e.message);
+          parts.push(`--- Page ${i + 1} ---\n[Could not read this page.]`);
+        }
+      }
+      if (file.pageCount && file.pageCount > pages.length) {
+        parts.push(`[Only the first ${pages.length} of ${file.pageCount} pages were read.]`);
+      }
+      return { text: parts.join('\n\n'), usage: { prompt_tokens: pt, completion_tokens: ct } };
+    }
+
+    if (!file.base64) return { text: UNREADABLE_FILE_MSG, usage: null };
     if (file.base64.length > MAX_FILE_BASE64_CHARS) {
       return { text: '[This file is too large to read. Please upload a smaller or lower-resolution version, or describe its contents in your message.]', usage: null };
     }
 
-    // PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
-    if (mime.includes('pdf')) {
+    // Word (.docx) — read the text with mammoth.
+    if (mime.includes('wordprocessingml') || /\.docx$/i.test(name)) {
+      const result = await mammoth.extractRawText({ buffer: Buffer.from(file.base64, 'base64') });
+      const text = (result.value || '').trim();
+      return { text: text || '[This Word file has no readable text (it may contain only images). Please describe its contents in your message instead.]', usage: null };
+    }
+
+    // Text PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
+    if (mime.includes('pdf') || /\.pdf$/i.test(name)) {
       const data = await pdfParse(Buffer.from(file.base64, 'base64'), { max: MAX_PDF_PAGES });
       let text = (data.text || '').trim();
       if (!text) {
-        // Scanned / image-only PDF: no text layer, and cv.html doesn't
-        // rasterise PDFs before sending them.
+        // Backup only: cv.html normally catches scanned PDFs before sending.
         return { text: '[This PDF looks scanned (no text inside). Please upload it as photos/screenshots of each page instead, or describe its contents in your message.]', usage: null };
       }
       if (data.numpages && data.numpages > MAX_PDF_PAGES) {
@@ -313,35 +390,8 @@ async function extractDocumentText(file, timeoutMs) {
 
     // Images: DeepSeek vision
     if (mime.startsWith('image/')) {
-      const res = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-        },
-        body: JSON.stringify({
-          model: DEEPSEEK_VISION_MODEL,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: EXTRACT_PROMPT },
-              { type: 'image_url', image_url: { url: `data:${mime};base64,${file.base64}` } }
-            ]
-          }]
-        }),
-        signal: AbortSignal.timeout(timeoutMs || 20000)
-      });
-
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      }
-
-      const data = await res.json();
-      const text = data && data.choices && data.choices[0] && data.choices[0].message
-        ? data.choices[0].message.content
-        : '';
-      return { text: String(text || '').trim() || UNREADABLE_FILE_MSG, usage: data.usage || null };
+      const r = await visionRead(file.base64, mime, Math.min(20000, budget));
+      return { text: r.text || UNREADABLE_FILE_MSG, usage: r.usage };
     }
 
     return { text: UNREADABLE_FILE_MSG, usage: null };
