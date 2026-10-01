@@ -32,12 +32,27 @@
 //   - DeepSeek succeeded but the image genuinely doesn't show amount/sender,
 //     or returned unparseable output → the "could not read the screenshot"
 //     message, which is accurate in that case.
+//
+// FIX: one automatic retry. A DeepSeek call that fails with HTTP 429 / 5xx, a
+// timeout or a network error is tried one more time (after a short pause, and
+// only if enough time is left) before the user is told it didn't work. Errors
+// that would fail the same way again (for example HTTP 400) are not retried.
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
+
+// ── Time budget (milliseconds) ───────────────────────────────────────────
+// Keep TOTAL comfortably under this function's timeout. If your function
+// timeout is lower than 26 seconds, lower these numbers to match.
+const TOTAL_BUDGET_MS  = 22000; // all DeepSeek attempts together
+const FIRST_ATTEMPT_MS = 16000; // longest the first attempt may take
+const MIN_RETRY_MS     = 4000;  // don't start a retry with less time than this
+const RETRY_PAUSE_MS   = 700;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Classifies a DeepSeek/network failure as a service-side issue (quota, rate
 // limit, outage, connectivity, billing) rather than an image-content problem.
@@ -64,30 +79,55 @@ Reply ONLY with valid JSON, no markdown, no explanation, in exactly this shape:
 
 If amount or senderName cannot be found, use null for that field.`;
 
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
-    },
-    body: JSON.stringify({
-      model: 'deepseek-flash',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: `data:${mime || 'image/jpeg'};base64,${base64}` } }
-        ]
-      }]
-    }),
-    signal: AbortSignal.timeout(20000)
+  const requestBody = JSON.stringify({
+    model: 'deepseek-flash',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:${mime || 'image/jpeg'};base64,${base64}` } }
+      ]
+    }]
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const err = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
-    err.isService = true; // our API key / quota / outage — not the user's screenshot
-    throw err;
+  const started = Date.now();
+  let res = null;
+  let lastErr = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const left = TOTAL_BUDGET_MS - (Date.now() - started);
+    if (attempt > 0 && left < MIN_RETRY_MS) break;
+    const timeoutMs = attempt === 0 ? Math.min(FIRST_ATTEMPT_MS, left) : left;
+
+    res = null;
+    lastErr = null;
+    try {
+      res = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      if (res.ok) break;
+
+      const detail = await res.text().catch(() => '');
+      lastErr = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+      lastErr.isService = true; // our API key / quota / outage — not the user's screenshot
+      if (!(res.status === 429 || res.status >= 500)) break; // would fail the same way again
+    } catch (e) {
+      // timeout or network problem
+      lastErr = new Error('DeepSeek request failed: ' + e.message);
+      lastErr.isService = true;
+    }
+
+    if (attempt === 0) await sleep(RETRY_PAUSE_MS);
+  }
+
+  if (lastErr || !res || !res.ok) {
+    throw lastErr || new Error('DeepSeek request failed');
   }
 
   const data = await res.json();
