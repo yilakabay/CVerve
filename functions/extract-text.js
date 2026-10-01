@@ -3,6 +3,26 @@ const mammoth  = require('mammoth');
 const tesseract = require('tesseract.js');
 const sharp    = require('sharp');
 
+// ── Time budget ──────────────────────────────────────────────────────────
+// OCR with tesseract is slow, and the function used to keep going until the
+// platform killed it — the user then got a plain error and NOTHING was read.
+// Now each file gets only the time that is left in this budget. If a file
+// takes too long, it is reported as "took too long" and the function still
+// answers in time with whatever WAS read, so the app can show a clear message
+// (or fall back to reading the PDF as page images, a couple of pages at a time).
+// Keep this comfortably under the function's timeout (netlify.toml / dashboard).
+const EXTRACTION_BUDGET_MS = 20000;
+const MIN_TIME_TO_START_FILE_MS = 2000;
+
+// Resolves with the promise's result, or rejects after `ms` milliseconds.
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * OCR a single image buffer with tesseract (with sharp pre-processing).
  */
@@ -86,6 +106,7 @@ async function extractTextFromFile(base64Data, mimeType) {
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
+  const startedAt = Date.now();
 
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -119,8 +140,19 @@ exports.handler = async (event, context) => {
         continue;
       }
 
+      // Only the time that is left may be spent on this file.
+      const timeLeft = EXTRACTION_BUDGET_MS - (Date.now() - startedAt);
+      if (timeLeft < MIN_TIME_TO_START_FILE_MS) {
+        combinedText += `[File ${i + 1}: not read — ran out of time]\n\n`;
+        continue;
+      }
+
       try {
-        const text = await extractTextFromFile(file.data, file.type);
+        const text = await withTimeout(
+          extractTextFromFile(file.data, file.type),
+          timeLeft,
+          'This file took too long to read'
+        );
         if (text && text.trim().length > 0) {
           combinedText += text + '\n\n';
           successfulFiles++;
