@@ -44,6 +44,25 @@
 //      The conversation model then only ever sees that extracted text,
 //      labelled with the filename, never the raw file.
 //
+// ── FIX: files are now read BEFORE this function is called ───────────────
+// Reading files used to happen inside this function, one after another,
+// sharing one time limit with the whole chat loop — so a few images or a
+// scanned PDF could run out of time and the user lost the turn. Now cv.html
+// does the reading first:
+//   - text PDFs and Word files are read in the browser (PDF.js / mammoth),
+//   - images and scanned pages are read one by one by extract-file.js, each
+//     with its own timeout and one automatic retry.
+// cv.html then sends each file in one of these shapes:
+//   { filename, mediaType, extractedText }   → already read, nothing to do here
+//   { filename, mediaType, readError, readRetryable }
+//                                           → the browser tried and failed; it
+//                                             is listed as NOT READ so the user
+//                                             gets the Retry box
+//   { filename, mediaType, base64 | pages } → old shape; still read here exactly
+//                                             as before, as a fallback
+// Because of this, this function now only has to run the chat loop, and a
+// Retry only re-reads the files that are still missing.
+//
 // ── FEATURE: unread files + "Retry" box ──────────────────────────────────
 // When a file can't be read (vision failed, ran out of time, over the
 // per-message file limit, too large, no text inside...), three things happen:
@@ -258,8 +277,14 @@ const TOOLS = [
 
 // ── Document/photo text extraction via DeepSeek (images) + pdf-parse (PDFs) ──
 // The conversation loop is text-only, so every attachment is turned into
-// plain text here before the model ever sees it. See the MODEL note at the
+// plain text before the model ever sees it. See the MODEL note at the
 // top of this file for why PDFs and images take different paths.
+//
+// NOTE: cv.html now reads most files BEFORE calling this function (see the
+// "files are now read BEFORE this function is called" note at the top). The
+// code below is the fallback for files that arrive in the old shape
+// (base64 / pages) — it is unchanged except that vision calls now retry once
+// and failures give a clearer reason.
 //
 // ── LIMITS (why they exist) ──────────────────────────────────────────────
 // Extracted text is pasted into the conversation, and the WHOLE conversation
@@ -312,30 +337,44 @@ function extractionCostCT(usage) {
   return 0;
 }
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 // One DeepSeek vision call on one image. Returns { text, usage }.
+// Errors are tagged `transient` when trying again could plausibly work
+// (rate limit, server error, timeout, network) so callers can tell a busy
+// service apart from a bad file.
 async function visionRead(base64, mime, timeoutMs) {
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_VISION_MODEL,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: EXTRACT_PROMPT },
-          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
-        ]
-      }]
-    }),
-    signal: AbortSignal.timeout(timeoutMs || 20000)
-  });
+  let res;
+  try {
+    res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_VISION_MODEL,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: EXTRACT_PROMPT },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+          ]
+        }]
+      }),
+      signal: AbortSignal.timeout(timeoutMs || 20000)
+    });
+  } catch (e) {
+    const err = new Error('DeepSeek request failed: ' + e.message);
+    err.transient = true; // timeout or network problem
+    throw err;
+  }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+    const err = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
+    err.transient = res.status === 429 || res.status === 408 || res.status >= 500;
+    throw err;
   }
 
   const data = await res.json();
@@ -343,6 +382,21 @@ async function visionRead(base64, mime, timeoutMs) {
     ? data.choices[0].message.content
     : '';
   return { text: String(text || '').trim(), usage: data.usage || null };
+}
+
+// visionRead with ONE retry — only for problems that usually pass by
+// themselves, and only if enough time is left in `timeoutMs`.
+async function visionReadWithRetry(base64, mime, timeoutMs) {
+  const total = timeoutMs || 20000;
+  const started = Date.now();
+  try {
+    return await visionRead(base64, mime, Math.round(total * 0.6));
+  } catch (e) {
+    const left = total - (Date.now() - started) - 700;
+    if (!e.transient || left < 3000) throw e;
+    await sleep(700);
+    return await visionRead(base64, mime, left);
+  }
 }
 
 // Returns { text, usage } — usage is DeepSeek's reported token usage for this
@@ -375,7 +429,7 @@ async function extractDocumentText(file, timeoutMs) {
           break;
         }
         try {
-          const r = await visionRead(pages[i], 'image/jpeg', Math.min(20000, left));
+          const r = await visionReadWithRetry(pages[i], 'image/jpeg', Math.min(20000, left));
           parts.push(`--- Page ${i + 1} ---\n${r.text || '[No readable text on this page.]'}`);
           if (r.text) okPages++;
           if (r.usage) { pt += r.usage.prompt_tokens || 0; ct += r.usage.completion_tokens || 0; }
@@ -429,7 +483,7 @@ async function extractDocumentText(file, timeoutMs) {
 
     // Images: DeepSeek vision
     if (mime.startsWith('image/')) {
-      const r = await visionRead(file.base64, mime, Math.min(20000, budget));
+      const r = await visionReadWithRetry(file.base64, mime, Math.min(20000, budget));
       if (!r.text) {
         const res = unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
         res.usage = r.usage; // tokens were still spent
@@ -441,7 +495,10 @@ async function extractDocumentText(file, timeoutMs) {
     return unread(UNREADABLE_FILE_MSG, 'Unsupported file type', false);
   } catch (e) {
     console.error('extractDocumentText error:', e.message);
-    return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
+    // A busy/slow service is worth a Retry; a file that failed to parse would
+    // fail the same way again, so it is not offered one.
+    if (e && e.transient) return unread(UNREADABLE_FILE_MSG, 'Service busy — press Retry', true);
+    return unread(UNREADABLE_FILE_MSG, "Couldn't be read", false);
   }
 }
 
@@ -528,12 +585,15 @@ exports.handler = async (event, context) => {
   // (so the client can find the original file data again).
   const unreadFiles = [];
 
-  // Any attached file is converted to text FIRST (images via DeepSeek vision,
-  // PDFs via pdf-parse — the chat loop itself is text-only) and folded into
-  // the user's message as clearly-labelled extracted text.
-  //  - Files are read ONE AT A TIME (avoids hitting DeepSeek with several
-  //    simultaneous requests), under a total time budget so a slow batch can't
-  //    use up the function's whole time limit before the chat model runs.
+  // Any attached file is turned into text FIRST (the chat loop itself is
+  // text-only) and folded into the user's message as clearly-labelled
+  // extracted text.
+  //  - Files cv.html already read arrive as extractedText (or as a readError
+  //    if the browser tried and failed) — nothing more to do for those.
+  //  - Files in the old shape (base64 / pages) are still read here, ONE AT A
+  //    TIME (avoids hitting DeepSeek with several simultaneous requests),
+  //    under a total time budget so a slow batch can't use up the function's
+  //    whole time limit before the chat model runs.
   //  - At most MAX_FILES_PER_TURN files are read; the rest are flagged so the
   //    user can retry them.
   //  - Text is capped per file and in total (see LIMITS above).
@@ -544,11 +604,25 @@ exports.handler = async (event, context) => {
     const toRead  = allFiles.slice(0, MAX_FILES_PER_TURN);
     const skipped = allFiles.slice(MAX_FILES_PER_TURN);
 
-    // One at a time, in the order attached. Stops starting new files once the
-    // time budget is spent; each vision call is also capped to the time left.
+    // In the order attached. Stops starting new files once the time budget is
+    // spent; each vision call is also capped to the time left.
     const results = [];
     const extractStart = Date.now();
     for (const f of toRead) {
+      // Already read in the browser — use it as is.
+      if (f && typeof f.extractedText === 'string') {
+        const t = f.extractedText.trim();
+        results.push(t
+          ? { text: t, usage: null }
+          : unread('[This file has no readable text. Please describe its contents in your message instead.]', 'No readable text', false));
+        continue;
+      }
+      // The browser tried to read it and failed — list it as not read so the user gets the Retry box.
+      if (f && f.readError) {
+        results.push(unread('[NOT READ: ' + f.readError + ']', f.readError, f.readRetryable !== false));
+        continue;
+      }
+
       const left = EXTRACTION_TIME_BUDGET_MS - (Date.now() - extractStart);
       if (left <= 1500) {
         results.push(unread('[NOT READ: ran out of time reading the earlier files.]', 'Ran out of time', true));
