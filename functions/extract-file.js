@@ -5,8 +5,23 @@
 // Reads the text of ONE image (or ONE page of a scanned PDF that cv.html has
 // already drawn to a JPEG) using DeepSeek vision, and returns it.
 //
+// ── NETLIFY FREE PLAN TIME LIMIT ──────────────────────────────────────────
+// Netlify's free plan runs synchronous Functions with a HARD 10-second
+// execution ceiling (the longer 26s limit is Pro-only). The budgets below
+// used to total 22s, which meant Netlify itself was killing this function
+// with a raw 502/504 well before any of the code's own "ran out of time"
+// or retry logic ever got a chance to run — that's what was showing up as
+// "extraction fails" with no clean error message.
+//
+// All budgets below are now sized to fit inside 10s, including: JSON parse,
+// DB connect + authenticate() (can be slow on a cold Lambda/Mongo
+// connection), the DeepSeek vision call itself, and a possible one retry.
+// If you move this function to a paid Netlify plan with a longer timeout,
+// you can raise TOTAL_BUDGET_MS and FIRST_ATTEMPT_MS back up — bigger/denser
+// images and a full retry attempt both genuinely do better with more room.
+//
 // ── WHY THIS FUNCTION EXISTS ─────────────────────────────────────────────
-// Before, cv-chat.js read every attached file itself, one after another,
+// cv-chat.js used to read every attached file itself, one after another,
 // inside the SAME function call that then also had to run the whole chat
 // loop. A few images (or a scanned PDF) could use up the time budget, and if
 // the function was killed the user lost the whole turn.
@@ -22,7 +37,10 @@
 // One automatic retry, ONLY for problems that usually go away by themselves
 // (HTTP 429 / 5xx / a timeout / a network error) and ONLY if enough time is
 // left. Other errors (for example HTTP 400) would fail the same way again,
-// so they are reported straight away.
+// so they are reported straight away. Given the free-plan ceiling, there is
+// usually only room for a short retry, not a full second attempt — the code
+// below always re-checks how much time is actually left rather than
+// assuming a fixed retry budget exists.
 //
 // ── RESPONSE ─────────────────────────────────────────────────────────────
 //   success:  200 { success:true, text, usage }     (text may be '' if the image has no text)
@@ -42,14 +60,15 @@ const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model cv-chat.js and ext
 // Same dev gate as cv-chat.js — only this account may use the CV feature for now.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
-// ── Time budget (milliseconds) ───────────────────────────────────────────
-// Keep TOTAL comfortably under this function's timeout in netlify.toml /
-// the Netlify dashboard. If your function timeout is lower than 26 seconds,
-// lower these numbers to match.
-const TOTAL_BUDGET_MS  = 22000; // whole call, including logging in
-const FIRST_ATTEMPT_MS = 16000; // longest the first DeepSeek call may take
-const MIN_RETRY_MS     = 4000;  // don't start a retry with less time than this
-const RETRY_PAUSE_MS   = 700;
+// ── Time budget (milliseconds) — MUST fit inside Netlify's free-plan 10s cap ──
+// TOTAL_BUDGET_MS is measured from the very start of the handler (before
+// auth), so DB/auth time is automatically taken out of what's left for the
+// DeepSeek call. Keep a safety margin below 10000 for cold starts, network
+// jitter, and the time this function itself needs to parse/serialize JSON.
+const TOTAL_BUDGET_MS  = 9000;  // whole call, including auth — stay under Netlify's 10s free-plan ceiling
+const FIRST_ATTEMPT_MS = 6500;  // longest the first DeepSeek call may take
+const MIN_RETRY_MS     = 1800;  // don't start a retry with less time than this
+const RETRY_PAUSE_MS   = 300;   // short — there usually isn't much time to spare
 
 const MAX_BASE64_CHARS = 4.5 * 1024 * 1024; // one file per call, so this stays well under the ~6 MB request limit
 
@@ -137,6 +156,15 @@ exports.handler = async (event, context) => {
   }
   if (base64.length > MAX_BASE64_CHARS) {
     return { statusCode: 200, body: JSON.stringify({ success: false, reason: 'Too large', retryable: false, error: 'This image is too large to read.' }) };
+  }
+
+  // If auth/DB already ate most of the budget (cold start, slow Mongo
+  // connection), there may not be enough time left to even attempt a
+  // DeepSeek call safely. Fail fast with a clean, retryable error instead
+  // of starting a fetch that Netlify will kill mid-flight.
+  const afterAuthLeft = TOTAL_BUDGET_MS - (Date.now() - started);
+  if (afterAuthLeft < 2500) {
+    return { statusCode: 200, body: JSON.stringify({ success: false, reason: 'Service busy — press Retry', retryable: true, error: 'Not enough time left in this request after logging in.' }) };
   }
 
   let lastErr = null;
