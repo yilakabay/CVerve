@@ -785,7 +785,8 @@ exports.handler = async (event, context) => {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        reply: "That took a bit long to process on this end — nothing was lost. Please send your message again (or press Retry on any files above) to continue.",
+        reply: "That took a bit long to process on this end — nothing was lost.",
+        needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
         messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
         tokensUsed: usedCost, tokenBalance, unreadFiles
       })
@@ -806,7 +807,8 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           body: JSON.stringify({
             success: true,
-            reply: "I've made some progress — send another message (even just \"continue\") and I'll pick up right where we left off.",
+            reply: "I've made some progress.",
+            needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
             messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
             tokensUsed: usedCost, tokenBalance, unreadFiles
           })
