@@ -7,6 +7,50 @@
 // with the user, one message at a time. The client keeps the full message
 // history and re-sends it every turn (this function is stateless).
 //
+// ── NETLIFY FREE PLAN TIME LIMIT — READ THIS FIRST ────────────────────────
+// Netlify's free plan runs synchronous Functions with a HARD 10-second
+// execution ceiling (the 26s+ window is Pro-only). This function does TWO
+// time-hungry things in sequence — (1) a file-extraction fallback step, then
+// (2) a tool-use loop that can call DeepSeek up to MAX_TOOL_ITERATIONS times,
+// each one a full network round trip — and the old budgets (15s just for
+// extraction, with no cap at all on the loop's own time) could never fit in
+// 10s together. When Netlify killed the function mid-loop, the user lost the
+// whole turn with no clean error and — worse — with no guarantee of which
+// DeepSeek calls had already been billed.
+//
+// Two changes fix this:
+//   1. EXTRACTION_TIME_BUDGET_MS is cut down a lot (see below). In normal
+//      operation this fallback path barely runs anyway, because cv.html now
+//      reads images/PDFs via extract-file.js BEFORE calling this function —
+//      see the "FIX: files are now read BEFORE this function is called" note
+//      further down. This budget only matters for the old-shape fallback.
+//   2. A single HANDLER_DEADLINE_MS wall-clock budget now wraps the WHOLE
+//      handler. Before extraction starts, and before every single DeepSeek
+//      call inside the tool loop, the code checks how much real time is
+//      left. If there isn't enough left to safely attempt another call, it
+//      stops on its own — charges for whatever was actually used, and
+//      returns a normal, clean reply asking the user to send another
+//      message to continue — instead of letting Netlify hard-kill the
+//      function mid-call.
+//
+// This does mean a genuinely complex turn (lots of files + several tool
+// calls) may now take 2-3 user messages instead of 1 on the free plan. That
+// trade-off is unavoidable on a 10s ceiling — the alternative is what you
+// had before (silent failures). If you upgrade to a paid Netlify plan with a
+// longer timeout, raise HANDLER_DEADLINE_MS and EXTRACTION_TIME_BUDGET_MS
+// back up and most turns will go back to finishing in one shot.
+//
+// ⚠️ ONE THING THIS FILE CANNOT FIX ON ITS OWN: callDeepSeek() itself (in
+// lib/ai-billing.js) isn't shown here, so I don't know whether its own HTTP
+// call has a timeout, and if so, how long. If it has no timeout (or a long
+// one, e.g. 20-30s), a single slow DeepSeek response can still blow past
+// Netlify's 10s limit on its own, regardless of the deadline checks added
+// below — those checks only stop a NEW call from starting, they can't
+// interrupt one already in flight. If you want this fully airtight, share
+// lib/ai-billing.js so callDeepSeek's own request timeout can be capped to
+// fit whatever time is left (the loop below already computes that number —
+// see `timeLeftForCall` — it just isn't passed anywhere yet).
+//
 // ── BILLING (CT tokens) ──────────────────────────────────────────────────
 // The body must include `sessionToken` (issued at login by verify-otp.js or
 // telegram-auth.js — see lib/session.js; this replaces the old password
@@ -61,7 +105,10 @@
 //   { filename, mediaType, base64 | pages } → old shape; still read here exactly
 //                                             as before, as a fallback
 // Because of this, this function now only has to run the chat loop, and a
-// Retry only re-reads the files that are still missing.
+// Retry only re-reads the files that are still missing. In normal operation
+// nearly every file arrives already-read (extractedText/readError), so the
+// old-shape fallback path below — the one actually bound by
+// EXTRACTION_TIME_BUDGET_MS — should rarely execute at all.
 //
 // ── FEATURE: unread files + "Retry" box ──────────────────────────────────
 // When a file can't be read (vision failed, ran out of time, over the
@@ -179,7 +226,29 @@ const {
 } = require('./lib/ai-billing');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop
+const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see HANDLER_DEADLINE_MS below for the real, time-based cap
+
+// ── Whole-handler wall-clock deadline — MUST fit inside Netlify's free-plan
+// 10s cap ─────────────────────────────────────────────────────────────────
+// This is the actual guard against Netlify hard-killing the function mid
+// tool-loop. It is checked (a) once before the extraction fallback runs and
+// (b) before every single DeepSeek call inside the tool loop. If too little
+// time is left to safely start another call, the code stops itself, bills
+// for whatever was genuinely used, and returns a normal reply asking the
+// user to continue — instead of letting the platform kill it mid-request.
+//
+// 8500ms leaves ~1.5s of margin inside Netlify's 10s free-plan ceiling for
+// JSON parsing, response serialization, and general runtime jitter. Raise
+// this (e.g. to ~24000 on a 26s paid-plan timeout) if you upgrade.
+const HANDLER_DEADLINE_MS = 8500;
+// Don't even start a DeepSeek chat-loop call with less than this much time
+// left — a deepseek-chat call realistically needs at least this long to
+// have a chance of finishing instead of being cut off mid-stream.
+const MIN_TIME_TO_START_CHAT_CALL_MS = 3000;
+
+function timeLeft(startedAt) {
+  return HANDLER_DEADLINE_MS - (Date.now() - startedAt);
+}
 
 // ── DEV ACCESS GATE ──────────────────────────────────────────────────────
 // While the CV feature is being built and tested, only this one account may
@@ -284,7 +353,9 @@ const TOOLS = [
 // "files are now read BEFORE this function is called" note at the top). The
 // code below is the fallback for files that arrive in the old shape
 // (base64 / pages) — it is unchanged except that vision calls now retry once
-// and failures give a clearer reason.
+// and failures give a clearer reason, AND the time budgets are now small
+// enough to fit alongside the chat loop inside Netlify's free-plan 10s cap
+// (see HANDLER_DEADLINE_MS above and EXTRACTION_TIME_BUDGET_MS below).
 //
 // ── LIMITS (why they exist) ──────────────────────────────────────────────
 // Extracted text is pasted into the conversation, and the WHOLE conversation
@@ -298,10 +369,20 @@ const MAX_PDF_PAGES        = 10;           // pdf-parse only reads this many pag
 const MAX_CHARS_PER_FILE   = 15000;        // ~4k tokens per file
 const MAX_CHARS_TOTAL      = 30000;        // across all files in one message
 const MAX_FILE_BASE64_CHARS = 5.5 * 1024 * 1024; // skip absurdly large single files
-const EXTRACTION_TIME_BUDGET_MS = 15000; // files are read one at a time; once this much time has
-                                         // passed, remaining files are skipped (and flagged) so the turn
-                                         // still has time left for the chat model. Keep this comfortably
-                                         // under the function's timeout.
+
+// This is now ONLY a budget for the old-shape fallback path (files that
+// arrive as base64/pages instead of already-extracted text), AND it has to
+// leave real room for the chat loop afterward inside the same 10s Netlify
+// free-plan ceiling. 4s here + MIN_TIME_TO_START_CHAT_CALL_MS (3s) + margin
+// is deliberately tight — this path should rarely run at all in normal
+// operation (see the note above), so it's fine for it to be strict and fail
+// fast (flagging files as "ran out of time, press Retry") rather than eat
+// into the chat loop's budget.
+const EXTRACTION_TIME_BUDGET_MS = 4000;
+// Cap on any single vision call made from inside this fallback path —
+// smaller than before so one slow image can't eat the whole extraction
+// budget by itself.
+const MAX_SINGLE_VISION_CALL_MS = 4000;
 
 const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model extract-payment-screenshot.js uses
 
@@ -362,7 +443,7 @@ async function visionRead(base64, mime, timeoutMs) {
           ]
         }]
       }),
-      signal: AbortSignal.timeout(timeoutMs || 20000)
+      signal: AbortSignal.timeout(timeoutMs || MAX_SINGLE_VISION_CALL_MS)
     });
   } catch (e) {
     const err = new Error('DeepSeek request failed: ' + e.message);
@@ -384,19 +465,13 @@ async function visionRead(base64, mime, timeoutMs) {
   return { text: String(text || '').trim(), usage: data.usage || null };
 }
 
-// visionRead with ONE retry — only for problems that usually pass by
-// themselves, and only if enough time is left in `timeoutMs`.
+// A single attempt only (no in-function retry) — the overall extraction
+// budget is now too tight on the free plan to afford both a retry AND
+// leaving the chat loop enough time to run. A transient failure here just
+// gets reported as "retryable" so the user's existing Retry-box flow (see
+// cv.html) handles it on the next turn instead.
 async function visionReadWithRetry(base64, mime, timeoutMs) {
-  const total = timeoutMs || 20000;
-  const started = Date.now();
-  try {
-    return await visionRead(base64, mime, Math.round(total * 0.6));
-  } catch (e) {
-    const left = total - (Date.now() - started) - 700;
-    if (!e.transient || left < 3000) throw e;
-    await sleep(700);
-    return await visionRead(base64, mime, left);
-  }
+  return await visionRead(base64, mime, Math.min(timeoutMs || MAX_SINGLE_VISION_CALL_MS, MAX_SINGLE_VISION_CALL_MS));
 }
 
 // Returns { text, usage } — usage is DeepSeek's reported token usage for this
@@ -406,7 +481,7 @@ async function visionReadWithRetry(base64, mime, timeoutMs) {
 // `timeoutMs` is the time left in this turn's extraction budget.
 async function extractDocumentText(file, timeoutMs) {
   const started = Date.now();
-  const budget = timeoutMs || 20000;
+  const budget = timeoutMs || MAX_SINGLE_VISION_CALL_MS;
   try {
     if (!file) return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
     const mime = file.mediaType || '';
@@ -424,12 +499,12 @@ async function extractDocumentText(file, timeoutMs) {
       let okPages = 0; // pages that were actually read
       for (let i = 0; i < pages.length; i++) {
         const left = budget - (Date.now() - started);
-        if (left <= 1500) {
+        if (left <= 1200) {
           parts.push(`[Pages ${i + 1}-${pages.length} were not read: ran out of time.]`);
           break;
         }
         try {
-          const r = await visionReadWithRetry(pages[i], 'image/jpeg', Math.min(20000, left));
+          const r = await visionReadWithRetry(pages[i], 'image/jpeg', Math.min(MAX_SINGLE_VISION_CALL_MS, left));
           parts.push(`--- Page ${i + 1} ---\n${r.text || '[No readable text on this page.]'}`);
           if (r.text) okPages++;
           if (r.usage) { pt += r.usage.prompt_tokens || 0; ct += r.usage.completion_tokens || 0; }
@@ -483,7 +558,7 @@ async function extractDocumentText(file, timeoutMs) {
 
     // Images: DeepSeek vision
     if (mime.startsWith('image/')) {
-      const r = await visionReadWithRetry(file.base64, mime, Math.min(20000, budget));
+      const r = await visionReadWithRetry(file.base64, mime, Math.min(MAX_SINGLE_VISION_CALL_MS, budget));
       if (!r.text) {
         const res = unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
         res.usage = r.usage; // tokens were still spent
@@ -539,6 +614,8 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
 
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
+  const handlerStarted = Date.now(); // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file
+
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
   if (!DEEPSEEK_API_KEY) {
     return { statusCode: 500, body: JSON.stringify({ error: 'DEEPSEEK_API_KEY is not configured on the server.' }) };
@@ -593,7 +670,9 @@ exports.handler = async (event, context) => {
   //  - Files in the old shape (base64 / pages) are still read here, ONE AT A
   //    TIME (avoids hitting DeepSeek with several simultaneous requests),
   //    under a total time budget so a slow batch can't use up the function's
-  //    whole time limit before the chat model runs.
+  //    whole time limit before the chat model runs. This budget is now
+  //    small and shares the same wall-clock deadline as the chat loop below
+  //    (see HANDLER_DEADLINE_MS) — see the note at the top of the file.
   //  - At most MAX_FILES_PER_TURN files are read; the rest are flagged so the
   //    user can retry them.
   //  - Text is capped per file and in total (see LIMITS above).
@@ -604,8 +683,9 @@ exports.handler = async (event, context) => {
     const toRead  = allFiles.slice(0, MAX_FILES_PER_TURN);
     const skipped = allFiles.slice(MAX_FILES_PER_TURN);
 
-    // In the order attached. Stops starting new files once the time budget is
-    // spent; each vision call is also capped to the time left.
+    // In the order attached. Stops starting new files once EITHER the local
+    // extraction budget OR the whole-handler deadline is spent, whichever is
+    // tighter — the chat loop still needs real time left after this.
     const results = [];
     const extractStart = Date.now();
     for (const f of toRead) {
@@ -623,12 +703,16 @@ exports.handler = async (event, context) => {
         continue;
       }
 
-      const left = EXTRACTION_TIME_BUDGET_MS - (Date.now() - extractStart);
-      if (left <= 1500) {
+      const localLeft  = EXTRACTION_TIME_BUDGET_MS - (Date.now() - extractStart);
+      // Keep enough of the whole-handler deadline free for the chat loop —
+      // never let file extraction eat into that reserve.
+      const globalLeft = timeLeft(handlerStarted) - MIN_TIME_TO_START_CHAT_CALL_MS;
+      const left = Math.min(localLeft, globalLeft);
+      if (left <= 1200) {
         results.push(unread('[NOT READ: ran out of time reading the earlier files.]', 'Ran out of time', true));
         continue;
       }
-      results.push(await extractDocumentText(f, Math.min(20000, left)));
+      results.push(await extractDocumentText(f, Math.min(MAX_SINGLE_VISION_CALL_MS, left)));
     }
 
     let charsLeft = MAX_CHARS_TOTAL;
@@ -691,8 +775,44 @@ exports.handler = async (event, context) => {
   let telegramDelivered = null; // null = no PDF rendered this turn; true/false once one is
   let awaitingPhoto = false;
 
+  // If extraction alone already ate almost the whole deadline, don't even
+  // attempt a DeepSeek chat call — Netlify would very likely kill the
+  // function mid-call, which is worse than returning a clean "try again"
+  // reply now. This is the main new safeguard for the free-plan 10s cap.
+  if (timeLeft(handlerStarted) < MIN_TIME_TO_START_CHAT_CALL_MS) {
+    const tokenBalance = await chargeOnce();
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        success: true,
+        reply: "That took a bit long to process on this end — nothing was lost. Please send your message again (or press Retry on any files above) to continue.",
+        messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
+        tokensUsed: usedCost, tokenBalance, unreadFiles
+      })
+    };
+  }
+
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      // Wall-clock check before every DeepSeek call — this is what actually
+      // keeps the whole handler under Netlify's free-plan 10s ceiling. See
+      // the note at the top of this file about callDeepSeek's own timeout
+      // not being visible here; this check stops a NEW call from starting,
+      // it cannot interrupt one already in flight.
+      const timeLeftForCall = timeLeft(handlerStarted);
+      if (timeLeftForCall < MIN_TIME_TO_START_CHAT_CALL_MS) {
+        const tokenBalance = await chargeOnce();
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            success: true,
+            reply: "I've made some progress — send another message (even just \"continue\") and I'll pick up right where we left off.",
+            messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
+            tokensUsed: usedCost, tokenBalance, unreadFiles
+          })
+        };
+      }
+
       const result = await callDeepSeek({ messages, maxTokens: 2000, tools: TOOLS, toolChoice: 'auto', attempts: 2 });
       usedCost       += result.cost;
       usedPrompt     += (result.usage && result.usage.prompt_tokens)     || 0;
