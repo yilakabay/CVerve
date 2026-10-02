@@ -619,6 +619,21 @@ function withPhoto(content, latestPhotoBase64) {
   return merged;
 }
 
+// [First]_[Last]_cv.pdf when the content has both names, or [First]_cv.pdf
+// with no last name — mirrors cvFilenameFor() in cv.html so the file name
+// shown in-app and the one delivered to Telegram always match. Falls back
+// to 'CV_Final.pdf' only if no usable name is present at all.
+function cvFilenameForContent(content) {
+  const clean = (s) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '');
+  const fullName = content && content.name ? String(content.name).trim() : '';
+  if (!fullName) return 'CV_Final.pdf';
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const first = clean(parts[0] || '');
+  const last  = parts.length > 1 ? clean(parts[parts.length - 1]) : '';
+  const nameBase = first ? (last ? (first + '_' + last) : first) : '';
+  return nameBase ? (nameBase + '_cv.pdf') : 'CV_Final.pdf';
+}
+
 async function callTool(name, args, latestPhotoBase64, templateId, userId) {
   try {
     const template = resolveTemplate(templateId).mod;
@@ -631,7 +646,7 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
     }
     if (name === 'finalize_pdf') {
       const buf = await template.render(withPhoto(args.content, latestPhotoBase64));
-      const filename = 'CV_Final.pdf';
+      const filename = cvFilenameForContent(args.content);
       const caption = 'Your CV 🎉';
 
       // The actual delivery path — see the FIX note at the top of this file.
