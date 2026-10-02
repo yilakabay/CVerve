@@ -619,18 +619,20 @@ function withPhoto(content, latestPhotoBase64) {
   return merged;
 }
 
-// [First]_[Last]_cv.pdf when the content has both names, or [First]_cv.pdf
-// with no last name — mirrors cvFilenameFor() in cv.html so the file name
-// shown in-app and the one delivered to Telegram always match. Falls back
-// to 'CV_Final.pdf' only if no usable name is present at all.
+// [First]_[Second]_cv.pdf when there's a second given name, or
+// [First]_cv.pdf when there isn't — first two words of the name as written
+// (e.g. "John Michael Smith" → John_Michael_cv.pdf), not first+last. Mirrors
+// cvFilenameFor() in cv.html so the file name shown in-app and the one
+// delivered to Telegram always match. Falls back to 'CV_Final.pdf' only if
+// no usable name is present at all.
 function cvFilenameForContent(content) {
   const clean = (s) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '');
   const fullName = content && content.name ? String(content.name).trim() : '';
   if (!fullName) return 'CV_Final.pdf';
   const parts = fullName.split(/\s+/).filter(Boolean);
-  const first = clean(parts[0] || '');
-  const last  = parts.length > 1 ? clean(parts[parts.length - 1]) : '';
-  const nameBase = first ? (last ? (first + '_' + last) : first) : '';
+  const first  = clean(parts[0] || '');
+  const second = parts.length > 1 ? clean(parts[1]) : '';
+  const nameBase = first ? (second ? (first + '_' + second) : first) : '';
   return nameBase ? (nameBase + '_cv.pdf') : 'CV_Final.pdf';
 }
 
