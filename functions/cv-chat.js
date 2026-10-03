@@ -879,7 +879,7 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           body: JSON.stringify({
             success: true,
-            reply: "I've made some progress.",
+            reply: "I've made some progress.\n\nየተወሰነ ሰርቻለሁ ነገር ግን ያልጨረስኩት ነገር አለ ለመቀጠል \"Continue\" ሚለውን ይጫኑ።",
             needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
             messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
             tokensUsed: usedCost, tokenBalance, unreadFiles
