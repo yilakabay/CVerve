@@ -6,7 +6,7 @@
 // ── CONTENT SCHEMA ─────────────────────────────────────────────────────
 // {
 //   name, subtitle, photoBase64,
-//   contact: { phone, email, location },        // any field may be omitted
+//   contact: { phone, email, location, linkedin },  // any field may be omitted
 //   education: { degree, school, years, extra },
 //   languages: [{ name, level }],
 //   profile, skills: string[],
@@ -67,22 +67,11 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   const PHOTO_R = 32;
   const photoCx = CONTENT_RIGHT - PHOTO_R;
   const photoCy = TOP + 14 + PHOTO_R;
-  // How far the name/subtitle/accent rule are allowed to extend before
-  // running into the photo — everything in the header wraps or shrinks
-  // against this same width.
   const ruleEndX = (photoCx - PHOTO_R) - 14;
   const headerAvailW = ruleEndX - CONTENT_LEFT;
 
   let headBottom = TOP + 70; // fallback; overwritten below when draw is true
   if (draw) {
-    // ── Name: shrink through a size ladder, then wrap up to 2 lines if
-    // even the smallest size can't fit — previously drawn with
-    // lineBreak:false and no width at all, so a long name could run
-    // straight into the photo. Everything below (the accent underline,
-    // subtitle, and the full-width hairline before the meta strip) now
-    // cascades off the ACTUAL measured bottom of the name/subtitle
-    // instead of fixed y offsets, the same fix already applied to every
-    // other template's header.
     const NAME_SIZE_LADDER = [30, 26, 23, 20];
     const nameText = content.name || '';
     let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
@@ -101,7 +90,8 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     let nameBottomY = TOP;
     nameLines.forEach((ln, i) => {
       const lineY = TOP + i * nameLineH;
-      doc.text(ln, CONTENT_LEFT, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+      const safe = truncateToFit(doc, ln, 'Helvetica', nameSize, headerAvailW);
+      doc.text(safe, CONTENT_LEFT, lineY, { lineBreak: false });
       nameBottomY = lineY + nameLineH;
     });
 
@@ -117,7 +107,8 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     if (subtitleLines.length) {
       subtitleLines.forEach((ln, i) => {
         const lineY = SUBTITLE_TOP + i * subtitleLineH;
-        doc.text(ln, CONTENT_LEFT, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+        const safe = truncateToFit(doc, ln, 'Helvetica', 9.3, headerAvailW);
+        doc.text(safe, CONTENT_LEFT, lineY, { lineBreak: false });
         subtitleBottomY = lineY + subtitleLineH;
       });
     } else {
@@ -148,11 +139,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   const META_TOP = HEAD_BOTTOM + 20;
   const colW = CONTENT_W / 3;
   const col1 = CONTENT_LEFT, col2 = CONTENT_LEFT + colW, col3 = CONTENT_LEFT + 2 * colW;
-  // Every meta-strip line MUST stay single-line and inside its own
-  // column — there's no room to wrap without running into the next
-  // column or the ones below it. Previously these were drawn with no
-  // width bound at all, so a long phone number, email, degree name, or
-  // language label could bleed straight into the neighboring column.
   const META_COL_MAX_W = colW - 10;
 
   function metaLabel(label, x, yTop) {
@@ -170,10 +156,19 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   }
 
   metaLabel('Contact', col1, META_TOP);
+  // LinkedIn is appended after location as a 4th contact row. Each row
+  // already goes through metaLine()'s truncateToFit() against the
+  // column's real width (META_COL_MAX_W), so a 4th row doesn't risk
+  // bleeding into column 2 — it just adds one more fixed-spacing line
+  // below the others, same as a 3rd row did before. The column itself
+  // grows no taller than before per row, so EDUCATION/LANGUAGES in the
+  // neighboring columns (which stop well short of this column's bottom)
+  // still can't be overlapped by it.
   const contactRows = [
     content.contact?.phone ? { text: content.contact.phone, link: `tel:${content.contact.phone.replace(/\s+/g, '')}` } : null,
     content.contact?.email ? { text: content.contact.email, link: `mailto:${content.contact.email}` } : null,
-    content.contact?.location ? { text: content.contact.location, color: BODY_GRY } : null
+    content.contact?.location ? { text: content.contact.location, color: BODY_GRY } : null,
+    content.contact?.linkedin ? { text: content.contact.linkedin, link: content.contact.linkedin.startsWith('http') ? content.contact.linkedin : `https://${content.contact.linkedin}`, color: BODY_GRY } : null
   ].filter(Boolean);
   contactRows.forEach((row, i) => metaLine(row.text, col1, META_TOP + 15 + i * 13, { link: row.link, color: row.color }));
 
@@ -189,7 +184,12 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     metaLine(`${l.name} — ${l.level}`, col3, META_TOP + 15 + i * 13, { color: BODY_GRY });
   });
 
-  const META_BOTTOM = META_TOP + 58;
+  // The contact column can now be 1 row taller than the other two
+  // (LinkedIn as a 4th row) — META_BOTTOM is sized from the TALLEST
+  // column instead of a fixed constant that assumed exactly 3 contact
+  // rows, so the hairline below never cuts through a 4th row.
+  const metaRowsMax = Math.max(contactRows.length, 3);
+  const META_BOTTOM = META_TOP + 15 + metaRowsMax * 13 + 6;
   if (draw) {
     doc.strokeColor(HAIRLINE).lineWidth(0.75)
       .moveTo(CONTENT_LEFT, META_BOTTOM).lineTo(CONTENT_RIGHT, META_BOTTOM).stroke();
@@ -255,10 +255,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y = sectionHeading('Experience', y + GAP);
     let linesUsed = 0;
     for (const exp of content.experience) {
-      // Org name and the "Role — dateRange" line both stay single-line by
-      // design (the bullets below carry the detail), so a value too long
-      // to fit is truncated rather than left to run off the page — the
-      // same reasoning as the meta-strip columns above.
       if (draw) {
         const orgSafe = truncateToFit(doc, exp.org || '', 'Helvetica', 9.7, TEXT_COL_W);
         doc.font('Helvetica').fontSize(9.7).fillColor(INK);
@@ -293,13 +289,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
-  // ── Custom sections ───────────────────────────────────────────────────
-  // A user can ask the AI to add a section not in the fixed schema (e.g.
-  // "Academic Projects", "Hobbies"). This template has a single column —
-  // no sidebar/main split — so every entry in content.customSections
-  // (regardless of any placement hint) lands here, via the same
-  // sectionHeading/bodyBullets/bodyParagraph helpers as every built-in
-  // section, getting the same width-safe wrapping.
   (content.customSections || []).forEach(cs => {
     y = sectionHeading((cs.title || 'Section'), y + GAP);
     let linesUsed = 0;
@@ -315,15 +304,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     track(`custom:${cs.title || 'Section'}`, linesUsed, true);
   });
 
-  // References: content.references is an array (1, 2, 3+ — no cap). Name
-  // now wraps (up to 2 lines) instead of running unbounded, role wraps
-  // against the full text-column width, and each reference's actual
-  // measured height (not a fixed 46pt constant) determines how far y
-  // advances — so a wrapped name/role can no longer overlap the next
-  // reference below it. Email/Phone stay side-by-side as designed, but
-  // are now truncated to fit their fixed sub-columns instead of being
-  // drawn with no width bound at all — which is what let a long email
-  // run straight into "PHONE" next to it.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = sectionHeading(refList.length > 1 ? 'References' : 'Reference', y + GAP);
@@ -365,9 +345,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
         }
       }
 
-      // Height for this entry: name lines (14pt each) + role lines (13pt
-      // each, plus a small gap) + the email/phone row (if either present)
-      // + trailing breathing room — mirrors exactly what was drawn above.
       let entryH = nameLines.length * 14 + 1;
       if (roleLines.length) entryH += roleLines.length * 13 + 1;
       if (ref.email || ref.phone) entryH += 3 + 13;
