@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redirecting… — CVcase</title>
+<!--
+  Registration no longer exists as a separate flow: there's no password to
+  set, so "sign up" and "log in" are the same phone+OTP flow in login.html
+  (verify-otp.js creates the account on first verification, logs in on any
+  later one). This page just forwards old /register.html links there,
+  carrying along any ?next= redirect target.
+-->
+<meta http-equiv="refresh" content="0; url=/login.html">
+<script>
+  var qs = window.location.search || '';
+  window.location.replace('/login.html' + qs);
+</script>
+</head>
+<body>
+  <p>Redirecting to <a href="/login.html">login</a>…</p>
+</body>
+</html>
