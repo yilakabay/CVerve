@@ -11,7 +11,7 @@
 // render() refusing to draw (throwing) if even the most compact level
 // still overflows past a small, genuinely-crowded threshold.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const TEAL = '#173F52', GOLD = '#BC9138', GOLD_LIGHT = '#F0E1AD';
@@ -46,13 +46,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const NAME_TOP = 30;
     const nameAvailW = (PAGE_W - 18) - nameX;
 
-    // Long names used to be drawn with lineBreak:false and no width, so
-    // they simply ran off the right edge of the header. Now: try the full
-    // 28pt size first: if the name fits on one line at that size, keep it
-    // exactly as before. If not, step the size down a bit before wrapping
-    // at all (a slightly smaller single line usually still looks better
-    // than an early wrap), and only wrap onto a second line — capped at
-    // 2 — once even the smallest size in the ladder can't fit it on one.
     const NAME_SIZE_LADDER = [28, 24, 20, 18];
     let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
     let nameLines = null;
@@ -71,15 +64,13 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
 
     doc.font('Helvetica-Bold').fontSize(nameSize).fillColor(WHITE);
-    // Measure the name's actual rendered line height (PDFKit's own metric
-    // for the current font/size) instead of a hardcoded offset, so the
-    // subtitle is always placed fully below it — including descenders —
-    // no matter what font size this header ends up using later.
     const nameLineH = doc.currentLineHeight(true);
     let nameBottomY = NAME_TOP;
     nameLines.forEach((ln, i) => {
       const lineY = NAME_TOP + i * nameLineH;
-      doc.text(ln, nameX, lineY, { lineBreak: false, width: nameAvailW, ellipsis: true });
+      // FIX: truncateToFit instead of width+ellipsis (can silently wrap).
+      const safe = truncateToFit(doc, ln, 'Helvetica-Bold', nameSize, nameAvailW);
+      doc.text(safe, nameX, lineY, { lineBreak: false });
       nameBottomY = lineY + nameLineH;
     });
 
@@ -88,54 +79,45 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const subtitleLineH = doc.currentLineHeight(true);
     const subtitleAvailW = (PAGE_W - 18) - nameX;
 
-
-    // The letter-spacing effect (a space inserted between every character)
-    // roughly doubles a title's rendered width, so word-wrap the ORIGINAL
-    // text using a conservative shrink factor first — this breaks at real
-    // word boundaries rather than mid-word — then apply the letter-spacing
-    // per finished line. Capped at 2 lines; doc.text's own width+ellipsis
-    // is a hard backstop underneath this estimate, so even an unusually
-    // wide title (a very long single word, an unexpected font metric) can
-    // never physically draw past the header's right edge.
     const rawSubtitleLines = wrapLines(doc, content.subtitle || '', 'Helvetica', 10.5, subtitleAvailW / 1.9).slice(0, 2);
     const spacedSubtitleLines = rawSubtitleLines.map(ln => ln.split('').join(' ').toUpperCase());
 
-    // Draw each subtitle line while tracking the actual bottom y-coordinate
-    // we drew at, rather than trusting a separately-computed line count.
-    // Everything below the subtitle (the divider, and the contact row —
-    // both its bullet dots AND its text) is then positioned relative to
-    // THIS single measured value, so a 1-line vs 2-line subtitle can never
-    // leave the dots and the text out of sync with each other or with the
-    // divider — they all derive from the same number.
     let subtitleBottomY = SUBTITLE_TOP;
     spacedSubtitleLines.forEach((ln, i) => {
       const lineY = SUBTITLE_TOP + i * subtitleLineH;
-      doc.text(ln, nameX, lineY, { lineBreak: false, width: subtitleAvailW, ellipsis: true });
+      const safe = truncateToFit(doc, ln, 'Helvetica', 10.5, subtitleAvailW);
+      doc.text(safe, nameX, lineY, { lineBreak: false });
       subtitleBottomY = lineY + subtitleLineH;
     });
-    // Even with no subtitle at all, still reserve one line's worth of
-    // space so the divider/contact row sit at a consistent baseline.
     if (!spacedSubtitleLines.length) subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
 
     const DIVIDER_Y = subtitleBottomY + 3;
     doc.strokeColor(GOLD).lineWidth(0.7).moveTo(nameX, DIVIDER_Y).lineTo(PAGE_W - 18, DIVIDER_Y).stroke();
 
-    // Single shared row position for the whole contact line — the dot
-    // bullets and the text of every contact item read from this ONE
-    // variable, so they move down together as a unit whenever the
-    // subtitle (and therefore the divider) grows to a second line.
-    const rowY = DIVIDER_Y + 17;
-    let ix = nameX;
+    // ── Contact row ──────────────────────────────────────────────────
+    // FIX: previously drawn with doc.text(..., { lineBreak:false }) and NO
+    // width bound — a long field, or simply enough fields together (now
+    // including LinkedIn), could run straight off the header's right
+    // edge. Now wraps to a new row within the header's own available
+    // width instead of overflowing. LinkedIn is appended after location;
+    // any field the user didn't provide is simply absent via
+    // .filter(Boolean), same as before. Dots and text still share one
+    // (cx, rowY) pair per item so they always stay in sync.
+    const rowAvailW = (PAGE_W - 18) - nameX;
+    const rowYStart = DIVIDER_Y + 17;
+    const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location, content.contact?.linkedin].filter(Boolean);
     doc.font('Helvetica').fontSize(8.5);
-    [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
+    let ix = nameX, rowY = rowYStart;
+    contacts.forEach(txt => {
       const tw = doc.widthOfString(txt);
-      // Vertically center the dot against the text's optical middle rather
-      // than its top — doc.text's y is the top of the glyph box, so the
-      // dot needs to sit roughly half a line down from there, not above
-      // it (which is what made it look like it was floating too high).
+      const itemW = tw + 9;
+      if (ix !== nameX && (ix - nameX) + itemW > rowAvailW) {
+        ix = nameX;
+        rowY += 14;
+      }
       doc.fillColor(GOLD).circle(ix + 3, rowY + 3.2, 1.8).fill();
       doc.fillColor(WHITE).text(txt, ix + 9, rowY, { lineBreak: false });
-      ix += tw + 22;
+      ix += itemW + 13;
     });
 
     doc.fillColor(WHITE).circle(PHOTO_CX, PHOTO_CY, PHOTO_R + 4).fill();
@@ -181,12 +163,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
     return yTop + lines.length * size * 1.4;
   }
-  // Bulleted list in the sidebar (same square-bullet-plus-wrapped-text
-  // shape as the SKILLS section) — used for any custom sidebar section
-  // whose content is a list of short items rather than one paragraph.
-  // Every line is wrapped against the real sidebar column width via
-  // wrapLines, same as everywhere else in this file, so a long custom
-  // item can't run past the edge of the sidebar any more than a skill can.
   function lbullets(items, yTop, opts = {}) {
     const size = opts.size || 8.5;
     let cur = yTop, total = 0;
@@ -220,14 +196,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   });
   y += 6;
 
-  // ── SKILLS ────────────────────────────────────────────────────────────
-  // Every skill is wrapped to fit the sidebar column width, in BOTH the
-  // normal per-line layout and the compact flow-wrap layout — including a
-  // single skill/tag that's too long to fit on one line by itself (e.g.
-  // "Financial Data Analysis and Interpretation"), which is what used to
-  // run past the edge of the sidebar. See cv-shared.js's flowItems() for
-  // the fix on the compact-skills path; the per-line path below already
-  // wrapped correctly via wrapLines().
   y = lhead('SKILLS', y);
   if (compactSkills) {
     const skillsResult = flowItems(doc, content.skills || [], L_PAD + 6, y, LEFT_W - L_PAD * 2 - 6, {
@@ -276,15 +244,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   });
   y += 8;
 
-  // ── Custom sidebar sections ──────────────────────────────────────────
-  // A user can ask the AI to add a section that isn't in the fixed
-  // schema (e.g. "Academic Projects", "Volunteering", "Interests"). Each
-  // entry in content.customSections with placement:'sidebar' gets its own
-  // heading + wrapped content here, using the exact same lhead/lnorm/
-  // lbullets helpers (and therefore the exact same width-safe wrapping)
-  // as every built-in sidebar section — so it can't overflow the sidebar
-  // any more than SKILLS or LANGUAGES can. Falls back to 'Section' as a
-  // title only if the AI somehow omitted one, never silently drops it.
   (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
     y = lhead((cs.title || 'Section').toUpperCase(), y);
     let linesUsed = 0;
@@ -396,16 +355,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
 
-  // ── Custom main-column sections ──────────────────────────────────────
-  // Same idea as the sidebar version above, but for content that fits
-  // better in the wide right column — e.g. "Academic Projects" with a few
-  // detailed bullet points, which would be cramped in the narrow sidebar.
-  // Every entry with placement !== 'sidebar' (including no placement at
-  // all — main is the default) lands here, using rhead/rpara/rbullets so
-  // it gets the same wrapping, leading, and tight-leading/compaction
-  // behavior as EXPERIENCE/ACHIEVEMENT/CERTIFICATIONS, and the same
-  // per-section line tracking so overflow detection and the fit
-  // recommendation both already account for it automatically.
   (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar').forEach(cs => {
     ry = rhead((cs.title || 'Section').toUpperCase(), ry);
     let linesUsed = 0;
