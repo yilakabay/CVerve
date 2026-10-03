@@ -57,16 +57,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     }
     doc.rect(PHOTO_X, 0, PHOTO_SIZE, PHOTO_SIZE).lineWidth(1.5).stroke(GOLD);
 
-    // ── Name: two stacked lines (first word large, rest of the name below
-    // in gold) — this already acts like a natural 2-line wrap by word, but
-    // previously neither line had a width limit at all, so a long single
-    // first name or a long "rest of name" could run straight into the
-    // photo. Each line now shrinks through a small size ladder to fit the
-    // available width before falling back to truncateToFit as a last
-    // resort — and everything below (divider, subtitle, contact rows) now
-    // cascades off the ACTUAL measured bottom of these lines instead of
-    // fixed y offsets, so it can never overlap a name that needed to
-    // shrink or truncate.
     const nameAvailW = PHOTO_X - 18 - 18;
     const nameWords = (content.name || '').trim().split(/\s+/).filter(Boolean);
     const firstWord = nameWords[0] || '';
@@ -103,8 +93,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     const DIVIDER_Y = line2BottomY + 11;
     doc.strokeColor(GOLD).lineWidth(1).moveTo(18, DIVIDER_Y).lineTo(PHOTO_X - 18, DIVIDER_Y).stroke();
 
-    // ── Subtitle: wraps up to 2 lines against the same available width,
-    // instead of running past the photo unbounded ─────────────────────
     const SUBTITLE_TOP = DIVIDER_Y + 14;
     doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
     const subtitleLineH = doc.currentLineHeight(true);
@@ -120,12 +108,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
       subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
     }
 
-    // Contact rows: any missing field is simply absent from
-    // content.contact, so .filter(Boolean) already drops it. Their
-    // starting position now derives from subtitleBottomY instead of a
-    // fixed constant, so a wrapped subtitle pushes them down instead of
-    // overlapping them. Each row's bullet dot and its text still share
-    // one cy value, so they stay in sync with each other too.
     const CONTACT_TOP = subtitleBottomY + 10;
     doc.font('Helvetica').fontSize(10);
     const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
@@ -144,10 +126,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     }
     return yTop + 16;
   }
-  // Right-aligned date/label column: this MUST stay one line (the content
-  // column starts right after it), so an unusually long value is
-  // truncated to fit rather than left to run past LABEL_W into the
-  // content text or off the page's left margin.
   function dateLabel(text, yTop) {
     if (!draw || !text) return;
     doc.font('Helvetica-Oblique').fontSize(8).fillColor(MUTED);
@@ -173,11 +151,24 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     }
     return { y: yTop + lines.length * leading, lines: lines.length };
   }
+  // ── Bullet point ──────────────────────────────────────────────────────
+  // FIX (bullet/text misalignment): the dot's vertical center used to be a
+  // fixed "yTop - 2.5" offset, tuned only for the default size=9.2 call.
+  // Any bullet drawn at a different size (tightLeading mode, or a future
+  // opts.size override) kept that same fixed offset even though the
+  // line's actual height had changed — so the dot drifted away from the
+  // middle of its own first line, which is the "dot floating between two
+  // lines" effect in the PDF. Now the offset is derived from
+  // doc.currentLineHeight() for the size THIS call actually uses, so the
+  // dot stays centered on its line regardless of size/leading.
   function bullet(text, yTop, opts = {}) {
     const size = opts.size || 9.2, leading = tighten(opts.leading || 13.0, size);
     const lines = wrapLines(doc, text, 'Helvetica', size, CONTENT_W - 10);
     if (draw) {
-      doc.fillColor(GOLD).circle(CONTENT_X + 3.5, yTop - 2.5, 1.8).fill();
+      doc.font('Helvetica').fontSize(size);
+      const lineH = doc.currentLineHeight(true);
+      const dotY = yTop + lineH / 2 - 1.3;
+      doc.fillColor(GOLD).circle(CONTENT_X + 3.5, dotY, 1.8).fill();
       doc.font('Helvetica').fontSize(size).fillColor(BODY);
       let cur = yTop;
       lines.forEach(ln => { doc.text(ln, CONTENT_X + 10, cur, { lineBreak: false }); cur += leading; });
@@ -241,8 +232,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     const titleLeading = tighten(12, 9.2), issuerLeading = tighten(12.5, 8.5);
     content.certifications.forEach((cert, i) => {
       dateLabel(String(i + 1).padStart(2, '0'), y + 2);
-      // Title now wraps (up to 2 lines) instead of being drawn with no
-      // width at all, which used to let a long title run past CONTENT_R.
       const titleLines = wrapLines(doc, cert.title || '', 'Helvetica-Bold', 9.2, CONTENT_W).slice(0, 2);
       if (draw) {
         doc.font('Helvetica-Bold').fontSize(9.2).fillColor(BODY);
@@ -268,27 +257,45 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y += tightenGap(4) + GS;
   } else track('certifications', 0, false);
 
+  // ── Skills ──────────────────────────────────────────────────────────
+  // FIX (skills cut off with "…"): previously a fixed 3/4-column grid
+  // forced every skill cell to a single line via truncateToFit(), which
+  // silently chopped off text ("Financial Data Analy…") any time a skill
+  // phrase didn't fit the column — a real loss of information, not just
+  // a cosmetic wrap.
+  //
+  // Now each cell first tries a small font-size ladder (8.8 → 8.0 → 7.3)
+  // and keeps the first size that fits the FULL phrase on one line.
+  // That covers the large majority of "just slightly too long" skills
+  // without losing any words. Only a genuinely very long phrase that
+  // still doesn't fit at the smallest size falls back to truncation, as
+  // a last resort instead of the default.
   if (content.skills && content.skills.length) {
     y = section('SKILLS', y);
-    // Skills are a dense fixed-row-height grid (3 columns, 4 in tight
-    // mode), so a skill has to stay on ONE line — there's no room in the
-    // row below it to wrap into. Previously this relied on PDFKit's
-    // lineBreak:false + width + ellipsis to truncate, but that combo has
-    // proven unreliable elsewhere in this app (it can still wrap once a
-    // width is given, which would silently overlap the row underneath).
-    // truncateToFit() does the truncation manually and draws the
-    // already-safe, guaranteed-single-line result instead.
     const colCount = tightLeading ? 4 : 3, colW = CONTENT_W / colCount;
     const rowH = tightLeading ? 11.5 : 13;
+    const SKILL_SIZE_LADDER = [8.8, 8.0, 7.3];
     let linesUsed = 0;
     content.skills.forEach((skill, i) => {
       const row = Math.floor(i / colCount), col = i % colCount;
       const sy = y + row * rowH;
       if (draw) {
         doc.fillColor(GOLD).rect(CONTENT_X + col * colW, sy + 1, 3, 3).fill();
-        const safe = truncateToFit(doc, skill, 'Helvetica', 8.8, colW - 10);
-        doc.font('Helvetica').fontSize(8.8).fillColor(BODY);
-        doc.text(safe, CONTENT_X + col * colW + 7, sy, { lineBreak: false });
+        const cellW = colW - 10;
+        let chosen = null;
+        for (const sz of SKILL_SIZE_LADDER) {
+          doc.font('Helvetica').fontSize(sz);
+          if (doc.widthOfString(String(skill)) <= cellW) { chosen = sz; break; }
+        }
+        if (chosen) {
+          doc.font('Helvetica').fontSize(chosen).fillColor(BODY);
+          doc.text(String(skill), CONTENT_X + col * colW + 7, sy, { lineBreak: false });
+        } else {
+          const smallest = SKILL_SIZE_LADDER[SKILL_SIZE_LADDER.length - 1];
+          const safe = truncateToFit(doc, skill, 'Helvetica', smallest, cellW);
+          doc.font('Helvetica').fontSize(smallest).fillColor(BODY);
+          doc.text(safe, CONTENT_X + col * colW + 7, sy, { lineBreak: false });
+        }
       }
       if (col === 0) linesUsed++;
     });
@@ -312,13 +319,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y += tightenGap(4) + GS;
   } else track('languages', 0, false);
 
-  // ── Custom sections ───────────────────────────────────────────────────
-  // A user can ask the AI to add a section not in the fixed schema (e.g.
-  // "Academic Projects", "Hobbies"). This template has no sidebar/main
-  // split — everything lives in one column — so every entry in
-  // content.customSections (regardless of any placement hint) lands here,
-  // via the same section/bullet/para helpers as every built-in section,
-  // getting the same width-safe wrapping.
   (content.customSections || []).forEach(cs => {
     y = section((cs.title || 'Section').toUpperCase(), y);
     let linesUsed = 0;
@@ -333,12 +333,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y += tightenGap(8) + GS;
   });
 
-  // References: content.references is an array (1, 2, 3+ — no cap).
-  // Name/role/email/phone now all wrap against CONTENT_W via wrapLines,
-  // same as every other multi-line field in this file — previously role
-  // had NO width bound at all, and email/phone had none either, so a long
-  // one would simply run off the right edge of the page instead of
-  // wrapping or being caught by the fit/overflow system.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = section('REFERENCE' + (refList.length > 1 ? 'S' : ''), y);
