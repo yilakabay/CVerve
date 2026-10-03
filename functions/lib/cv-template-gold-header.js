@@ -97,25 +97,68 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     doc.font('Helvetica').fontSize(9.5).fillColor(GOLD_LITE);
     const subtitleLineH = doc.currentLineHeight(true);
     const subtitleLines = wrapLines(doc, (content.subtitle || '').toUpperCase(), 'Helvetica', 9.5, nameAvailW).slice(0, 2);
+    // FIX: this previously used PDFKit's own width+ellipsis option, which
+    // (per the warning in cv-shared.js's truncateToFit) can still wrap
+    // onto an extra line instead of truncating once a width is supplied
+    // — here that would silently push CONTACT_TOP (and everything below
+    // it) down without the rest of the layout knowing. wrapLines() has
+    // already bounded this to 2 lines above, so each of those 2 lines
+    // just needs a guaranteed-safe single-line truncate, same as every
+    // other truncated field in this file.
     let subtitleBottomY = SUBTITLE_TOP;
     if (subtitleLines.length) {
       subtitleLines.forEach((ln, i) => {
         const lineY = SUBTITLE_TOP + i * subtitleLineH;
-        doc.text(ln, 18, lineY, { lineBreak: false, width: nameAvailW, ellipsis: true });
+        const safe = truncateToFit(doc, ln, 'Helvetica', 9.5, nameAvailW);
+        doc.text(safe, 18, lineY, { lineBreak: false });
         subtitleBottomY = lineY + subtitleLineH;
       });
     } else {
       subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
     }
 
+    // ── Contact rows ──────────────────────────────────────────────────
+    // Order: phone, email, LinkedIn, location. LinkedIn sits between
+    // email and location (not first — it's a secondary contact detail,
+    // not the headline one) and is simply omitted via .filter(Boolean)
+    // when the user didn't provide it, same as every other contact field.
+    //
+    // FIX (overflow past the header band): this block used to assume at
+    // most 3 rows at a fixed 15.5pt row height, which is exactly enough
+    // to stay inside HEADER_H (195pt) given where CONTACT_TOP typically
+    // lands. Adding a 4th row (LinkedIn) at that same fixed spacing can
+    // push past the bottom of the charcoal header band and visibly spill
+    // onto the lighter body background below it — and the same risk
+    // exists any time a long name/subtitle has already pushed
+    // CONTACT_TOP further down than usual. So the row height is now
+    // computed from the ACTUAL remaining space down to the header's
+    // bottom edge: it only compresses (down to a readable floor) when
+    // there isn't enough room for the default 15.5pt spacing, and stays
+    // at the normal spacing otherwise.
     const CONTACT_TOP = subtitleBottomY + 10;
-    doc.font('Helvetica').fontSize(10);
-    const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
-    contacts.forEach((ct, i) => {
-      const cy = CONTACT_TOP + i * 15.5;
-      doc.fillColor(GOLD).circle(21, cy + 3.5, 1.8).fill();
-      doc.fillColor(WHITE).text(ct, 30, cy, { lineBreak: false, width: PHOTO_X - 30 - 18, ellipsis: true });
-    });
+    const contacts = [content.contact?.phone, content.contact?.email, content.contact?.linkedin, content.contact?.location].filter(Boolean);
+    if (contacts.length) {
+      const HEADER_BOTTOM_PAD = 14;
+      const availableH = Math.max(0, (HEADER_H - HEADER_BOTTOM_PAD) - CONTACT_TOP);
+      const idealRowH = 15.5;
+      const minRowH = 11.5;
+      const fitRowH = contacts.length > 1 ? availableH / contacts.length : idealRowH;
+      const rowH = Math.max(minRowH, Math.min(idealRowH, fitRowH));
+      const fontSize = rowH < 13 ? 8.7 : 10;
+      doc.font('Helvetica').fontSize(fontSize);
+      // Same reasoning as the subtitle fix above: truncateToFit()'s manual
+      // binary-search truncation is used instead of PDFKit's width+
+      // ellipsis, which can silently wrap instead of truncate and would
+      // overlap the next contact row.
+      const contactTextW = PHOTO_X - 30 - 18;
+      contacts.forEach((ct, i) => {
+        const cy = CONTACT_TOP + i * rowH;
+        doc.fillColor(GOLD).circle(21, cy + fontSize * 0.42, 1.8).fill();
+        const safe = truncateToFit(doc, ct, 'Helvetica', fontSize, contactTextW);
+        doc.font('Helvetica').fontSize(fontSize).fillColor(WHITE);
+        doc.text(safe, 30, cy, { lineBreak: false });
+      });
+    }
   }
 
   function section(label, yTop) {
