@@ -18,7 +18,7 @@
 // produce a PDF (throws, rather than drawing overlapping/clipped text) and
 // hands back a specific, concrete recommendation for what to cut.
 
-const { PDFDocument, measureDoc, wrapLines, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const EMERALD = '#0D5447', EM_DARK = '#082E25', EM_MID = '#155B4E';
@@ -57,16 +57,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.rect(0, 0, PAGE_W, PAGE_H).fill(CREAM);
     doc.rect(0, 0, SIDEBAR_W, PAGE_H).fill(EMERALD);
     doc.rect(0, 0, PAGE_W, HEADER_H).fill(EM_DARK);
-    // These two diagonal shapes were previously placed using literal 0/55/
-    // 59/65 as if those were distances-from-top — but in the original
-    // Python (reportlab) version they come from yt(HEADER_H), yt(HEADER_H
-    // - 55), etc: the distance-from-top fed in is HEADER_H (the header's
-    // BOTTOM edge) and HEADER_H-55 (55pt above that), not 0 (the header's
-    // TOP edge). Since PDFKit already measures y from the top — unlike
-    // reportlab's bottom-up coordinates that yt() converts — the correct
-    // translation keeps that HEADER_H-relative math, which puts the cream
-    // wedge and gold strip near the BOTTOM of the header, right where
-    // PROFILE begins, instead of cutting across the TOP of the header.
     doc.polygon([SIDEBAR_W, HEADER_H], [PAGE_W, HEADER_H - 55], [PAGE_W, HEADER_H]).fill(CREAM);
     doc.rect(0, 0, SIDEBAR_W, HEADER_H).fill(EMERALD);
     doc.polygon([SIDEBAR_W, HEADER_H], [SIDEBAR_W + 6, HEADER_H], [PAGE_W, HEADER_H - 59], [PAGE_W, HEADER_H - 65]).fill(GOLD);
@@ -78,13 +68,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const photoCx = SIDEBAR_W / 2, photoCy = HEADER_H / 2 - 4;
     hexagon(doc, photoCx, photoCy, PHOTO_R + 10, GOLD);
     hexagon(doc, photoCx, photoCy, PHOTO_R + 6, WHITE);
-    // The photo is clipped to the SAME hexagon shape as its frame (via the
-    // shared hexPoints() helper), not a circle — a circular clip left
-    // visible gaps at the hexagon's six corners since a circle never
-    // reaches the corners of the hexagon it sits inside. The bounding box
-    // passed to doc.image (still 2*PHOTO_R square, with cover:true) is
-    // unchanged — it's exactly big enough to fully cover the hexagon,
-    // which is inscribed within a circle of that same radius.
     if (content.photoBase64) {
       try {
         const buf = Buffer.from(content.photoBase64, 'base64');
@@ -100,18 +83,8 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
 
     const hx = SIDEBAR_W + 24;
     const NAME_TOP = 24;
-    // The decorative hexagons and the divider both stop at PAGE_W - 80,
-    // not the header's true right edge — so that's the real available
-    // width for the name/subtitle too, not R_END/PAGE_W-18.
     const headerAvailW = (PAGE_W - 80) - hx;
 
-    // ── Name: wrap/shrink instead of running off the header ────────────
-    // Previously drawn with lineBreak:false and no width, so a long name
-    // just ran straight through the decorative hexagons and off the page.
-    // Same fix as the other templates: try a size ladder first (a
-    // slightly smaller single line beats an early wrap), then wrap onto a
-    // second line — capped at 2 — only if even the smallest size can't
-    // fit it on one line.
     const NAME_SIZE_LADDER = [32, 28, 24, 22];
     const upperName = (content.name || '').toUpperCase();
     let nameSize = NAME_SIZE_LADDER[NAME_SIZE_LADDER.length - 1];
@@ -134,25 +107,17 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     let nameBottomY = NAME_TOP;
     nameLines.forEach((ln, i) => {
       const lineY = NAME_TOP + i * nameLineH;
-      doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+      // FIX: truncateToFit instead of width+ellipsis (can silently wrap).
+      const safe = truncateToFit(doc, ln, 'Helvetica-Bold', nameSize, headerAvailW);
+      doc.text(safe, hx, lineY, { lineBreak: false });
       nameBottomY = lineY + nameLineH;
     });
 
-    // This template's header order is name → divider → subtitle → contact
-    // (unlike teal-gold's name → subtitle → divider) — kept exactly as
-    // designed, just with each piece now cascading off the ACTUAL measured
-    // bottom of the one before it instead of a fixed y offset.
     const DIVIDER_Y = nameBottomY + 3;
     doc.strokeColor(GOLD).lineWidth(2).moveTo(hx, DIVIDER_Y).lineTo(PAGE_W - 80, DIVIDER_Y).stroke();
 
     // ── Subtitle: letter-spaced text, wrapped like the divider's own
     // width instead of running off unbounded ─────────────────────────
-    // The letter-spacing (a space inserted between every character)
-    // roughly doubles rendered width, so the ORIGINAL text is wrapped
-    // first with a conservative shrink factor (breaking at real word
-    // boundaries), then letter-spacing is applied per finished line —
-    // same approach already used for teal-gold's subtitle. Capped at 2
-    // lines; width+ellipsis is a hard backstop underneath this estimate.
     const SUBTITLE_TOP = DIVIDER_Y + 10;
     doc.font('Helvetica').fontSize(10.5).fillColor(GOLD_LT);
     const subtitleLineH = doc.currentLineHeight(true);
@@ -162,28 +127,37 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     if (spacedSubtitleLines.length) {
       spacedSubtitleLines.forEach((ln, i) => {
         const lineY = SUBTITLE_TOP + i * subtitleLineH;
-        doc.text(ln, hx, lineY, { lineBreak: false, width: headerAvailW, ellipsis: true });
+        const safe = truncateToFit(doc, ln, 'Helvetica', 10.5, headerAvailW);
+        doc.text(safe, hx, lineY, { lineBreak: false });
         subtitleBottomY = lineY + subtitleLineH;
       });
     } else {
       subtitleBottomY = SUBTITLE_TOP + subtitleLineH;
     }
 
-    // Contact row: any missing field (phone/email/location) is simply
-    // absent from content.contact, so .filter(Boolean) already drops it
-    // and no orphan label/icon is drawn for it. Its row position now
-    // derives from subtitleBottomY instead of a fixed constant, so it
-    // moves down together with a wrapped name/subtitle rather than
-    // overlapping them — and the hex bullet and its text still share this
-    // one cy2 value, so they can never end up out of sync with each other.
-    const cy2 = subtitleBottomY + 12;
-    let cx = hx;
+    // ── Contact row ──────────────────────────────────────────────────
+    // FIX: previously drawn with no width bound at all — a long field, or
+    // simply enough fields together (now including LinkedIn), could run
+    // straight off the header's right edge. Now wraps to a new row within
+    // the header's own available width via a small local flow routine
+    // (mirrors flowItems(), but using the template's own hexagon bullet
+    // instead of a square one, to keep the hex motif consistent) rather
+    // than overflowing. LinkedIn is appended after location; any field
+    // the user didn't provide is simply absent via .filter(Boolean).
+    const cy2Start = subtitleBottomY + 12;
+    const contacts = [content.contact?.phone, content.contact?.email, content.contact?.location, content.contact?.linkedin].filter(Boolean);
     doc.font('Helvetica').fontSize(8.5);
-    [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean).forEach(txt => {
+    let cx = hx, cy2 = cy2Start;
+    contacts.forEach(txt => {
       const tw = doc.widthOfString(txt);
+      const itemW = tw + 12;
+      if (cx !== hx && (cx - hx) + itemW > headerAvailW) {
+        cx = hx;
+        cy2 += 15;
+      }
       hexagon(doc, cx + 4, cy2 - 2, 3.5, GOLD);
       doc.fillColor(WHITE).text(txt, cx + 12, cy2 - 5, { lineBreak: false });
-      cx += tw + 24;
+      cx += itemW + 12;
     });
   }
 
@@ -216,10 +190,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
     return yTop + lines.length * size * 1.4;
   }
-  // Bulleted list in the sidebar — same small-hexagon-plus-wrapped-text
-  // shape as SKILLS — used for any custom sidebar section given as a list
-  // rather than a paragraph. Every line goes through wrapLines against
-  // the real sidebar width, so it can't overflow the sidebar.
   function lbullets(items, yTop) {
     const size = 8.5;
     let cur = yTop, total = 0;
@@ -301,13 +271,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   });
   y += 6;
 
-  // ── Custom sidebar sections ──────────────────────────────────────────
-  // A user can ask the AI to add a section not in the fixed schema (e.g.
-  // "Academic Projects", "Hobbies"). Entries in content.customSections
-  // with placement:'sidebar' get their own heading + wrapped content here,
-  // via the same lsec/lnorm/lbullets helpers (and therefore the same
-  // width-safe wrapping) as every built-in sidebar section — so they
-  // can't overflow the sidebar any more than SKILLS or LANGUAGES can.
   (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
     y = lsec((cs.title || 'Section').toUpperCase(), y) + 4;
     let linesUsed = 0;
@@ -424,14 +387,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry += tightenGap(8) + GS;
   } else track('certifications', 0, false);
 
-  // ── Custom main-column sections ──────────────────────────────────────
-  // Same idea as the sidebar version above, but for content that fits
-  // better in the wide right column. Every entry with placement !==
-  // 'sidebar' (including no placement at all — main is the default) lands
-  // here, via rsec/rpara/rbullets so it gets the same wrapping, leading
-  // and tight-leading/compaction behavior as EXPERIENCE/ACHIEVEMENT, and
-  // the same per-section line tracking so overflow detection and the fit
-  // recommendation both already account for it automatically.
   (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar').forEach(cs => {
     ry = rsec((cs.title || 'Section').toUpperCase(), ry);
     let linesUsed = 0;
@@ -448,20 +403,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry += tightenGap(12) + GS;
   });
 
-  // References: content.references is an array (1, 2, 3+ — no cap).
-  // Cards are laid out side by side, own width dividing evenly by count.
-  //
-  // Each card now measures its OWN real content height instead of a fixed
-  // 58pt — a long role/title used to run straight into the Email/Phone
-  // lines below it (fixed offsets: ry+29, ry+42) since neither the box
-  // nor those offsets accounted for wrapping. Role now wraps properly;
-  // Email/Phone now wrap onto additional lines too (instead of being
-  // truncated with "…" via PDFKit's lineBreak:false+width+ellipsis, which
-  // turned out to still wrap unpredictably once a width was supplied —
-  // same fix already applied to copper-diagonal). And a long field in one
-  // card no longer forces the shorter cards next to it to stretch to
-  // match — only the row's overall footprint (rowH, used to advance ry
-  // afterward) uses the max; each card is drawn at its own height.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     ry = rsec('REFERENCE' + (refList.length > 1 ? 'S' : ''), ry);
