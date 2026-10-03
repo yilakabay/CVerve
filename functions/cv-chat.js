@@ -218,6 +218,28 @@
 // position. The system prompt below has been updated to match — the model
 // now asks about contact fields and references without assuming there's
 // only ever one of the latter.
+//
+// ── FEATURE: translating static UI chrome to the conversation's language ──
+// cv.html has no language picker and never will — the app's own UI chrome
+// (buttons, labels, static notices) stays in English by default. But the
+// user and the AI can end up chatting in any language, and a couple of
+// small static UI pieces (right now: the "may not open in Telegram" notice
+// box, with its paragraph, checkbox label, and two buttons) read oddly if
+// they're the only thing left in English in an otherwise non-English
+// conversation.
+//
+// Rather than hardcode a second (or third) language directly into cv.html,
+// cv.html asks THIS function to translate those strings, using the same
+// model already powering the conversation to both (a) detect what language
+// the user has actually been writing in, from the real recent messages, and
+// (b) translate the fixed UI strings into that language — never the other
+// way around (never translate the CV content itself; that's the unrelated,
+// existing English-only rule in buildSystemPrompt). See handleTranslateUI()
+// below. This is a separate, much smaller request than the main chat loop:
+// no tools, a tiny prompt, one DeepSeek call, and a fallback to the original
+// English strings for absolutely any failure (bad JSON back, detection
+// unclear, network error, low balance) — a UI label staying in English is a
+// cosmetic miss, never worth breaking the chat over.
 
 // ── Template registry ──────────────────────────────────────────────────
 // Each entry maps a templateId (chosen by the user in the gallery, sent by
@@ -679,6 +701,115 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
   }
 }
 
+// ── UI-chrome translation ─────────────────────────────────────────────────
+// See the "FEATURE: translating static UI chrome" note near the top of the
+// file for why this exists. Triggered by { action: 'translateUI', userId,
+// sessionToken, messages, uiStrings }, where `uiStrings` is a flat
+// { key: englishText } object cv.html wants translated, and `messages` is
+// (a slice of) the real OpenAI-format conversation history, used only to
+// detect what language the user has actually been writing in — nothing here
+// ever touches or re-renders the CV content itself.
+//
+// Kept deliberately tiny and defensive: one short DeepSeek call, no tools,
+// and ANY failure (bad JSON back, auth/balance problem, network error) falls
+// back to returning the original English strings unchanged rather than
+// surfacing an error — a UI label staying in English is a cosmetic miss,
+// never worth interrupting the user's session over.
+const MAX_UI_TRANSLATION_CONTEXT_MESSAGES = 8; // how many recent user/assistant turns we show the model to detect language from
+
+function englishStringsResult(uiStrings, tokenBalance) {
+  return { success: true, lang: 'English', strings: uiStrings, tokensUsed: 0, tokenBalance: tokenBalance ?? null };
+}
+
+// Pulls a short, plain-text excerpt of what the USER actually typed (never
+// the assistant's own replies, and never tool/system messages) so language
+// detection is based on the user's own words, not on the assistant possibly
+// having already guessed wrong earlier in the conversation.
+function recentUserText(messages) {
+  const userTurns = (Array.isArray(messages) ? messages : [])
+    .filter(m => m && m.role === 'user' && typeof m.content === 'string' && m.content.trim())
+    // Strip the "[Attached file: ...]" extracted-text blocks cv-chat.js
+    // appends to user turns — those are OCR/document text, not the user's
+    // own conversational language, and would just confuse detection.
+    .map(m => m.content.split(/\n\n\[Attached file:/)[0].trim())
+    .filter(Boolean);
+  return userTurns.slice(-MAX_UI_TRANSLATION_CONTEXT_MESSAGES);
+}
+
+async function handleTranslateUI(body, db) {
+  const uiStrings = (body.uiStrings && typeof body.uiStrings === 'object') ? body.uiStrings : null;
+  if (!uiStrings || !Object.keys(uiStrings).length) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'uiStrings is required' }) };
+  }
+
+  let user;
+  try {
+    user = await authenticate(db, body.userId, body.sessionToken);
+  } catch (e) {
+    // Translation is a nice-to-have, not core functionality — on an auth
+    // hiccup just hand back English rather than forcing cv.html to handle
+    // yet another error path for something this small.
+    return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
+  }
+
+  const userLines = recentUserText(body.messages);
+  // Not enough signal yet (e.g. the very first message of a session) —
+  // nothing to detect a language from, so don't guess; stay in English.
+  if (!userLines.length) {
+    return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
+  }
+
+  const prompt = [
+    'You detect what natural language a chat user has been writing in, and translate a short list of fixed app UI strings into that language.',
+    '',
+    'Below is a short excerpt of the USER\'S OWN recent messages (not the assistant\'s replies) from an ongoing chat, oldest first:',
+    userLines.map((l, i) => `${i + 1}. ${l}`).join('\n'),
+    '',
+    'Rules:',
+    '- Decide the single natural language the user is writing in, based only on their own messages above.',
+    '- If that language is English (or you cannot tell / the messages are just names, numbers, or emoji with no real language content), return every string completely UNCHANGED and set "lang" to "English".',
+    '- Otherwise, translate each given string naturally and concisely into that language, in a friendly tone consistent with a chat app. Keep translations short — these are UI labels and short notices, not prose.',
+    '- Never translate the product name "CVcase Bot" — keep it exactly as written, in Latin letters, inside whichever string it appears in.',
+    '- Respond with RAW JSON ONLY — no markdown fences, no commentary, no extra keys — in exactly this shape:',
+    '{"lang":"<language name in English, e.g. \\"Amharic\\">","strings":{<same keys you were given, each mapped to its (possibly unchanged) translated text>}}',
+    '',
+    'Strings to translate (JSON):',
+    JSON.stringify(uiStrings)
+  ].join('\n');
+
+  try {
+    assertCanAfford(user, estimateTokens(prompt));
+  } catch (e) {
+    return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
+  }
+
+  try {
+    const result = await callDeepSeek({ messages: [{ role: 'user', content: prompt }], maxTokens: 600, attempts: 2 });
+    const raw = (result.message && result.message.content) || '';
+    const clean = raw.replace(/^```json\s*|```$/g, '').trim();
+    const parsed = JSON.parse(clean);
+
+    const translated = parsed && parsed.strings && typeof parsed.strings === 'object' ? parsed.strings : null;
+    // Only trust the result if every original key came back — a partial or
+    // malformed response is treated as a failure, not patched together.
+    const complete = translated && Object.keys(uiStrings).every(k => typeof translated[k] === 'string' && translated[k].trim());
+
+    const promptTokens     = (result.usage && result.usage.prompt_tokens)     || 0;
+    const completionTokens = (result.usage && result.usage.completion_tokens) || 0;
+    const tokenBalance = await deductTokens(db, body.userId, result.cost, { feature: 'cv-chat-translate-ui', promptTokens, completionTokens });
+
+    if (!complete) {
+      return { statusCode: 200, body: JSON.stringify({ success: true, lang: 'English', strings: uiStrings, tokensUsed: result.cost, tokenBalance }) };
+    }
+
+    const lang = (typeof parsed.lang === 'string' && parsed.lang.trim()) ? parsed.lang.trim() : 'Unknown';
+    return { statusCode: 200, body: JSON.stringify({ success: true, lang, strings: translated, tokensUsed: result.cost, tokenBalance }) };
+  } catch (e) {
+    console.error('handleTranslateUI error:', e.message);
+    return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
+  }
+}
+
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
   const handlerStarted = Date.now(); // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file
@@ -695,6 +826,17 @@ exports.handler = async (event, context) => {
   // Real enforcement — see the CV_DEV_ALLOWED_USER_ID comment above.
   if (body.userId !== CV_DEV_ALLOWED_USER_ID) {
     return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
+  }
+
+  // ── Small side-channel: translate static UI chrome, not the CV/chat ──────
+  // See handleTranslateUI() above. Handled and returned before any of the
+  // CV-building/system-prompt/billing-for-a-full-turn logic below, since
+  // this is a much smaller, separate kind of request.
+  if (body.action === 'translateUI') {
+    let db;
+    try { db = await getDb(); }
+    catch (e) { return { statusCode: 200, body: JSON.stringify(englishStringsResult(body.uiStrings || {})) }; }
+    return await handleTranslateUI(body, db);
   }
 
   let { messages, newUserText, newUserFiles, photoBase64, templateId, sessionToken, uiLanguage, uiLanguageName } = body;
@@ -851,6 +993,13 @@ exports.handler = async (event, context) => {
   // attempt a DeepSeek chat call — Netlify would very likely kill the
   // function mid-call, which is worse than returning a clean "try again"
   // reply now. This is the main new safeguard for the free-plan 10s cap.
+  // NOTE: the two needsContinue `reply` strings below (here and further down
+  // in the tool loop) are deliberately fixed, plain English — they're not
+  // generated by the model, so they can't naturally pick up the user's
+  // language the way a normal assistant reply does. cv.html translates them
+  // client-side (same 'translateUI' mechanism as the Telegram notice box)
+  // before showing the Continue box, so don't bake another language into
+  // them here.
   if (timeLeft(handlerStarted) < MIN_TIME_TO_START_CHAT_CALL_MS) {
     const tokenBalance = await chargeOnce();
     return {
@@ -879,7 +1028,7 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           body: JSON.stringify({
             success: true,
-            reply: "I've made some progress.\n\nየተወሰነ ሰርቻለሁ ነገር ግን ያልጨረስኩት ነገር አለ ለመቀጠል \"Continue\" ሚለውን ይጫኑ።",
+            reply: "I've made some progress, but didn't finish this step.",
             needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
             messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
             tokensUsed: usedCost, tokenBalance, unreadFiles
