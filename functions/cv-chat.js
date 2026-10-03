@@ -715,25 +715,37 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
 // back to returning the original English strings unchanged rather than
 // surfacing an error — a UI label staying in English is a cosmetic miss,
 // never worth interrupting the user's session over.
-const MAX_UI_TRANSLATION_CONTEXT_MESSAGES = 8; // how many recent user/assistant turns we show the model to detect language from
+// cv.html auto-fills this exact text as the "user" message whenever someone
+// attaches their profile photo (see sendPhotoTurn() there) — it's an
+// app-injected placeholder standing in for a photo upload, never something
+// the user actually typed, so it must never be read as a language sample.
+const PHOTO_PLACEHOLDER_USER_TEXT = "Here's my photo.";
 
 function englishStringsResult(uiStrings, tokenBalance) {
   return { success: true, lang: 'English', strings: uiStrings, tokensUsed: 0, tokenBalance: tokenBalance ?? null };
 }
 
-// Pulls a short, plain-text excerpt of what the USER actually typed (never
-// the assistant's own replies, and never tool/system messages) so language
-// detection is based on the user's own words, not on the assistant possibly
-// having already guessed wrong earlier in the conversation.
-function recentUserText(messages) {
-  const userTurns = (Array.isArray(messages) ? messages : [])
-    .filter(m => m && m.role === 'user' && typeof m.content === 'string' && m.content.trim())
-    // Strip the "[Attached file: ...]" extracted-text blocks cv-chat.js
-    // appends to user turns — those are OCR/document text, not the user's
-    // own conversational language, and would just confuse detection.
-    .map(m => m.content.split(/\n\n\[Attached file:/)[0].trim())
-    .filter(Boolean);
-  return userTurns.slice(-MAX_UI_TRANSLATION_CONTEXT_MESSAGES);
+// Finds the single most recent message the user actually typed themselves —
+// never the assistant's own replies, never a tool/system message, and never
+// the "Here's my photo." placeholder cv.html sends on the user's behalf when
+// a photo is attached (see PHOTO_PLACEHOLDER_USER_TEXT above). Walks
+// backward from the end of the conversation so a photo-upload turn (or any
+// other turn with nothing the user actually wrote) is skipped in favor of
+// the real message before it. Returns null if there's no such message yet
+// (e.g. right at the very start of a session).
+function lastRealUserText(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || m.role !== 'user' || typeof m.content !== 'string') continue;
+    // Strip the "[Attached file: ...]" extracted-text block cv-chat.js
+    // appends to a user turn — that's OCR/document text, not something the
+    // user typed, and would just confuse detection.
+    const typed = m.content.split(/\n\n\[Attached file:/)[0].trim();
+    if (!typed || typed === PHOTO_PLACEHOLDER_USER_TEXT) continue;
+    return typed;
+  }
+  return null;
 }
 
 async function handleTranslateUI(body, db) {
@@ -752,22 +764,24 @@ async function handleTranslateUI(body, db) {
     return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
   }
 
-  const userLines = recentUserText(body.messages);
-  // Not enough signal yet (e.g. the very first message of a session) —
-  // nothing to detect a language from, so don't guess; stay in English.
-  if (!userLines.length) {
+  const lastMessage = lastRealUserText(body.messages);
+  // Not enough signal yet (e.g. the very first message of a session, or
+  // every user turn so far was just a photo upload) — nothing real to judge
+  // a language from, so don't guess; stay in English.
+  if (!lastMessage) {
     return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
   }
 
   const prompt = [
-    'You detect what natural language a chat user has been writing in, and translate a short list of fixed app UI strings into that language.',
+    'Here is the single most recent message a chat user typed themselves, just before a UI notice box is about to be shown to them:',
     '',
-    'Below is a short excerpt of the USER\'S OWN recent messages (not the assistant\'s replies) from an ongoing chat, oldest first:',
-    userLines.map((l, i) => `${i + 1}. ${l}`).join('\n'),
+    JSON.stringify(lastMessage),
+    '',
+    'Task: tell me what language THAT message is written in, then translate a short list of fixed app UI strings into that same language.',
     '',
     'Rules:',
-    '- Decide the single natural language the user is writing in, based only on their own messages above.',
-    '- If that language is English (or you cannot tell / the messages are just names, numbers, or emoji with no real language content), return every string completely UNCHANGED and set "lang" to "English".',
+    '- Judge the language from that one message alone — don\'t assume it matches any earlier part of the conversation you don\'t have here.',
+    '- If that message is written in English (or you genuinely cannot tell — e.g. it\'s just a name, a number, an emoji, or otherwise has no real language content), return every string completely UNCHANGED and set "lang" to "English".',
     '- Otherwise, translate each given string naturally and concisely into that language, in a friendly tone consistent with a chat app. Keep translations short — these are UI labels and short notices, not prose.',
     '- Never translate the product name "CVcase Bot" — keep it exactly as written, in Latin letters, inside whichever string it appears in.',
     '- Respond with RAW JSON ONLY — no markdown fences, no commentary, no extra keys — in exactly this shape:',
