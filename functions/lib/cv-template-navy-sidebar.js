@@ -71,11 +71,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.strokeColor(LIGHT_BLUE).lineWidth(0.75)
       .moveTo(SIDEBAR_MARGIN, yTop + 16.5).lineTo(SIDEBAR_MARGIN + SIDEBAR_TEXT_W, yTop + 16.5).stroke();
   }
-  // Every sidebar line MUST stay single-line — there's no room to wrap
-  // without running into the line below it — so a value too wide for
-  // SIDEBAR_TEXT_W is truncated instead of being drawn with no width
-  // bound at all (which previously let a long phone/email/language line
-  // bleed straight past the sidebar's right edge).
   function sidebarText(text, yTop, opts = {}) {
     if (!draw) return;
     const font = opts.font || 'Helvetica-Bold', size = opts.size || 10.5;
@@ -84,11 +79,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     doc.font(font).fontSize(size).fillColor(opts.color || WHITE);
     doc.text(safe, opts.x ?? SIDEBAR_MARGIN, yTop, { lineBreak: false });
   }
-  // A wrapped, multi-line bullet list in the sidebar — same shape as the
-  // SKILLS loop below — used for any custom sidebar section given as a
-  // list rather than a paragraph. Returns the y position right after the
-  // last line drawn (or would-be-drawn), for chaining like every other
-  // section-drawing function in this file.
   function sidebarBullets(items, yTop) {
     const textW = SIDEBAR_TEXT_W - BULLET_TEXT_DX;
     let cursor = yTop, total = 0;
@@ -107,13 +97,26 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     return { y: cursor - 4.5, lines: total };
   }
 
+  // ── Contact rows ───────────────────────────────────────────────────
+  // Order: phone, email, LinkedIn, location — LinkedIn inserted as a
+  // secondary detail rather than first, consistent with the other
+  // templates. Each row already went through sidebarText()'s
+  // truncateToFit(), so a 4th row doesn't risk overflowing its own
+  // column width — it just adds one more fixed-spacing row below the
+  // others, same as before.
   sidebarHeading('CONTACT', 225.7);
-  const contactRows = [content.contact?.phone, content.contact?.email, content.contact?.location].filter(Boolean);
+  const contactRows = [content.contact?.phone, content.contact?.email, content.contact?.linkedin, content.contact?.location].filter(Boolean);
   contactRows.forEach((txt, i) => sidebarText(txt, 252.4 + i * 21.6));
+  // The contact block's height now depends on how many rows there are
+  // (3 vs 4 with LinkedIn) — EDUCATION's heading position used to be a
+  // fixed constant (329.8) sized for exactly 3 rows, so a 4th row could
+  // run into it. It now starts after the actual last contact row instead.
+  const contactBlockEnd = 252.4 + Math.max(contactRows.length, 1) * 21.6 + 8;
+  const eduHeadingTop = Math.max(329.8, contactBlockEnd);
 
-  sidebarHeading('EDUCATION', 329.8);
+  sidebarHeading('EDUCATION', eduHeadingTop);
   const eduList = normalizeEducation(content.education);
-  let eduY = 355.0;
+  let eduY = eduHeadingTop + 25.2;
   let eduLinesUsed = 0;
   eduList.slice(0, 2).forEach((edu, i) => {
     const label = edu.level || (i === 0 ? 'HIGHER EDUCATION' : 'SECONDARY EDUCATION');
@@ -124,14 +127,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     schoolLines.forEach(ln => { sidebarText(ln, eduY, { size: 10.5 }); eduY += 13; });
     eduLinesUsed += schoolLines.length;
     if (edu.degree) {
-      // Previously this only called wrapLines() when draw was true, and
-      // used the UNWRAPPED single string as a stand-in during the
-      // measurement pass — so measure() always thought a degree line was
-      // one line, even when it actually wrapped to 2-3 lines on the real
-      // draw. That mismatch could let the sidebar (and therefore content
-      // hidden behind/below it) silently run taller than what was
-      // measured. wrapLines() is cheap and safe to call on every pass —
-      // there's no reason to skip it when draw is false.
       const lines = wrapLines(doc, edu.degree, 'Helvetica', 9.5, SIDEBAR_TEXT_W - (SIDEBAR_INDENT2 - SIDEBAR_MARGIN));
       lines.forEach(ln => { sidebarText(ln, eduY, { font: 'Helvetica', size: 9.5, x: SIDEBAR_INDENT2 }); eduY += 13; });
       eduLinesUsed += lines.length;
@@ -190,13 +185,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   track('languages', langList.length, langList.length > 0);
   let sidebarBottom = langHeadingTop + 26.0 + Math.max(langList.length, 1) * 13.6;
 
-  // ── Custom sidebar sections ──────────────────────────────────────────
-  // A user can ask the AI to add a section not in the fixed schema (e.g.
-  // "Academic Projects", "Hobbies"). Entries in content.customSections
-  // with placement:'sidebar' get their own heading + wrapped content here,
-  // via the same sidebarHeading/sidebarText/sidebarBullets helpers (and
-  // therefore the same width-safe wrapping/truncation) as every built-in
-  // sidebar section.
   const sidebarCustom = (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar');
   if (sidebarCustom.length) {
     let cy = sidebarBottom + SECTION_GAP;
@@ -256,12 +244,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   }
 
   if (draw) {
-    // ── Name & subtitle: neither has room to wrap to a second line —
-    // the name sits right above a fixed-height navy bar, and the
-    // subtitle sits INSIDE that same bar — so both now shrink through a
-    // size ladder and fall back to truncateToFit as a last resort,
-    // instead of being drawn with no width bound at all (which could
-    // previously run a long name/subtitle straight past the page edge).
     const whiteCenter = (SIDEBAR_W + PAGE_W) / 2;
     const headerAvailW = (PAGE_W - SIDEBAR_W) - 40;
 
@@ -282,14 +264,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     const nameW = doc.widthOfString(nameText);
     doc.text(nameText, whiteCenter - nameW / 2, 81.4, { lineBreak: false });
 
-    // ── Subtitle (professional title): shrink through a size ladder first
-    // — same idea as the name above it — so a normal-length title (the
-    // vast majority) is drawn at a readable size with NO "…" at all.
-    // Letter-spacing (a space inserted between every character) roughly
-    // doubles rendered width, so it's applied once up front and every
-    // candidate size is measured against that already-spaced string.
-    // truncateToFit() only ever gets used as a last-resort backstop, for
-    // a title so long even the smallest size in the ladder can't fit it.
     const rawSubtitle = (content.subtitle || '');
     const spacedSubtitle = rawSubtitle.split('').join(' ').toUpperCase();
     const SUBTITLE_SIZE_LADDER = [10.5, 9.5, 8.5, 7.5, 6.5];
@@ -306,11 +280,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     }
     doc.font('Helvetica').fontSize(subtitleSize).fillColor(WHITE);
     const subW = doc.widthOfString(subtitle);
-    // Vertically centered in the bar: cyTop is the bar's own vertical
-    // center, and doc.text's y is the TOP of the glyph box — so the top
-    // needs to sit half a line-height above that center, not at a fixed
-    // +3.7 offset (which is what was pushing it visibly low for anything
-    // other than the exact original 10.5pt size).
     const subH = doc.currentLineHeight();
     doc.text(subtitle, whiteCenter - subW / 2, cyTop - subH / 2, { lineBreak: false });
   }
@@ -380,11 +349,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('certifications', linesUsed, true);
   } else track('certifications', 0, false);
 
-  // ── Custom main-column sections ──────────────────────────────────────
-  // Same idea as the sidebar version above, but for content that fits
-  // better in the wide right column. Every entry with placement !==
-  // 'sidebar' (including no placement at all — main is the default)
-  // lands here, via contentHeading/contentParagraph/contentBullets.
   const mainCustom = (content.customSections || []).filter(cs => cs && cs.placement !== 'sidebar');
   mainCustom.forEach(cs => {
     y = contentHeading((cs.title || 'Section').toUpperCase(), y + GAP_SECTION);
@@ -401,13 +365,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track(`custom:${cs.title || 'Section'}`, linesUsed, true);
   });
 
-  // References: content.references is an array (1, 2, 3+ — no cap).
-  // Name/role now wrap (up to 2 lines), and Email/Phone now wrap too
-  // instead of being drawn with literally no width bound at all — which
-  // previously let a long email or phone number run straight off the
-  // right edge of the page. Each entry's actual measured height (not a
-  // fixed 64pt constant) determines how far y advances, so a wrapped
-  // field can't overlap the next reference below it.
   const refList = normalizeReferences(content.references || content.reference);
   if (refList.length) {
     y = contentHeading(refList.length > 1 ? 'REFERENCES' : 'REFERENCE', y + GAP_SECTION);
@@ -444,12 +401,6 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('references', linesUsed, true);
   } else track('references', 0, false);
 
-  // The sidebar's own vertical extent was previously never factored into
-  // finalY at all — only the content column's y was returned, so a tall
-  // sidebar (a long education section, many skills, custom sidebar
-  // sections) could silently run past the bottom of the page while
-  // measure() still reported fits:true, because it only ever checked the
-  // content column's height against the page.
   return { finalY: Math.max(y, sidebarBottom), sections };
 }
 
