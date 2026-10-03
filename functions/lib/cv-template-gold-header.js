@@ -261,45 +261,57 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   // FIX (skills cut off with "…"): previously a fixed 3/4-column grid
   // forced every skill cell to a single line via truncateToFit(), which
   // silently chopped off text ("Financial Data Analy…") any time a skill
-  // phrase didn't fit the column — a real loss of information, not just
-  // a cosmetic wrap.
+  // phrase didn't fit the column — real content loss, not just a
+  // cosmetic wrap.
   //
-  // Now each cell first tries a small font-size ladder (8.8 → 8.0 → 7.3)
-  // and keeps the first size that fits the FULL phrase on one line.
-  // That covers the large majority of "just slightly too long" skills
-  // without losing any words. Only a genuinely very long phrase that
-  // still doesn't fit at the smallest size falls back to truncation, as
-  // a last resort instead of the default.
+  // Now each cell WRAPS at the normal skill font size instead of
+  // shrinking or cutting — as many lines as the phrase needs, no cap.
+  // The grid is no longer a fixed single row height: each row's height
+  // is computed from whichever item in that row needed the most lines,
+  // so a long skill gets all the vertical room it needs and the row
+  // below starts after that, same as every other "measure then draw"
+  // section in this file. wrapLines() itself still force-breaks a
+  // single word wider than the column (e.g. a long URL/compound term),
+  // so nothing can run past the cell's edge — but a whole skill phrase
+  // is never truncated anymore, however long it is.
   if (content.skills && content.skills.length) {
     y = section('SKILLS', y);
     const colCount = tightLeading ? 4 : 3, colW = CONTENT_W / colCount;
-    const rowH = tightLeading ? 11.5 : 13;
-    const SKILL_SIZE_LADDER = [8.8, 8.0, 7.3];
+    const lineH = tightLeading ? 10.5 : 12;
+    const rowPad = tightLeading ? 3 : 5;
+    const size = 8.8;
+    const cellW = colW - 10;
+
+    doc.font('Helvetica').fontSize(size);
+    const wrapped = content.skills.map(skill => wrapLines(doc, String(skill), 'Helvetica', size, cellW));
+
+    const rowCount = Math.ceil(content.skills.length / colCount);
     let linesUsed = 0;
-    content.skills.forEach((skill, i) => {
-      const row = Math.floor(i / colCount), col = i % colCount;
-      const sy = y + row * rowH;
+    let cy = y;
+    for (let row = 0; row < rowCount; row++) {
+      const rowItems = [];
+      for (let col = 0; col < colCount; col++) {
+        const i = row * colCount + col;
+        if (i < wrapped.length) rowItems.push(wrapped[i]);
+      }
+      const maxLines = Math.max(1, ...rowItems.map(w => w.length));
       if (draw) {
-        doc.fillColor(GOLD).rect(CONTENT_X + col * colW, sy + 1, 3, 3).fill();
-        const cellW = colW - 10;
-        let chosen = null;
-        for (const sz of SKILL_SIZE_LADDER) {
-          doc.font('Helvetica').fontSize(sz);
-          if (doc.widthOfString(String(skill)) <= cellW) { chosen = sz; break; }
-        }
-        if (chosen) {
-          doc.font('Helvetica').fontSize(chosen).fillColor(BODY);
-          doc.text(String(skill), CONTENT_X + col * colW + 7, sy, { lineBreak: false });
-        } else {
-          const smallest = SKILL_SIZE_LADDER[SKILL_SIZE_LADDER.length - 1];
-          const safe = truncateToFit(doc, skill, 'Helvetica', smallest, cellW);
-          doc.font('Helvetica').fontSize(smallest).fillColor(BODY);
-          doc.text(safe, CONTENT_X + col * colW + 7, sy, { lineBreak: false });
+        for (let col = 0; col < colCount; col++) {
+          const i = row * colCount + col;
+          if (i >= content.skills.length) continue;
+          const wlines = wrapped[i];
+          const cellX = CONTENT_X + col * colW;
+          doc.fillColor(GOLD).rect(cellX, cy + 1, 3, 3).fill();
+          doc.font('Helvetica').fontSize(size).fillColor(BODY);
+          wlines.forEach((ln, li) => {
+            doc.text(ln, cellX + 7, cy + lineH * li, { lineBreak: false });
+          });
         }
       }
-      if (col === 0) linesUsed++;
-    });
-    y += Math.ceil(content.skills.length / colCount) * rowH + tightenGap(4) + GS;
+      cy += lineH * maxLines + rowPad;
+      if (row === 0) linesUsed = maxLines;
+    }
+    y = cy + tightenGap(4) + GS - rowPad;
     track('skills', linesUsed, true);
   } else track('skills', 0, false);
 
