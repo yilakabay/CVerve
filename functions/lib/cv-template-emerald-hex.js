@@ -17,8 +17,17 @@
 // by more than a small, genuinely-crowded threshold, render() REFUSES to
 // produce a PDF (throws, rather than drawing overlapping/clipped text) and
 // hands back a specific, concrete recommendation for what to cut.
+//
+// ── FIX: experience title/date row could overlap ────────────────────────
+// The org/title next to each experience entry's date used to be drawn with
+// NO width limit at all — a long org name could run straight underneath
+// or into the date text with nothing to stop it. It now goes through
+// cv-shared's expTitleDateRow(): if the title fits next to the date on one
+// line, nothing changes; if it doesn't, the title wraps onto as many lines
+// as it needs (full width) and the date drops onto its own line right
+// after, so it can never overlap or get cut off.
 
-const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, expTitleDateRow, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const EMERALD = '#0D5447', EM_DARK = '#082E25', EM_MID = '#155B4E';
@@ -341,17 +350,22 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
         doc.fillColor(GOLD).circle(R_START - 3, ry + 9, 4.5).fill();
         doc.strokeColor(GOLD).lineWidth(1).dash(2, { space: 3 }).moveTo(R_START - 3, ry + 14).lineTo(R_START - 3, ry + 50).stroke();
         doc.undash();
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(EMERALD);
-        doc.text(exp.org || '', R_START + 8, ry + 1, { lineBreak: false });
-        doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MID);
-        const dw = doc.widthOfString(exp.dateRange || '');
-        doc.text(exp.dateRange || '', R_END - dw, ry + 1, { lineBreak: false });
       }
-      ry += 13;
+      // FIX: previously drawn org/date with no width limit at all — a
+      // long org name could run straight into the date text. Now uses
+      // expTitleDateRow(): wraps the title onto extra lines (never
+      // truncates) and drops the date onto its own line if it doesn't
+      // fit alongside the title.
+      const headerR = expTitleDateRow(doc, { org: exp.org, date: exp.dateRange }, R_START + 8, ry + 1, RIGHT_W - 8, {
+        titleFont: 'Helvetica-Bold', titleSize: 10.5, titleColor: EMERALD,
+        dateFont: 'Helvetica-Oblique', dateSize: 8.5, dateColor: MID,
+        lineH: 13, gap: 10, draw
+      });
+      ry = headerR.y;
       if (draw) { doc.font('Helvetica-Oblique').fontSize(9).fillColor(GOLD); doc.text(exp.role || '', R_START + 8, ry, { lineBreak: false }); }
       ry += 13;
       const r2 = rbullets(exp.bullets || [], ry);
-      linesUsed += 2 + r2.lines;
+      linesUsed += 1 + headerR.lines + r2.lines;
       ry = r2.y;
     });
     track('experience', linesUsed, true);
