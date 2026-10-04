@@ -86,6 +86,73 @@ function truncateToFit(doc, text, font, size, maxWidth) {
   return str.slice(0, lo) + ELLIPSIS;
 }
 
+// ── Experience "title ⟷ date" row ─────────────────────────────────────
+// Every sidebar/timeline template draws each experience entry as an
+// org/title on the left and a date range right-aligned on the same row.
+// This used to be handled in one of two unsafe ways, per-template:
+//   (a) truncateToFit() on the title, cut short with "…" the moment it
+//       got close to the date — real content loss, and the exact
+//       "ends with … instead of wrapping" bug reported against the
+//       Navy Sidebar template.
+//   (b) no protection at all — the title was drawn at full width with no
+//       width limit, so a long org name could run straight underneath/
+//       into the date text with nothing to stop it.
+// This helper replaces both: if the title fits next to the date on one
+// line, it's drawn exactly as before (unchanged look for the common
+// case). If it doesn't, the title WRAPS onto as many lines as it needs —
+// using the row's full width, not squeezed against the date — and the
+// date is then placed on its own line directly below the (possibly
+// multi-line) title, still right-aligned. The title is never truncated,
+// and the date can never overlap or collide with wrapped title text.
+//
+// Works in both measure (draw:false) and render (draw:true) passes, same
+// convention as every other section helper in the template files: line
+// counts/heights are always computed; doc.text() calls are skipped when
+// draw is false.
+function expTitleDateRow(doc, { org, date }, x, yTop, totalWidth, opts = {}) {
+  const titleFont = opts.titleFont || 'Helvetica-Bold';
+  const titleSize = opts.titleSize || 10.5;
+  const titleColor = opts.titleColor || '#000000';
+  const dateFont = opts.dateFont || 'Helvetica-Oblique';
+  const dateSize = opts.dateSize || 10;
+  const dateColor = opts.dateColor || '#666666';
+  const gap = opts.gap ?? 10;
+  const lineH = opts.lineH || Math.round(titleSize * 1.3 * 10) / 10;
+  const draw = !!opts.draw;
+
+  const orgText = String(org || '');
+  const dateText = String(date || '');
+
+  doc.font(dateFont).fontSize(dateSize);
+  const dw = dateText ? doc.widthOfString(dateText) : 0;
+  const firstLineAvailW = dateText ? Math.max(20, totalWidth - dw - gap) : totalWidth;
+
+  doc.font(titleFont).fontSize(titleSize);
+  const fitsOneLine = doc.widthOfString(orgText) <= firstLineAvailW;
+
+  const titleLines = fitsOneLine ? [orgText] : wrapLines(doc, orgText, titleFont, titleSize, totalWidth);
+
+  if (draw) {
+    doc.font(titleFont).fontSize(titleSize).fillColor(titleColor);
+    titleLines.forEach((ln, i) => {
+      doc.text(ln, x, yTop + i * lineH, { lineBreak: false });
+    });
+    if (dateText) {
+      doc.font(dateFont).fontSize(dateSize).fillColor(dateColor);
+      if (fitsOneLine) {
+        doc.text(dateText, x + totalWidth - dw, yTop, { lineBreak: false });
+      } else {
+        const dateY = yTop + titleLines.length * lineH;
+        doc.text(dateText, x + totalWidth - dw, dateY, { lineBreak: false });
+      }
+    }
+  }
+
+  const dateOwnLine = !fitsOneLine && !!dateText;
+  const endY = yTop + titleLines.length * lineH + (dateOwnLine ? lineH : 0);
+  return { y: endY, lines: titleLines.length + (dateOwnLine ? 1 : 0), titleLines: titleLines.length };
+}
+
 // Accepts education as EITHER the old single-object shape
 // { degree, school, extra } OR the array shape
 // [{ level, dateRange, school, degree, extra }, ...]. Always returns an
@@ -292,7 +359,7 @@ function buildFitRecommendation(sections, overflowLines) {
 }
 
 module.exports = {
-  PDFDocument, measureDoc, wrapLines, truncateToFit,
+  PDFDocument, measureDoc, wrapLines, truncateToFit, expTitleDateRow,
   normalizeEducation, normalizeReferences,
   proficiencyToFill,
   flowItems, columnItems,
