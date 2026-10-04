@@ -14,8 +14,18 @@
 // template's gaps are added BEFORE each heading (contentHeading(label,
 // y + GAP_SECTION)) rather than after the previous section, so tightenGap()
 // is applied at the call site of contentHeading() instead.
+//
+// ── FIX: experience title no longer truncated with "…" ─────────────────
+// The org/title next to each experience entry's date used to be cut short
+// with truncateToFit() the moment it got close to the date column — a real
+// loss of content, not just a cosmetic wrap ("Anbesa and Semen Mountain
+// Alliance Tra…"). It now goes through cv-shared's expTitleDateRow(): if
+// the title fits next to the date on one line, nothing changes; if it
+// doesn't, the title wraps onto as many lines as it needs (full width) and
+// the date drops onto its own line right after, so it can never overlap or
+// get cut off.
 
-const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, expTitleDateRow, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 
@@ -298,17 +308,16 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     y = contentHeading('EXPERIENCE', y + GAP_SECTION);
     let linesUsed = 0;
     content.experience.forEach(exp => {
-      if (draw) {
-        const dateText = truncateToFit(doc, exp.dateRange || '', 'Helvetica-Oblique', 10, 150);
-        doc.font('Helvetica-Oblique').fontSize(10);
-        const dw = doc.widthOfString(dateText);
-        const orgText = truncateToFit(doc, exp.org || '', 'Helvetica-Bold', 10.5, CONTENT_W - dw - 10);
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY);
-        doc.text(orgText, CONTENT_LEFT, y + 1, { lineBreak: false });
-        doc.font('Helvetica-Oblique').fontSize(10).fillColor(LIGHT_BLUE);
-        doc.text(dateText, CONTENT_RIGHT - dw, y + 1, { lineBreak: false });
-      }
-      y += 16.5;
+      const dateSafe = truncateToFit(doc, exp.dateRange || '', 'Helvetica-Oblique', 10, 150);
+      // FIX: title no longer truncated — wraps and pushes the date below
+      // it if it doesn't fit next to the date on one line. See the FIX
+      // note at the top of this file.
+      const headerR = expTitleDateRow(doc, { org: exp.org, date: dateSafe }, CONTENT_LEFT, y + 1, CONTENT_W, {
+        titleFont: 'Helvetica-Bold', titleSize: 10.5, titleColor: NAVY,
+        dateFont: 'Helvetica-Oblique', dateSize: 10, dateColor: LIGHT_BLUE,
+        lineH: 13, gap: 10, draw
+      });
+      y = headerR.y + 3.5;
       if (draw) {
         const roleText = truncateToFit(doc, exp.role || '', 'Helvetica-Oblique', 10, CONTENT_W);
         doc.font('Helvetica-Oblique').fontSize(10).fillColor(BODY_GRAY);
@@ -316,7 +325,7 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
       }
       y += 15.5;
       const r2 = contentBullets(exp.bullets || [], y);
-      linesUsed += 3 + r2.lines;
+      linesUsed += 1 + headerR.lines + r2.lines;
       y = r2.y;
     });
     track('experience', linesUsed, true);
