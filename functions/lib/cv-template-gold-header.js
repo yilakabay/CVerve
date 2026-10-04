@@ -13,6 +13,16 @@
 // cv-template-copper-diagonal.js for the full explanation of why render()
 // refuses (throws) rather than drawing overlapping/clipped text if even
 // the tightened layout still overflows past a small threshold.
+//
+// ── FIX: experience/education org line no longer unbounded ──────────────
+// boldLine() (used for each experience's org and each education entry's
+// school) used to draw its text with NO width limit at all — a long org
+// or school name could run straight past CONTENT_R into the page margin.
+// The date for each entry sits in its own separate left-hand label column
+// here (dateLabel()), so there's no risk of the title colliding with a
+// date the way the sidebar/timeline templates could — but the title
+// itself still needed a width guard. It now wraps onto as many lines as
+// it needs (full CONTENT_W), never overflowing and never truncated.
 
 const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
@@ -176,9 +186,19 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     const tw = doc.widthOfString(safe);
     doc.text(safe, MARGIN_L + LABEL_W - tw, yTop, { lineBreak: false });
   }
+  // FIX: previously drew `text` at full width with no limit at all, so a
+  // long org/school name could run straight past CONTENT_R into the page
+  // margin. Now wraps onto as many lines as it needs (full CONTENT_W),
+  // returning the real bottom y so callers advance by the actual height
+  // used instead of a fixed single-line offset.
   function boldLine(text, yTop, size = 10.5) {
-    if (draw) { doc.font('Helvetica-Bold').fontSize(size).fillColor(BODY); doc.text(text, CONTENT_X, yTop, { lineBreak: false }); }
-    return yTop + size + 3;
+    const lines = wrapLines(doc, text || '', 'Helvetica-Bold', size, CONTENT_W);
+    if (draw) {
+      doc.font('Helvetica-Bold').fontSize(size).fillColor(BODY);
+      let cur = yTop;
+      lines.forEach(ln => { doc.text(ln, CONTENT_X, cur, { lineBreak: false }); cur += size + 3; });
+    }
+    return yTop + lines.length * (size + 3);
   }
   function italicLine(text, yTop, size = 9.2) {
     if (draw) { doc.font('Helvetica-Oblique').fontSize(size).fillColor(GOLD); doc.text(text, CONTENT_X, yTop, { lineBreak: false }); }
@@ -235,11 +255,13 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     let linesUsed = 0;
     content.experience.forEach(exp => {
       dateLabel(exp.dateRange, y + 2);
+      const orgTop = y;
       y = boldLine(exp.org || '', y);
+      const orgLines = Math.round((y - orgTop) / ((10.5) + 3)) || 1;
       y = italicLine(exp.role || '', y - 2);
       y += 1;
       (exp.bullets || []).forEach(b => { y = bullet(b, y); linesUsed++; });
-      linesUsed += 2;
+      linesUsed += 1 + orgLines;
     });
     track('experience', linesUsed, true);
     y += tightenGap(8) + GS;
@@ -251,11 +273,13 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     let linesUsed = 0;
     eduList.slice(0, 2).forEach(edu => {
       dateLabel(edu.dateRange, y + 2);
+      const schoolTop = y;
       y = boldLine(edu.school || '', y);
+      const schoolLines = Math.round((y - schoolTop) / ((10.5) + 3)) || 1;
       if (edu.degree) y = italicLine(edu.degree, y - 2);
       if (edu.extra) { y = bullet(edu.extra, y); linesUsed++; }
       y += tightLeading ? 3 : 6;
-      linesUsed += 2;
+      linesUsed += 1 + schoolLines;
     });
     track('education', linesUsed, true);
     y += tightenGap(4) + GS;
