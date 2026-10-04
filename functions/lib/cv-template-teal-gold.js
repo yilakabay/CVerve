@@ -10,8 +10,17 @@
 // levels here: normal → compact-skills (flow-wrap) → +tight-leading, with
 // render() refusing to draw (throwing) if even the most compact level
 // still overflows past a small, genuinely-crowded threshold.
+//
+// ── FIX: experience title/date row could overlap ────────────────────────
+// The org/title next to each experience entry's date used to be drawn with
+// NO width limit at all — a long org name could run straight underneath
+// or into the date text with nothing to stop it. It now goes through
+// cv-shared's expTitleDateRow(): if the title fits next to the date on one
+// line, nothing changes; if it doesn't, the title wraps onto as many lines
+// as it needs (full width) and the date drops onto its own line right
+// after, so it can never overlap or get cut off.
 
-const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
+const { PDFDocument, measureDoc, wrapLines, truncateToFit, expTitleDateRow, normalizeEducation, normalizeReferences, proficiencyToFill, flowItems, buildFitRecommendation } = require('./cv-shared');
 
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const TEAL = '#173F52', GOLD = '#BC9138', GOLD_LIGHT = '#F0E1AD';
@@ -309,18 +318,21 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     ry = rhead('EXPERIENCE', ry);
     let linesUsed = 0;
     content.experience.forEach(exp => {
-      if (draw) {
-        doc.font('Helvetica-Bold').fontSize(10).fillColor(TEAL);
-        doc.text(exp.org || '', R_LEFT, ry + 1, { lineBreak: false });
-        doc.font('Helvetica-Oblique').fontSize(9).fillColor(GOLD);
-        const dw = doc.widthOfString(exp.dateRange || '');
-        doc.text(exp.dateRange || '', R_RIGHT - dw, ry + 1, { lineBreak: false });
-      }
-      ry += 13;
+      // FIX: previously drawn org/date with no width limit at all — a
+      // long org name could run into the date text. Now uses
+      // expTitleDateRow(): wraps the title onto extra lines (never
+      // truncates) and drops the date onto its own line if it doesn't
+      // fit alongside the title.
+      const headerR = expTitleDateRow(doc, { org: exp.org, date: exp.dateRange }, R_LEFT, ry + 1, RIGHT_W, {
+        titleFont: 'Helvetica-Bold', titleSize: 10, titleColor: TEAL,
+        dateFont: 'Helvetica-Oblique', dateSize: 9, dateColor: GOLD,
+        lineH: 13, gap: 10, draw
+      });
+      ry = headerR.y + 2;
       if (draw) { doc.font('Helvetica-Oblique').fontSize(9).fillColor(MID); doc.text(exp.role || '', R_LEFT, ry, { lineBreak: false }); }
       ry += 12;
       const r2 = rbullets(exp.bullets || [], ry);
-      linesUsed += 2 + r2.lines;
+      linesUsed += 1 + headerR.lines + r2.lines;
       ry = r2.y;
     });
     track('experience', linesUsed, true);
