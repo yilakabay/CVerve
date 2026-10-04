@@ -26,6 +26,14 @@
 // cv-template-copper-diagonal.js for the full explanation of why render()
 // refuses (throws) rather than drawing overlapping/clipped text if even
 // the tightened layout still overflows past a small threshold.
+//
+// ── FIX: experience org/role lines no longer truncated with "…" ─────────
+// The org name and the "role — dateRange" line used to each be cut short
+// with truncateToFit() — real content loss, not just a cosmetic wrap. They
+// now wrap onto as many lines as they need instead. The org line can wrap
+// to 2 lines; the role/date line wraps normally (it has no neighboring
+// element to collide with, since it sits on its own row), so nothing is
+// silently dropped anymore.
 
 const { PDFDocument, measureDoc, wrapLines, truncateToFit, normalizeEducation, normalizeReferences, buildFitRecommendation } = require('./cv-shared');
 
@@ -255,17 +263,30 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
     y = sectionHeading('Experience', y + GAP);
     let linesUsed = 0;
     for (const exp of content.experience) {
+      // FIX: org name no longer truncated with "…" — it now wraps onto up
+      // to 2 lines, and the role/date row below it wraps too instead of
+      // being cut short. Each line's y-advance now reflects how many
+      // lines were actually used, instead of a fixed "always 1 line" gap.
+      const orgLines = wrapLines(doc, exp.org || '', 'Helvetica', 9.7, TEXT_COL_W).slice(0, 2);
       if (draw) {
-        const orgSafe = truncateToFit(doc, exp.org || '', 'Helvetica', 9.7, TEXT_COL_W);
         doc.font('Helvetica').fontSize(9.7).fillColor(INK);
-        doc.text(orgSafe, TEXT_COL_X, y + 1, { lineBreak: false });
-        const roleDate = `${exp.role || ''} — ${exp.dateRange || ''}`;
-        const roleDateSafe = truncateToFit(doc, roleDate, 'Helvetica-Oblique', 8.8, TEXT_COL_W);
-        doc.font('Helvetica-Oblique').fontSize(8.8).fillColor(MUTED);
-        doc.text(roleDateSafe, TEXT_COL_X, y + 14, { lineBreak: false });
+        let oy = y + 1;
+        orgLines.forEach(ln => { doc.text(ln, TEXT_COL_X, oy, { lineBreak: false }); oy += 12.5; });
       }
-      const r = bodyBullets(exp.bullets || [], y + 26);
-      linesUsed += 3 + r.lines;
+      const orgBottom = y + 1 + orgLines.length * 12.5;
+
+      const roleDate = `${exp.role || ''} — ${exp.dateRange || ''}`;
+      const roleDateLines = wrapLines(doc, roleDate, 'Helvetica-Oblique', 8.8, TEXT_COL_W).slice(0, 2);
+      if (draw) {
+        doc.font('Helvetica-Oblique').fontSize(8.8).fillColor(MUTED);
+        let ry2 = orgBottom + 1;
+        roleDateLines.forEach(ln => { doc.text(ln, TEXT_COL_X, ry2, { lineBreak: false }); ry2 += 11.5; });
+      }
+      const roleDateBottom = orgBottom + 1 + roleDateLines.length * 11.5;
+
+      const bulletsTop = roleDateBottom + 3;
+      const r = bodyBullets(exp.bullets || [], bulletsTop);
+      linesUsed += orgLines.length + roleDateLines.length + r.lines;
       y = r.y;
     }
     track('experience', linesUsed, true);
