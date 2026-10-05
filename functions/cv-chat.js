@@ -265,7 +265,8 @@ const TEMPLATES = {
   'teal-gold':      { name: 'Teal & Gold',             mod: require('./lib/cv-template-teal-gold') },
   'copper-diagonal':{ name: 'Diagonal Navy & Copper',  mod: require('./lib/cv-template-copper-diagonal') },
   'emerald-hex':    { name: 'Emerald & Gold Hexagon',  mod: require('./lib/cv-template-emerald-hex') },
-  'editorial':      { name: 'Editorial Column',        mod: require('./lib/cv-template-editorial') }
+  'editorial':      { name: 'Editorial Column',        mod: require('./lib/cv-template-editorial') },
+  'block-band':     { name: 'Gray Block & Black Band', mod: require('./lib/cv-template-block-band') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
