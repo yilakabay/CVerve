@@ -193,20 +193,46 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   });
   sy = sideRule(sy, 16);
 
+  // ── Sidebar: custom sections (placement "sidebar") ───────────────────
+  (content.customSections || []).filter(cs => cs && cs.placement === 'sidebar').forEach(cs => {
+    sy = sideLabel(cs.title || 'Section', sy);
+    let linesUsed = 0;
+    if (cs.items && cs.items.length) {
+      cs.items.forEach(item => {
+        const r = sideLines(item, sy + 1, { size: 8.6, x: SIDE_X + 9, width: SIDE_W - 9, leading: 11 });
+        if (draw) doc.fillColor(GOLD).rect(SIDE_X, sy + 6.2, 3.2, 3.2).fill();
+        sy = r.y + 2.2;
+        linesUsed += r.lines;
+      });
+    } else if (cs.text) {
+      const r = sideLines(cs.text, sy, { font: 'Helvetica', size: 8.6, color: NAVY_SOFT, leading: 11 });
+      sy = r.y;
+      linesUsed = r.lines;
+    }
+    track(`custom:${cs.title || 'Section'}`, linesUsed, true);
+    sy += 4;
+    sy = sideRule(sy, 16);
+  });
+
   // ── Main column: name block ──────────────────────────────────────────
+  // Name: shrink to fit in one line if possible, otherwise WRAP onto as many
+  // lines as needed. Never truncated with "...".
   const NAME_TOP = 46.0;
   const nameSizes = [30, 26, 22];
-  let nameSize = nameSizes[nameSizes.length - 1];
   const nameText = content.name || '';
+  let nameSize = nameSizes[nameSizes.length - 1];
+  let nameLines = null;
   for (const s of nameSizes) {
-    doc.font('Times-Bold').fontSize(s);
-    if (doc.widthOfString(nameText) <= COL_W) { nameSize = s; break; }
+    const lines = wrapLines(doc, nameText, 'Times-Bold', s, COL_W);
+    if (lines.length === 1) { nameSize = s; nameLines = lines; break; }
   }
+  if (!nameLines) nameLines = wrapLines(doc, nameText, 'Times-Bold', nameSize, COL_W);
+  const nameLH = nameSize * 1.15;
   if (draw) {
     doc.font('Times-Bold').fontSize(nameSize).fillColor(NAVY);
-    doc.text(truncateToFit(doc, nameText, 'Times-Bold', nameSize, COL_W), COL_X, NAME_TOP, { lineBreak: false });
+    nameLines.forEach((ln, i) => doc.text(ln, COL_X, NAME_TOP + i * nameLH, { lineBreak: false }));
   }
-  const nameBottom = NAME_TOP + nameSize * 1.15;
+  const nameBottom = NAME_TOP + nameLines.length * nameLH;
 
   const subtitleTop = nameBottom + 2;
   const subtitleLines = wrapLines(doc, (content.subtitle || '').toUpperCase(), 'Helvetica', 11.3, COL_W).slice(0, 2);
