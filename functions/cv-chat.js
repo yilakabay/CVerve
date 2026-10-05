@@ -266,7 +266,8 @@ const TEMPLATES = {
   'copper-diagonal':{ name: 'Diagonal Navy & Copper',  mod: require('./lib/cv-template-copper-diagonal') },
   'emerald-hex':    { name: 'Emerald & Gold Hexagon',  mod: require('./lib/cv-template-emerald-hex') },
   'editorial':      { name: 'Editorial Column',        mod: require('./lib/cv-template-editorial') },
-  'block-band':     { name: 'Gray Block & Black Band', mod: require('./lib/cv-template-block-band') }
+  'block-band':     { name: 'Gray Block & Black Band', mod: require('./lib/cv-template-block-band') },
+  'classic':        { name: 'Classic / International',  mod: require('./lib/cv-template-classic') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
@@ -315,7 +316,7 @@ function timeLeft(startedAt) {
 // bypassed, so the server must independently refuse everyone else here.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
-function buildSystemPrompt(templateName, convLanguage) {
+function buildSystemPrompt(templateName, convLanguage, noPhoto = false) {
   // Computed fresh on every call (never hardcoded) so this stays correct as
   // real time passes — see the "About today's date" note just below for why
   // this matters at all.
@@ -336,7 +337,15 @@ This does NOT extend to the CV itself. A CV / job application document is conven
 `
     : '';
 
-  return `You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "${templateName}" template — this is the ONE template for this whole conversation; the user already picked it in the gallery before you started talking, so never ask them to choose a template again.
+  const noPhotoRules = noPhoto ? `## THIS TEMPLATE HAS NO PHOTO — this overrides every other rule about photos
+This template never shows a profile photo. Therefore:
+- Never ask the user for a photo, in any form, at any step. Never mention a photo, and never say things like "you can add a photo later". Do not call request_photo_upload; for this template that step does not exist.
+- Once the user confirms the step-5 content review, go straight to finalize_pdf. Do not ask about a photo first.
+- If the user attaches a photo, do not use it and do not treat it as their photo. Reply briefly that this template does not use a photo, and ask them to describe their details or send a document instead (certificates, transcripts or an old CV are still welcome).
+
+` : '';
+
+  return `${noPhotoRules}You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "${templateName}" template — this is the ONE template for this whole conversation; the user already picked it in the gallery before you started talking, so never ask them to choose a template again.
 
 ${languageSection}## About today's date
 Today's real-world date is ${today}. Your own training data stops well before this, so recent or ongoing dates the user gives you — a job that started in 2025, a degree finishing in 2026, a certificate dated last month, an experience entry that says "2024 - Present" — are completely normal and current, not "in the future" or suspicious. Never flag, question, or hesitate over a date just because it falls after your training cutoff; treat it exactly the way you'd treat their name or job title — the user's own word on it is the source of truth. The ONLY time to question a date at all is the unrelated, existing rule about transcribing a document's text exactly as scanned (see step 1) — that's about reading accuracy, not about whether a date is plausible.
@@ -437,6 +446,13 @@ const TOOLS = [
     }
   }
 ];
+
+// Tools offered to the model. Templates with no photo never get the photo
+// tool, so the model has no way to start a photo step for them.
+function toolsFor(template) {
+  if (template.mod.noPhoto) return TOOLS.filter(t => t.function.name !== 'request_photo_upload');
+  return TOOLS;
+}
 
 // ── Document/photo text extraction via DeepSeek (images) + pdf-parse (PDFs) ──
 // The conversation loop is text-only, so every attachment is turned into
@@ -884,7 +900,7 @@ exports.handler = async (event, context) => {
     // name, not a bare two-letter code. Falls back to English if the client
     // didn't send one (older cached page, or uiLanguage === 'en').
     const convLanguage = (uiLanguage && uiLanguage !== 'en' && uiLanguageName) ? uiLanguageName : 'English';
-    messages.unshift({ role: 'system', content: buildSystemPrompt(template.name, convLanguage) });
+    messages.unshift({ role: 'system', content: buildSystemPrompt(template.name, convLanguage, !!template.mod.noPhoto) });
   }
 
   // ── Log-in + "can they afford to start this turn?" — BEFORE any file is
@@ -1072,7 +1088,7 @@ exports.handler = async (event, context) => {
         };
       }
 
-      const result = await callDeepSeek({ messages, maxTokens: 2000, tools: TOOLS, toolChoice: 'auto', attempts: 2 });
+      const result = await callDeepSeek({ messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto', attempts: 2 });
       usedCost       += result.cost;
       usedPrompt     += (result.usage && result.usage.prompt_tokens)     || 0;
       usedCompletion += (result.usage && result.usage.completion_tokens) || 0;
@@ -1095,7 +1111,7 @@ exports.handler = async (event, context) => {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
 
-        const toolResult = await callTool(tc.function.name, args, photoBase64, templateId, body.userId);
+        const toolResult = await callTool(tc.function.name, args, template.mod.noPhoto ? null : photoBase64, templateId, body.userId);
         let toolContent;
         if (toolResult && toolResult.pdfBase64) {
           finalPdfBase64 = toolResult.pdfBase64;
