@@ -270,7 +270,8 @@ const TEMPLATES = {
   'classic':        { name: 'Classic / International',  mod: require('./lib/cv-template-classic') },
   'accent':         { name: 'Quiet Accent',            mod: require('./lib/cv-template-accent') },
   'banded':         { name: 'Banded Gray',             mod: require('./lib/cv-template-banded') },
-  'timeline':       { name: 'Timeline Sidebar',        mod: require('./lib/cv-template-timeline') }
+  'timeline':       { name: 'Timeline Sidebar',        mod: require('./lib/cv-template-timeline') },
+  'purple':         { name: 'Purple Executive',        mod: require('./lib/cv-template-purple') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
