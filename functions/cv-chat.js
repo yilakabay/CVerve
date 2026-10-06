@@ -267,7 +267,8 @@ const TEMPLATES = {
   'emerald-hex':    { name: 'Emerald & Gold Hexagon',  mod: require('./lib/cv-template-emerald-hex') },
   'editorial':      { name: 'Editorial Column',        mod: require('./lib/cv-template-editorial') },
   'block-band':     { name: 'Gray Block & Black Band', mod: require('./lib/cv-template-block-band') },
-  'classic':        { name: 'Classic / International',  mod: require('./lib/cv-template-classic') }
+  'classic':        { name: 'Classic / International',  mod: require('./lib/cv-template-classic') },
+  'accent':         { name: 'Quiet Accent',            mod: require('./lib/cv-template-accent') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
