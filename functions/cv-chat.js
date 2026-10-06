@@ -268,7 +268,9 @@ const TEMPLATES = {
   'editorial':      { name: 'Editorial Column',        mod: require('./lib/cv-template-editorial') },
   'block-band':     { name: 'Gray Block & Black Band', mod: require('./lib/cv-template-block-band') },
   'classic':        { name: 'Classic / International',  mod: require('./lib/cv-template-classic') },
-  'accent':         { name: 'Quiet Accent',            mod: require('./lib/cv-template-accent') }
+  'accent':         { name: 'Quiet Accent',            mod: require('./lib/cv-template-accent') },
+  'banded':         { name: 'Banded Gray',             mod: require('./lib/cv-template-banded') },
+  'timeline':       { name: 'Timeline Sidebar',        mod: require('./lib/cv-template-timeline') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
