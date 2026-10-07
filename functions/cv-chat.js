@@ -271,7 +271,11 @@ const TEMPLATES = {
   'accent':         { name: 'Quiet Accent',            mod: require('./lib/cv-template-accent') },
   'banded':         { name: 'Banded Gray',             mod: require('./lib/cv-template-banded') },
   'timeline':       { name: 'Timeline Sidebar',        mod: require('./lib/cv-template-timeline') },
-  'purple':         { name: 'Purple Executive',        mod: require('./lib/cv-template-purple') }
+  'purple':         { name: 'Purple Executive',        mod: require('./lib/cv-template-purple') },
+  'orangeline':     { name: 'Orange Line',              mod: require('./lib/cv-template-orangeline') },
+  'navytitle':      { name: 'Navy Title',               mod: require('./lib/cv-template-navytitle') },
+  'graybox':        { name: 'Gray Box',                 mod: require('./lib/cv-template-graybox') },
+  'blackband':      { name: 'Black Band',               mod: require('./lib/cv-template-blackband') }
 };
 const DEFAULT_TEMPLATE_ID = 'minimal';
 
