@@ -7,16 +7,48 @@
 // with the user, one message at a time. The client keeps the full message
 // history and re-sends it every turn (this function is stateless).
 //
+// ── MODELS (via the B.AI gateway, see lib/ai-billing.js) ─────────────────
+//   - Chat interface / data structuring (the main tool-use loop below):
+//     DeepSeek V4-Pro (FEATURE_MODELS.CV_CHAT)
+//   - Document extraction (certificates/education docs attached mid-chat):
+//     Gemini 3 Flash (FEATURE_MODELS.CV_EXTRACTION)
+// `lib/ai-billing.js` is the single place that knows each model's real CT
+// rate — this file never computes a CT cost itself, it only sums the `.cost`
+// each billed call already returns.
+//
+// ── BILLING (CT tokens) — HOW THIS FILE DIFFERS FROM THE OTHER AI FUNCTIONS ─
+// Every other AI function (generate-letter, fit-check, smart-finder) makes
+// ONE AI call per request, so it's easy to hold the answer back if the user
+// can't afford the real cost once it's known. This file can't do that:
+//   - A single turn can involve MULTIPLE AI calls (file extraction, then
+//     several tool-loop turns).
+//   - finalize_pdf doesn't just return text — it immediately pushes the
+//     real, finished PDF to the user's Telegram chat as soon as it's called,
+//     before the turn's total cost is known. There is no way to "withhold"
+//     a file that has already been delivered.
+// So, for this file only: we gate on balance > 0 at the very start of the
+// turn (nothing is attempted for a user with exactly 0 CT), then charge
+// whatever was genuinely used once the turn ends — the same shape the
+// original version of this file already used. If the user's balance runs
+// out partway through a turn, later calls within that SAME turn still go
+// through (there's no clean way to stop mid tool-loop without breaking the
+// conversation), but the next turn will correctly refuse to start at 0.
+//
+// The body must include `sessionToken` (issued at login by verify-otp.js or
+// telegram-auth.js — see lib/session.js; this replaces the old password
+// field everywhere in the app). The reply includes `tokensUsed` and
+// `tokenBalance` so the app can update the balance on screen.
+//
 // ── NETLIFY FREE PLAN TIME LIMIT — READ THIS FIRST ────────────────────────
 // Netlify's free plan runs synchronous Functions with a HARD 10-second
 // execution ceiling (the 26s+ window is Pro-only). This function does TWO
 // time-hungry things in sequence — (1) a file-extraction fallback step, then
-// (2) a tool-use loop that can call DeepSeek up to MAX_TOOL_ITERATIONS times,
-// each one a full network round trip — and the old budgets (15s just for
-// extraction, with no cap at all on the loop's own time) could never fit in
-// 10s together. When Netlify killed the function mid-loop, the user lost the
-// whole turn with no clean error and — worse — with no guarantee of which
-// DeepSeek calls had already been billed.
+// (2) a tool-use loop that can call the AI gateway up to MAX_TOOL_ITERATIONS
+// times, each one a full network round trip — and the old budgets (15s just
+// for extraction, with no cap at all on the loop's own time) could never fit
+// in 10s together. When Netlify killed the function mid-loop, the user lost
+// the whole turn with no clean error and — worse — with no guarantee of
+// which AI calls had already been billed.
 //
 // Two changes fix this:
 //   1. EXTRACTION_TIME_BUDGET_MS is cut down a lot (see below). In normal
@@ -25,13 +57,13 @@
 //      see the "FIX: files are now read BEFORE this function is called" note
 //      further down. This budget only matters for the old-shape fallback.
 //   2. A single HANDLER_DEADLINE_MS wall-clock budget now wraps the WHOLE
-//      handler. Before extraction starts, and before every single DeepSeek
-//      call inside the tool loop, the code checks how much real time is
-//      left. If there isn't enough left to safely attempt another call, it
-//      stops on its own — charges for whatever was actually used, and
-//      returns a normal, clean reply asking the user to send another
-//      message to continue — instead of letting Netlify hard-kill the
-//      function mid-call.
+//      handler. Before extraction starts, and before every single AI call
+//      inside the tool loop, the code checks how much real time is left. If
+//      there isn't enough left to safely attempt another call, it stops on
+//      its own — charges for whatever was actually used, and returns a
+//      normal, clean reply asking the user to send another message to
+//      continue — instead of letting Netlify hard-kill the function
+//      mid-call.
 //
 // This does mean a genuinely complex turn (lots of files + several tool
 // calls) may now take 2-3 user messages instead of 1 on the free plan. That
@@ -40,50 +72,23 @@
 // longer timeout, raise HANDLER_DEADLINE_MS and EXTRACTION_TIME_BUDGET_MS
 // back up and most turns will go back to finishing in one shot.
 //
-// ⚠️ ONE THING THIS FILE CANNOT FIX ON ITS OWN: callDeepSeek() itself (in
-// lib/ai-billing.js) isn't shown here, so I don't know whether its own HTTP
-// call has a timeout, and if so, how long. If it has no timeout (or a long
-// one, e.g. 20-30s), a single slow DeepSeek response can still blow past
-// Netlify's 10s limit on its own, regardless of the deadline checks added
-// below — those checks only stop a NEW call from starting, they can't
-// interrupt one already in flight. If you want this fully airtight, share
-// lib/ai-billing.js so callDeepSeek's own request timeout can be capped to
-// fit whatever time is left (the loop below already computes that number —
-// see `timeLeftForCall` — it just isn't passed anywhere yet).
+// ── MODEL: OpenAI-compatible tool-calling format ──────────────────────────
+// This file uses OpenAI-style messages (role/content, tool_calls, role:'tool'
+// results) via the B.AI gateway, which both DeepSeek and Gemini speak through
+// that same shape. Two consequences that matter:
 //
-// ── BILLING (CT tokens) ──────────────────────────────────────────────────
-// The body must include `sessionToken` (issued at login by verify-otp.js or
-// telegram-auth.js — see lib/session.js; this replaces the old password
-// field everywhere in the app). Every DeepSeek chat call made during a turn
-// reports its real token usage; they are added up and the total is deducted
-// from the user's CT balance once the turn finishes (see lib/ai-billing.js).
-// The reply includes `tokensUsed` and `tokenBalance` so the app can update
-// the balance on screen. If the user doesn't have enough CT to start a turn,
-// nothing is sent to DeepSeek and a 402 { code:'INSUFFICIENT_TOKENS' } is
-// returned.
-// Reading uploaded files/photos (DeepSeek vision for images, pdf-parse for
-// PDFs — see extractDocumentText() below) is NOT billed in CT — only the
-// DeepSeek chat-loop tokens are.
+//   1. Any CV session saved in the browser from before the OpenAI-style
+//      switch is in the old format and will not resume correctly — start a
+//      fresh session after deploying this.
 //
-// ── MODEL: DeepSeek (deepseek-chat), not Claude ──────────────────────────
-// This file was switched from the Anthropic API to DeepSeek's
-// OpenAI-compatible chat-completions API. Two consequences that matter:
-//
-//   1. Message/tool format is now OpenAI-style (role/content, tool_calls,
-//      role:'tool' results) instead of Anthropic's content-block format.
-//      Any CV session saved in the browser BEFORE this change is in the
-//      old format and will not resume correctly — start a fresh session
-//      after deploying this.
-//
-//   2. The main conversation/tool loop (callDeepSeek) is TEXT-ONLY — it
-//      never receives a raw image or PDF. Uploaded files are converted to
-//      text first, in extractDocumentText():
-//        - images  → DeepSeek vision (same model/endpoint shape used by
-//                    extract-payment-screenshot.js)
-//        - PDFs    → pdf-parse (text PDFs; DeepSeek can't take a PDF as input)
+//   2. The main conversation/tool loop (callAI) is TEXT-ONLY — it never
+//      receives a raw image or PDF. Uploaded files are converted to text
+//      first, in extractDocumentText():
+//        - images  → Gemini 3 Flash vision
+//        - PDFs    → pdf-parse (text PDFs; the chat model can't take a PDF as input)
 //        - scanned PDFs → cv.html detects these with PDF.js, draws the first
 //                    pages to images and sends them as file.pages (no PDF);
-//                    each page image is then read with DeepSeek vision
+//                    each page image is then read with Gemini 3 Flash vision
 //        - Word (.docx) → mammoth (old .doc is rejected in cv.html)
 //      The conversation model then only ever sees that extracted text,
 //      labelled with the filename, never the raw file.
@@ -160,7 +165,7 @@
 //      change they ask for is just handled by updating the content object
 //      and calling finalize_pdf again — there's no separate "preview vs.
 //      final" distinction anymore; every render IS the current version of
-//      the finished PDF.
+//      the finished document.
 //
 // ── FIX: the photo is never mentioned before the model actually asks for
 // it ───────────────────────────────────────────────────────────────────
@@ -249,7 +254,7 @@
 // way around (never translate the CV content itself; that's the unrelated,
 // existing English-only rule in buildSystemPrompt). See handleTranslateUI()
 // below. This is a separate, much smaller request than the main chat loop:
-// no tools, a tiny prompt, one DeepSeek call, and a fallback to the original
+// no tools, a tiny prompt, one AI call, and a fallback to the original
 // English strings for absolutely any failure (bad JSON back, detection
 // unclear, network error, low balance) — a UI label staying in English is a
 // cosmetic miss, never worth breaking the chat over.
@@ -287,29 +292,30 @@ const mammoth  = require('mammoth');
 const { sendPdfDocument } = require('./lib/telegram-send');
 
 const {
-  callDeepSeek, getDb, authenticate, assertCanAfford, estimateTokens, estimateMessagesTokens,
-  deductTokens, errorResponse
+  callAI, getDb, authenticate, assertCanStart,
+  deductTokens, errorResponse, AIError,
+  FEATURE_MODELS, MODEL_IDS
 } = require('./lib/ai-billing');
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const BAI_API_KEY = process.env.BAI_API_KEY;
 const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see HANDLER_DEADLINE_MS below for the real, time-based cap
 
 // ── Whole-handler wall-clock deadline — MUST fit inside Netlify's free-plan
 // 10s cap ─────────────────────────────────────────────────────────────────
 // This is the actual guard against Netlify hard-killing the function mid
 // tool-loop. It is checked (a) once before the extraction fallback runs and
-// (b) before every single DeepSeek call inside the tool loop. If too little
-// time is left to safely start another call, the code stops itself, bills
-// for whatever was genuinely used, and returns a normal reply asking the
-// user to continue — instead of letting the platform kill it mid-request.
+// (b) before every single AI call inside the tool loop. If too little time
+// is left to safely start another call, the code stops itself, bills for
+// whatever was genuinely used, and returns a normal reply asking the user to
+// continue — instead of letting the platform kill it mid-request.
 //
 // 8500ms leaves ~1.5s of margin inside Netlify's 10s free-plan ceiling for
 // JSON parsing, response serialization, and general runtime jitter. Raise
 // this (e.g. to ~24000 on a 26s paid-plan timeout) if you upgrade.
 const HANDLER_DEADLINE_MS = 8500;
-// Don't even start a DeepSeek chat-loop call with less than this much time
-// left — a deepseek-chat call realistically needs at least this long to
-// have a chance of finishing instead of being cut off mid-stream.
+// Don't even start an AI chat-loop call with less than this much time
+// left — a chat-loop call realistically needs at least this long to have a
+// chance of finishing instead of being cut off mid-stream.
 const MIN_TIME_TO_START_CHAT_CALL_MS = 3000;
 
 function timeLeft(startedAt) {
@@ -376,7 +382,7 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
      name, subtitle, contact: {phone,email,location,linkedin},
      education: {degree,school,extra},
      languages: [{name,level}],   // level is a free-text proficiency label — see note below
-     profile, skills: [string], 
+     profile, skills: [string],
      experience: [{org,role,dateRange,bullets:[string]}],
      achievements: [string], certifications: [{title,issuer}],
      references: [{name,role,email,phone}],   // 0, 1, 2, 3+ entries — see note below
@@ -397,7 +403,8 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
    - If it reports real overflow (fits:false) after those automatic techniques were already tried: do NOT ask an open-ended question like "what would you like to remove?". Instead, look at the result's "recommendation" field (or, if finalize_pdf failed with an error, its message) and give the user ONE specific, confident recommendation — name the exact section and roughly how much to cut, e.g. "Your Experience section is the longest part — I'd suggest shortening the Acme Corp bullets from 4 to 2, focusing on your biggest wins. Want me to do that?" Propose the cut, don't just describe the problem.
    - If finalize_pdf itself fails with an error whose message says content is too long even at maximum compaction (this happens when the content is genuinely too much for one page, not just a close call): treat this as a hard limit, not a suggestion. Clearly tell the user this specific template can't fit everything they've given you no matter how it's laid out, give them the same specific, confident recommendation from the error message, and don't attempt to render again until the content has actually been shortened — retrying with the same content will fail the same way.
    - If the user pushes back on your recommendation and insists on keeping everything, you can offer them one alternative (e.g. a different section to trim instead, or suggest switching to a template with more room) — but don't keep proposing vague options back and forth; make a clear call and act on it once they've responded once.
-5. Once check_template_fit confirms the content fits, show the user the ORGANIZED CONTENT ITSELF as plain, readable chat text — section by section (Profile, Experience, Skills, etc.) — so they can review the actual wording before any file is ever produced. This is NOT a PDF and NOT a preview file — it is just you typing the CV's content back to them in the chat, clearly formatted, for them to read and confirm or correct. Do not call finalize_pdf yet at this point, no matter how confident you are it fits — the user reviews the text first. End this message with a plain confirmation question only — e.g. "Does everything look right?" or "Let me know if you'd like to change anything, or if this looks good." Do NOT preview what you'll do once they confirm (e.g. never say anything like "If so, I'll ask for your photo next") — just ask for confirmation. This also means not mentioning the photo here, even obliquely — say nothing about it until step 6 actually begins, which only happens after the user confirms.
+5. Once check_template_fit confirms the content fits, call polish_review_text with that same content object. This runs the content through a separate step that turns it into warm, natural-sounding, human review text — section by section (Profile, Experience, Skills, etc.) — instead of you writing that review text yourself. Take the "text" the tool returns and relay it to the user VERBATIM, exactly as given — do not rewrite, shorten, or restyle it yourself, and do not add your own version of the sections. This is NOT a PDF and NOT a preview file — it is just that polished text, shown back to them in the chat for them to read and confirm or correct. Do not call finalize_pdf yet at this point, no matter how confident you are it fits — the user reviews the text first. After the polished text, add ONE plain confirmation question of your own — e.g. "Does everything look right?" or "Let me know if you'd like to change anything, or if this looks good." Do NOT preview what you'll do once they confirm (e.g. never say anything like "If so, I'll ask for your photo next") — just ask for confirmation. This also means not mentioning the photo here, even obliquely — say nothing about it until step 6 actually begins, which only happens after the user confirms.
+   - IMPORTANT — keep that same voice afterward: polish_review_text is called ONCE per CV, right here in step 5. If the user then asks you to refine, correct, or add something to the review text before confirming, make the edit yourself (you are capable of writing in that voice too) and show the updated section(s) — do NOT call polish_review_text again. When you make that edit, deliberately match the warm, natural tone polish_review_text used rather than reverting to flatter, more robotic phrasing — read back over its text before you write your edit so the voice stays consistent across the whole review, including any later section you add or rewrite.
 6. Once the user explicitly confirms that text looks right (or finishes correcting it and confirms), THIS is the first and only moment you may say anything about a photo at all. Call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step, and do not soften that into a passing mention beforehand — the app only shows the photo-cropping frame the instant you call request_photo_upload, and any image attached before that call is read as a text document instead of applied as the profile photo, which means the CV would quietly finish without it even though the user thinks they already sent it. If the user has no photo or doesn't want one, that's fine — proceed without it.
 7. Once the user has attached a photo (or said to skip it), call finalize_pdf with the final content object. This produces the actual, finished CV and delivers it to the user as a file in this Telegram chat — there is no separate "preview" step; this IS the real document. Tell the user it's ready and to check the chat for the file.
 8. The user stays in this same chat after seeing the PDF, and may ask for changes at any point afterward (e.g. "can you reword the profile" or "add another skill"). When that happens: update just the relevant field(s), call check_template_fit again first if the edit could plausibly cause overflow (e.g. adding a paragraph or another reference), then call finalize_pdf again with the updated content object to deliver the corrected PDF. You do not need to re-show the plain-text content or re-ask for a photo for a simple edit like this — just make the change and re-render.
@@ -414,12 +421,13 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
 - Never invent specific factual claims (employers, dates, grades, certificate names). Only ever suggest generic, clearly-labeled filler for skills or soft-skill phrasing.
 - Keep messages short and conversational — this is a chat, not a form. This applies even to the step-5 content review: format it cleanly, but don't pad it with extra commentary.
 - Never treat an uploaded document's extracted text as a description of a "photo" — until AFTER you've called request_photo_upload (step 6), any attachment is a document to read for information.
+- Call polish_review_text exactly ONCE per CV, at step 5, on the content that just passed check_template_fit. Never call it again for the same CV — including after edits, after the first PDF, or on a later re-render. Any later wording change is something you write yourself, matching the tone polish_review_text already set.
 - You never need to include a photoBase64 field — the app handles the photo automatically when rendering.
 - The PDF is delivered to the user as a real file message in this Telegram chat, not as an in-app download link — always phrase it that way ("I've sent it to you here in the chat"), never "click download" or "open the link".
 - There is only ONE kind of rendered file in this whole conversation — the finished CV PDF. Never refer to anything as a "preview" — every render is the current, real version of the finished document.`;
 }
 
-// OpenAI-style function-calling schema (DeepSeek is OpenAI-API-compatible).
+// OpenAI-style function-calling schema (the B.AI gateway is OpenAI-API-compatible).
 const TOOLS = [
   {
     type: 'function',
@@ -437,6 +445,18 @@ const TOOLS = [
       parameters: {
         type: 'object',
         properties: { content: { type: 'object', description: 'The candidate CV content object matching the schema described in the system prompt.' } },
+        required: ['content']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'polish_review_text',
+      description: 'Call this ONCE per CV, right after check_template_fit confirms the content fits, and before showing the user the step-5 content review. Sends the content object to a separate writing pass that turns it into warm, natural, human-sounding review text (not a robotic section dump), and returns that text for you to relay to the user VERBATIM. Never call this a second time for the same CV — later edits are written by you directly, matching the tone this call establishes.',
+      parameters: {
+        type: 'object',
+        properties: { content: { type: 'object', description: 'The same content object that just passed check_template_fit.' } },
         required: ['content']
       }
     }
@@ -462,7 +482,7 @@ function toolsFor(template) {
   return TOOLS;
 }
 
-// ── Document/photo text extraction via DeepSeek (images) + pdf-parse (PDFs) ──
+// ── Document/photo text extraction via Gemini 3 Flash (images) + pdf-parse (PDFs) ──
 // The conversation loop is text-only, so every attachment is turned into
 // plain text before the model ever sees it. See the MODEL note at the
 // top of this file for why PDFs and images take different paths.
@@ -477,7 +497,7 @@ function toolsFor(template) {
 //
 // ── LIMITS (why they exist) ──────────────────────────────────────────────
 // Extracted text is pasted into the conversation, and the WHOLE conversation
-// is re-sent to DeepSeek (and billed as prompt tokens) on every later turn.
+// is re-sent to the AI (and billed as prompt tokens) on every later turn.
 // So a huge PDF doesn't just cost once — it makes every following message
 // more expensive, and can overflow the model's context. These caps keep that
 // bounded. Raise/lower them here; nothing else needs to change.
@@ -502,8 +522,6 @@ const EXTRACTION_TIME_BUDGET_MS = 4000;
 // budget by itself.
 const MAX_SINGLE_VISION_CALL_MS = 4000;
 
-const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model extract-payment-screenshot.js uses
-
 const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written. TRANSCRIBE LITERALLY: this applies above all to names of people, schools, and organizations. Do not "clean up", autocorrect, or substitute a name for a more common/familiar-looking one, even if a word looks unusual or you suspect it is probably a well-known name spelled differently. Copy exactly the characters you can make out. If part of a word or name is genuinely illegible, write it as-is with [?] immediately after the unclear part rather than guessing a plausible replacement — never silently swap in a different, more common name.';
 
 const UNREADABLE_FILE_MSG = '[Could not read this file.]';
@@ -513,7 +531,7 @@ const UNREADABLE_FILE_MSG = '[Could not read this file.]';
 // pressing Retry could plausibly succeed (false for things like "too large"
 // or "no text inside", where reading it again would fail the same way).
 function unread(text, reason, retryable) {
-  return { text, usage: null, failed: true, reason, retryable };
+  return { text, usage: null, cost: 0, failed: true, reason, retryable };
 }
 
 // Cuts text to `limit` characters and tells the model (and so the user) it
@@ -523,64 +541,35 @@ function clipText(text, limit, label) {
   return text.slice(0, limit) + `\n[...${label} was cut short: only the first ${limit} characters were kept.]`;
 }
 
-// Turns DeepSeek vision token usage into CT. Images are the ONLY extraction
-// step that calls a paid API (pdf-parse runs locally and is free — the PDF's
-// text is billed anyway, as prompt tokens, when it goes through the chat loop).
-//
-// >>> This must use the SAME pricing formula callDeepSeek() uses inside
-// >>> lib/ai-billing.js so image reads are charged at the real rate. Replace
-// >>> the body below with that formula (or a call to a helper exported from
-// >>> ai-billing.js). Until then it returns 0, meaning image reads are not
-// >>> yet charged — the token counts ARE still recorded in the billing log.
-function extractionCostCT(usage) {
-  return 0;
-}
-
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// One DeepSeek vision call on one image. Returns { text, usage }.
+// One Gemini 3 Flash vision call on one image, via the B.AI gateway.
+// Returns { text, usage, cost } — cost is already in CT, at Gemini's real
+// rate (lib/ai-billing.js's costFromUsage).
 // Errors are tagged `transient` when trying again could plausibly work
 // (rate limit, server error, timeout, network) so callers can tell a busy
 // service apart from a bad file.
 async function visionRead(base64, mime, timeoutMs) {
-  let res;
   try {
-    res = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_VISION_MODEL,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: EXTRACT_PROMPT },
-            { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
-          ]
-        }]
-      }),
-      signal: AbortSignal.timeout(timeoutMs || MAX_SINGLE_VISION_CALL_MS)
+    const result = await callAI({
+      model: FEATURE_MODELS.CV_EXTRACTION,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACT_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+        ]
+      }],
+      maxTokens: 1500,
+      timeoutMs: timeoutMs || MAX_SINGLE_VISION_CALL_MS,
+      attempts: 1 // no in-function retry here — see visionReadWithRetry
     });
+    return { text: (result.text || '').trim(), usage: result.usage, cost: result.cost };
   } catch (e) {
-    const err = new Error('DeepSeek request failed: ' + e.message);
-    err.transient = true; // timeout or network problem
+    const err = new Error('B.AI gateway request failed: ' + e.message);
+    err.transient = true; // timeout, network problem, or a retryable gateway error
     throw err;
   }
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const err = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
-    err.transient = res.status === 429 || res.status === 408 || res.status >= 500;
-    throw err;
-  }
-
-  const data = await res.json();
-  const text = data && data.choices && data.choices[0] && data.choices[0].message
-    ? data.choices[0].message.content
-    : '';
-  return { text: String(text || '').trim(), usage: data.usage || null };
 }
 
 // A single attempt only (no in-function retry) — the overall extraction
@@ -592,8 +581,9 @@ async function visionReadWithRetry(base64, mime, timeoutMs) {
   return await visionRead(base64, mime, Math.min(timeoutMs || MAX_SINGLE_VISION_CALL_MS, MAX_SINGLE_VISION_CALL_MS));
 }
 
-// Returns { text, usage } — usage is DeepSeek's reported token usage for this
-// file (null when no API call was made, e.g. text PDFs and Word files).
+// Returns { text, usage, cost } — usage/cost are the gateway's reported
+// token usage and its real CT cost for this file (null/0 when no API call
+// was made, e.g. text PDFs and Word files, which are read locally for free).
 // When the file could not be read the result also has failed:true, a short
 // `reason` and `retryable` (see unread() above).
 // `timeoutMs` is the time left in this turn's extraction budget.
@@ -613,7 +603,7 @@ async function extractDocumentText(file, timeoutMs) {
       }
       const pages = file.pages.slice(0, MAX_SCANNED_PAGES);
       const parts = [];
-      let pt = 0, ct = 0;
+      let pt = 0, ct = 0, costTotal = 0;
       let okPages = 0; // pages that were actually read
       for (let i = 0; i < pages.length; i++) {
         const left = budget - (Date.now() - started);
@@ -626,6 +616,7 @@ async function extractDocumentText(file, timeoutMs) {
           parts.push(`--- Page ${i + 1} ---\n${r.text || '[No readable text on this page.]'}`);
           if (r.text) okPages++;
           if (r.usage) { pt += r.usage.prompt_tokens || 0; ct += r.usage.completion_tokens || 0; }
+          costTotal += r.cost || 0;
         } catch (e) {
           console.error('extractDocumentText scanned page error:', e.message);
           parts.push(`--- Page ${i + 1} ---\n[Could not read this page.]`);
@@ -639,10 +630,10 @@ async function extractDocumentText(file, timeoutMs) {
       // (If at least one page was read, the file counts as read; the text notes which pages were missed.)
       if (okPages === 0) {
         const res = unread(parts.join('\n\n'), "Pages couldn't be read", true);
-        res.usage = usage; // tokens were still spent
+        res.usage = usage; res.cost = costTotal; // tokens were still spent
         return res;
       }
-      return { text: parts.join('\n\n'), usage };
+      return { text: parts.join('\n\n'), usage, cost: costTotal };
     }
 
     if (!file.base64) return unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
@@ -657,10 +648,10 @@ async function extractDocumentText(file, timeoutMs) {
       if (!text) {
         return unread('[This Word file has no readable text (it may contain only images). Please describe its contents in your message instead.]', 'No readable text', false);
       }
-      return { text, usage: null };
+      return { text, usage: null, cost: 0 };
     }
 
-    // Text PDFs: DeepSeek can't take a PDF as input, so read the text layer directly.
+    // Text PDFs: the chat model can't take a PDF as input, so read the text layer directly.
     if (mime.includes('pdf') || /\.pdf$/i.test(name)) {
       const data = await pdfParse(Buffer.from(file.base64, 'base64'), { max: MAX_PDF_PAGES });
       let text = (data.text || '').trim();
@@ -671,18 +662,18 @@ async function extractDocumentText(file, timeoutMs) {
       if (data.numpages && data.numpages > MAX_PDF_PAGES) {
         text += `\n[Only the first ${MAX_PDF_PAGES} of ${data.numpages} pages were read.]`;
       }
-      return { text, usage: null };
+      return { text, usage: null, cost: 0 };
     }
 
-    // Images: DeepSeek vision
+    // Images: Gemini 3 Flash vision
     if (mime.startsWith('image/')) {
       const r = await visionReadWithRetry(file.base64, mime, Math.min(MAX_SINGLE_VISION_CALL_MS, budget));
       if (!r.text) {
         const res = unread(UNREADABLE_FILE_MSG, "Couldn't be read", true);
-        res.usage = r.usage; // tokens were still spent
+        res.usage = r.usage; res.cost = r.cost; // tokens were still spent
         return res;
       }
-      return { text: r.text, usage: r.usage };
+      return { text: r.text, usage: r.usage, cost: r.cost };
     }
 
     return unread(UNREADABLE_FILE_MSG, 'Unsupported file type', false);
@@ -720,6 +711,30 @@ function cvFilenameForContent(content) {
   return nameBase ? (nameBase + '_cv.pdf') : 'CV_Final.pdf';
 }
 
+// Turns a content object into the step-5 review text, in a warm, natural,
+// human voice — this is the ONE place in the whole conversation that calls
+// Claude 5.5 Sonnet (FEATURE_MODELS.CV_POLISH), as a single "final human
+// polish" pass on top of what DeepSeek Pro already built. See TOOLS above
+// (polish_review_text) and step 5 of the system prompt for how the model is
+// told to use this — call it once, relay the result verbatim, and never
+// call it again for the same CV.
+function buildPolishPrompt(content) {
+  return [
+    'You are doing a light editorial pass on a CV that has already been fully drafted by another assistant. Your job is NOT to invent or change any facts — only to present the existing content as warm, natural, human-sounding review text instead of a flat section dump.',
+    '',
+    'Write it out section by section (whichever of these the content actually has — skip any that are missing or empty, same as the content object): a short intro line with the name/subtitle, Profile, Experience (with employer, role, dates, bullets), Education, Skills, Languages, Achievements, Certifications, References, and any customSections.',
+    '',
+    'Rules:',
+    '- Never change, invent, or omit a fact: names, dates, employers, schools, grades, contact details, and every bullet\'s actual content must come through exactly as given. You are only touching phrasing and flow, never substance.',
+    '- Keep each section genuinely easy to scan — short lines/paragraphs, not a wall of text — while sounding like a person wrote it, not a template.',
+    '- Do not add a greeting, a closing line, or a confirmation question ("does this look right?") — the calling app adds that separately. Reply with the review text itself only, no markdown fences, no commentary before or after it.',
+    '- Write in English, exactly as the content object\'s own fields are written (this mirrors the app\'s existing rule that CV content is always English regardless of the chat language).',
+    '',
+    'Content object (JSON):',
+    JSON.stringify(content)
+  ].join('\n');
+}
+
 async function callTool(name, args, latestPhotoBase64, templateId, userId) {
   try {
     const template = resolveTemplate(templateId).mod;
@@ -729,6 +744,20 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
     if (name === 'check_template_fit') {
       const result = template.measure(withPhoto(args.content, latestPhotoBase64));
       return { ok: true, result };
+    }
+    if (name === 'polish_review_text') {
+      const polished = await callAI({
+        model: FEATURE_MODELS.CV_POLISH,
+        messages: [{ role: 'user', content: buildPolishPrompt(args.content) }],
+        maxTokens: 1200,
+        temperature: 0.6
+      });
+      return {
+        ok: true,
+        text: polished.text,
+        usage: polished.usage,
+        cost: polished.cost
+      };
     }
     if (name === 'finalize_pdf') {
       const buf = await template.render(withPhoto(args.content, latestPhotoBase64));
@@ -756,8 +785,8 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
 // detect what language the user has actually been writing in — nothing here
 // ever touches or re-renders the CV content itself.
 //
-// Kept deliberately tiny and defensive: one short DeepSeek call, no tools,
-// and ANY failure (bad JSON back, auth/balance problem, network error) falls
+// Kept deliberately tiny and defensive: one short AI call, no tools, and
+// ANY failure (bad JSON back, auth/balance problem, network error) falls
 // back to returning the original English strings unchanged rather than
 // surfacing an error — a UI label staying in English is a cosmetic miss,
 // never worth interrupting the user's session over.
@@ -837,15 +866,18 @@ async function handleTranslateUI(body, db) {
     JSON.stringify(uiStrings)
   ].join('\n');
 
+  // Same 0-balance gate as the main chat loop — a translation nicety is
+  // never worth attempting for a user with nothing left, since it would
+  // just silently fall back to English anyway.
   try {
-    assertCanAfford(user, estimateTokens(prompt));
+    assertCanStart(user);
   } catch (e) {
     return { statusCode: 200, body: JSON.stringify(englishStringsResult(uiStrings)) };
   }
 
   try {
-    const result = await callDeepSeek({ messages: [{ role: 'user', content: prompt }], maxTokens: 600, attempts: 2 });
-    const raw = (result.message && result.message.content) || '';
+    const result = await callAI({ model: FEATURE_MODELS.CV_CHAT, messages: [{ role: 'user', content: prompt }], maxTokens: 600, attempts: 2 });
+    const raw = result.text || '';
     const clean = raw.replace(/^```json\s*|```$/g, '').trim();
     const parsed = JSON.parse(clean);
 
@@ -856,7 +888,7 @@ async function handleTranslateUI(body, db) {
 
     const promptTokens     = (result.usage && result.usage.prompt_tokens)     || 0;
     const completionTokens = (result.usage && result.usage.completion_tokens) || 0;
-    const tokenBalance = await deductTokens(db, body.userId, result.cost, { feature: 'cv-chat-translate-ui', promptTokens, completionTokens });
+    const tokenBalance = await deductTokens(db, body.userId, result.cost, { feature: 'CV_CHAT', model: FEATURE_MODELS.CV_CHAT, promptTokens, completionTokens });
 
     if (!complete) {
       return { statusCode: 200, body: JSON.stringify({ success: true, lang: 'English', strings: uiStrings, tokensUsed: result.cost, tokenBalance }) };
@@ -875,8 +907,8 @@ exports.handler = async (event, context) => {
   const handlerStarted = Date.now(); // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file
 
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
-  if (!DEEPSEEK_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'DEEPSEEK_API_KEY is not configured on the server.' }) };
+  if (!BAI_API_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'BAI_API_KEY is not configured on the server.' }) };
   }
 
   let body;
@@ -911,24 +943,27 @@ exports.handler = async (event, context) => {
     messages.unshift({ role: 'system', content: buildSystemPrompt(template.name, convLanguage, !!template.mod.noPhoto) });
   }
 
-  // ── Log-in + "can they afford to start this turn?" — BEFORE any file is
-  // read or anything is sent to DeepSeek.
+  // ── Log-in + "can they even start this turn?" — BEFORE any file is read
+  // or anything is sent to the AI gateway. Per the product rule, this is a
+  // 0-balance gate only (any balance above 0 may start a turn) — see the
+  // BILLING note at the top of this file for why this feature can't hold
+  // results back the way the single-call AI functions do.
   let db, user;
   try {
     db = await getDb();
     user = await authenticate(db, body.userId, sessionToken);
-    assertCanAfford(user, estimateMessagesTokens(messages) + estimateTokens(newUserText));
+    assertCanStart(user);
   } catch (e) {
     return errorResponse(e, 'Something went wrong. Please try again.');
   }
 
-  // Running totals of what DeepSeek used during this turn.
+  // Running totals of what the AI gateway used during this turn.
   let usedCost = 0, usedPrompt = 0, usedCompletion = 0;
   let charged = false;
   async function chargeOnce() {
     if (charged) return null;
     charged = true;
-    return deductTokens(db, body.userId, usedCost, { feature: 'cv-chat', promptTokens: usedPrompt, completionTokens: usedCompletion });
+    return deductTokens(db, body.userId, usedCost, { feature: 'CV_CHAT', model: FEATURE_MODELS.CV_CHAT, promptTokens: usedPrompt, completionTokens: usedCompletion });
   }
 
   // Files that couldn't be read this turn — sent back to cv.html, which shows
@@ -942,7 +977,7 @@ exports.handler = async (event, context) => {
   //  - Files cv.html already read arrive as extractedText (or as a readError
   //    if the browser tried and failed) — nothing more to do for those.
   //  - Files in the old shape (base64 / pages) are still read here, ONE AT A
-  //    TIME (avoids hitting DeepSeek with several simultaneous requests),
+  //    TIME (avoids hitting the gateway with several simultaneous requests),
   //    under a total time budget so a slow batch can't use up the function's
   //    whole time limit before the chat model runs. This budget is now
   //    small and shares the same wall-clock deadline as the chat loop below
@@ -950,7 +985,7 @@ exports.handler = async (event, context) => {
   //  - At most MAX_FILES_PER_TURN files are read; the rest are flagged so the
   //    user can retry them.
   //  - Text is capped per file and in total (see LIMITS above).
-  //  - Vision token usage is added to this turn's billing totals.
+  //  - Vision token usage/cost is added to this turn's billing totals.
   if (newUserText || (newUserFiles && newUserFiles.length)) {
     let combinedText = newUserText || '';
     const allFiles = Array.isArray(newUserFiles) ? newUserFiles : [];
@@ -967,7 +1002,7 @@ exports.handler = async (event, context) => {
       if (f && typeof f.extractedText === 'string') {
         const t = f.extractedText.trim();
         results.push(t
-          ? { text: t, usage: null }
+          ? { text: t, usage: null, cost: 0 }
           : unread('[This file has no readable text. Please describe its contents in your message instead.]', 'No readable text', false));
         continue;
       }
@@ -996,8 +1031,8 @@ exports.handler = async (event, context) => {
         const pt = r.usage.prompt_tokens || 0, ct = r.usage.completion_tokens || 0;
         usedPrompt     += pt;
         usedCompletion += ct;
-        usedCost       += extractionCostCT(r.usage);
       }
+      usedCost += r.cost || 0;
       let text;
       if (charsLeft <= 0) {
         text = '[NOT READ: the files above already used up the text limit for this message.]';
@@ -1032,17 +1067,6 @@ exports.handler = async (event, context) => {
     }
 
     messages.push({ role: 'user', content: combinedText.trim() || '(no message)' });
-
-    // The affordability check at the start only saw the typed text. Now that
-    // the real extracted text is in the conversation, check again — and if the
-    // user can't cover it, charge only what extraction already used and stop
-    // BEFORE the (much bigger) chat-loop calls.
-    try {
-      assertCanAfford(user, estimateMessagesTokens(messages));
-    } catch (e) {
-      try { await chargeOnce(); } catch (chargeErr) { console.error('cv-chat: charge after affordability failure:', chargeErr.message); }
-      return errorResponse(e, 'Something went wrong. Please try again.');
-    }
   }
 
   let finalPdfBase64 = null;
@@ -1050,9 +1074,9 @@ exports.handler = async (event, context) => {
   let awaitingPhoto = false;
 
   // If extraction alone already ate almost the whole deadline, don't even
-  // attempt a DeepSeek chat call — Netlify would very likely kill the
-  // function mid-call, which is worse than returning a clean "try again"
-  // reply now. This is the main new safeguard for the free-plan 10s cap.
+  // attempt an AI chat call — Netlify would very likely kill the function
+  // mid-call, which is worse than returning a clean "try again" reply now.
+  // This is the main new safeguard for the free-plan 10s cap.
   // NOTE: the two needsContinue `reply` strings below (here and further down
   // in the tool loop) are deliberately fixed, plain English — they're not
   // generated by the model, so they can't naturally pick up the user's
@@ -1076,11 +1100,10 @@ exports.handler = async (event, context) => {
 
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      // Wall-clock check before every DeepSeek call — this is what actually
-      // keeps the whole handler under Netlify's free-plan 10s ceiling. See
-      // the note at the top of this file about callDeepSeek's own timeout
-      // not being visible here; this check stops a NEW call from starting,
-      // it cannot interrupt one already in flight.
+      // Wall-clock check before every AI call — this is what actually keeps
+      // the whole handler under Netlify's free-plan 10s ceiling. This check
+      // stops a NEW call from starting; it cannot interrupt one already in
+      // flight.
       const timeLeftForCall = timeLeft(handlerStarted);
       if (timeLeftForCall < MIN_TIME_TO_START_CHAT_CALL_MS) {
         const tokenBalance = await chargeOnce();
@@ -1096,7 +1119,12 @@ exports.handler = async (event, context) => {
         };
       }
 
-      const result = await callDeepSeek({ messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto', attempts: 2 });
+      const result = await callAI({
+        model: FEATURE_MODELS.CV_CHAT,
+        messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto',
+        timeoutMs: Math.max(3000, timeLeftForCall - 500),
+        attempts: 2
+      });
       usedCost       += result.cost;
       usedPrompt     += (result.usage && result.usage.prompt_tokens)     || 0;
       usedCompletion += (result.usage && result.usage.completion_tokens) || 0;
@@ -1120,6 +1148,16 @@ exports.handler = async (event, context) => {
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
 
         const toolResult = await callTool(tc.function.name, args, template.mod.noPhoto ? null : photoBase64, templateId, body.userId);
+
+        // polish_review_text makes its own billed AI call (Claude 5.5 Sonnet)
+        // — add its real cost/usage to this turn's running totals, same as
+        // the main chat-loop call above.
+        if (tc.function.name === 'polish_review_text' && toolResult && toolResult.ok) {
+          usedCost       += toolResult.cost || 0;
+          usedPrompt     += (toolResult.usage && toolResult.usage.prompt_tokens)     || 0;
+          usedCompletion += (toolResult.usage && toolResult.usage.completion_tokens) || 0;
+        }
+
         let toolContent;
         if (toolResult && toolResult.pdfBase64) {
           finalPdfBase64 = toolResult.pdfBase64;
@@ -1146,8 +1184,9 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('cv-chat error:', error);
-    // Whatever DeepSeek already used before the failure was real work — charge
-    // for it (a failed call itself is never charged, because it returned no usage).
+    // Whatever the AI gateway already used before the failure was real work —
+    // charge for it (a failed call itself is never charged, because it
+    // returned no usage).
     let tokenBalance = null;
     try { tokenBalance = await chargeOnce(); } catch (e) { console.error('cv-chat: charge after error failed:', e.message); }
     return {
