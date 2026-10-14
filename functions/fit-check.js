@@ -2,7 +2,8 @@
 // POST body: { userId, sessionToken, cvText, position: { title, company, qualification, experience, salary, expireDate, fullDescription } }
 //
 // Checks ONE specific job in depth and returns a short, human verdict, using
-// DeepSeek. The user is charged the REAL tokens DeepSeek used (lib/ai-billing.js).
+// DeepSeek V4-Pro (via the B.AI gateway). The user is charged the REAL
+// tokens it used (lib/ai-billing.js).
 //   - "fit"     → reasonably qualified. Soft/learnable gaps (e.g. a tool or skill
 //                 not mentioned on the CV) do NOT disqualify — they're noted as
 //                 something to develop or simply clarify, since the CV may just be
@@ -36,8 +37,8 @@ exports.handler = async (event, context) => {
 
   const { userId, sessionToken, cvText, position } = body;
 
-  if (!process.env.DEEPSEEK_API_KEY) {
-    console.error('fit-check: Missing DEEPSEEK_API_KEY');
+  if (!process.env.BAI_API_KEY) {
+    console.error('fit-check: Missing BAI_API_KEY');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
@@ -130,7 +131,7 @@ exports.handler = async (event, context) => {
 
     const { parsed, tokensUsed, tokenBalance } = await runBilledChat({
       userId, sessionToken,
-      feature: 'fit-check',
+      feature: 'FIT_CHECK',
       messages: [
         { role: 'system', content: 'You are a fair, practical career advisor. You reply with valid JSON only.' },
         { role: 'user',   content: prompt }
