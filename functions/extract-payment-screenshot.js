@@ -3,10 +3,19 @@
 //
 // Used by the payment flow for ALL payment methods (CBE, CBEBirr, Telebirr).
 // The user uploads a screenshot of their own payment confirmation; this
-// function reads it with DeepSeek vision and extracts:
+// function reads it with Gemini 3 Flash vision (via the B.AI gateway) and
+// extracts:
 //   - amount       (ETB transferred) — REQUIRED
 //   - senderName   (full name on the sending account) — REQUIRED
 //   - transactionId (bank reference number) — OPTIONAL, may not be present
+//
+// This extraction is FREE — it is never billed against the user's CT balance,
+// no matter what their balance is (including exactly 0). The user is paying
+// US money via this screenshot; charging them CT to read their own proof of
+// payment would be backwards. See lib/ai-billing.js's `free` option — this
+// file calls `callAI` directly rather than going through `runBilledChat`,
+// since `runBilledChat` enforces the balance-must-be-above-0 gate that
+// should NOT apply here.
 //
 // amount + senderName are the only fields ever used for matching against the
 // real bank SMS (see receive-sms.js / admin-verify.js) — matching is name +
@@ -23,55 +32,57 @@
 // here, before any pending_payments record is written, so a reused screenshot
 // never reaches the backend as a new "pending" entry.
 //
-// IMPORTANT — error message accuracy: a failure calling DeepSeek (quota limit,
-// network issue, service outage) is NOT the same thing as "the screenshot is
-// unreadable", and must never be presented to the user as if it were. Telling
-// a user their perfectly clear screenshot is bad when the real cause is our
-// own API quota is misleading and erodes trust. This function distinguishes:
-//   - DeepSeek/service/network failure → generic "unable to complete" message
-//   - DeepSeek succeeded but the image genuinely doesn't show amount/sender,
+// IMPORTANT — error message accuracy: a failure calling the AI gateway (quota
+// limit, network issue, service outage) is NOT the same thing as "the
+// screenshot is unreadable", and must never be presented to the user as if it
+// were. Telling a user their perfectly clear screenshot is bad when the real
+// cause is our own API quota is misleading and erodes trust. This function
+// distinguishes:
+//   - Gateway/service/network failure → generic "unable to complete" message
+//   - Gateway succeeded but the image genuinely doesn't show amount/sender,
 //     or returned unparseable output → the "could not read the screenshot"
 //     message, which is accurate in that case.
 //
 // ── NETLIFY FREE PLAN TIME LIMIT ──────────────────────────────────────────
 // Netlify's free plan runs synchronous Functions with a HARD 10-second
 // execution ceiling (the 26s+ window only applies on paid plans). The
-// budgets below used to total 22s across DeepSeek attempts alone — on top
-// of the MongoDB connect + two collection lookups that happen first — which
-// meant the platform was killing this function outright before a real
-// DeepSeek error (or success) could ever come back. That showed up to users
-// as a generic failure that had nothing to do with their screenshot.
+// budgets below used to total 22s across attempts alone — on top of the
+// MongoDB connect + two collection lookups that happen first — which meant
+// the platform was killing this function outright before a real error (or
+// success) could ever come back. That showed up to users as a generic
+// failure that had nothing to do with their screenshot.
 //
-// TOTAL_BUDGET_MS is now measured from the start of the DeepSeek step (after
-// Mongo connect/lookups), and is sized so that DeepSeek call + one retry +
-// Mongo work together stay under 10s with margin. If this function moves to
-// a paid Netlify plan with a longer timeout, these numbers can go back up —
-// a full second attempt genuinely helps on a slow/busy DeepSeek call.
+// TOTAL_BUDGET_MS is now measured from the start of the extraction step
+// (after Mongo connect/lookups), and is sized so that the gateway call + one
+// retry + Mongo work together stay under 10s with margin. If this function
+// moves to a paid Netlify plan with a longer timeout, these numbers can go
+// back up — a full second attempt genuinely helps on a slow/busy call.
 //
-// FIX: one automatic retry. A DeepSeek call that fails with HTTP 429 / 5xx, a
+// FIX: one automatic retry. A gateway call that fails with HTTP 429 / 5xx, a
 // timeout or a network error is tried one more time (after a short pause, and
 // only if enough time is left) before the user is told it didn't work. Errors
 // that would fail the same way again (for example HTTP 400) are not retried.
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
+const { callAI, MODEL_IDS } = require('./lib/ai-billing');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Time budget (milliseconds) — MUST fit inside Netlify's free-plan 10s cap ──
-const TOTAL_BUDGET_MS  = 8000;  // all DeepSeek attempts together, leaving room for Mongo + response serialization
+const TOTAL_BUDGET_MS  = 8000;  // all gateway attempts together, leaving room for Mongo + response serialization
 const FIRST_ATTEMPT_MS = 6000;  // longest the first attempt may take
 const MIN_RETRY_MS     = 1800;  // don't start a retry with less time than this
 const RETRY_PAUSE_MS   = 300;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Classifies a DeepSeek/network failure as a service-side issue (quota, rate
+// Classifies a gateway/network failure as a service-side issue (quota, rate
 // limit, outage, connectivity, billing) rather than an image-content problem.
 // These should NEVER be shown to the user as "your screenshot is unreadable".
 function isServiceFailure(err) {
-  if (err && err.isService) return true; // any non-OK HTTP reply from DeepSeek
+  if (err && err.isService) return true; // any non-OK HTTP reply from the gateway
   const msg = (err && err.message ? err.message : '').toLowerCase();
   return msg.includes('429') || msg.includes('quota') || msg.includes('503') ||
          msg.includes('high demand') || msg.includes('rate limit') ||
@@ -79,7 +90,7 @@ function isServiceFailure(err) {
          msg.includes('econnreset') || msg.includes('enotfound');
 }
 
-async function extractWithDeepSeek(base64, mime) {
+async function extractWithGemini(base64, mime) {
   const prompt = `This is a screenshot of a bank/mobile-money payment confirmation
 (Ethiopian bank or wallet — CBE, CBE Birr, or Telebirr).
 Extract exactly these three fields:
@@ -92,19 +103,7 @@ Reply ONLY with valid JSON, no markdown, no explanation, in exactly this shape:
 
 If amount or senderName cannot be found, use null for that field.`;
 
-  const requestBody = JSON.stringify({
-    model: 'deepseek-flash',
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: `data:${mime || 'image/jpeg'};base64,${base64}` } }
-      ]
-    }]
-  });
-
   const started = Date.now();
-  let res = null;
   let lastErr = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -112,43 +111,38 @@ If amount or senderName cannot be found, use null for that field.`;
     if (attempt > 0 && left < MIN_RETRY_MS) break;
     const timeoutMs = attempt === 0 ? Math.min(FIRST_ATTEMPT_MS, left) : left;
 
-    res = null;
     lastErr = null;
     try {
-      res = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
-        },
-        body: requestBody,
-        signal: AbortSignal.timeout(timeoutMs)
+      const result = await callAI({
+        model: MODEL_IDS.GEMINI_FLASH,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${mime || 'image/jpeg'};base64,${base64}` } }
+          ]
+        }],
+        maxTokens: 500,
+        timeoutMs,
+        attempts: 1 // this function manages its own retry loop below
       });
-      if (res.ok) break;
 
-      const detail = await res.text().catch(() => '');
-      lastErr = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      lastErr.isService = true; // our API key / quota / outage — not the user's screenshot
-      if (!(res.status === 429 || res.status >= 500)) break; // would fail the same way again
+      const text = (result.text || '').trim().replace(/```json/gi, '').replace(/```/g, '').trim();
+      return JSON.parse(text);
+
     } catch (e) {
-      // timeout or network problem
-      lastErr = new Error('DeepSeek request failed: ' + e.message);
+      lastErr = new Error('B.AI gateway request failed: ' + e.message);
+      // Treat any failure from the gateway call (HTTP error, timeout, network
+      // issue, or a non-JSON response) as a service-side issue by default —
+      // genuine "the image shows nothing useful" cases surface as valid JSON
+      // with null fields, not as a thrown error.
       lastErr.isService = true;
+      if (attempt === 0) await sleep(RETRY_PAUSE_MS);
     }
-
-    if (attempt === 0) await sleep(RETRY_PAUSE_MS);
   }
 
-  if (lastErr || !res || !res.ok) {
-    throw lastErr || new Error('DeepSeek request failed');
-  }
-
-  const data = await res.json();
-  const raw = data && data.choices && data.choices[0] && data.choices[0].message
-    ? data.choices[0].message.content
-    : '';
-  const text = String(raw || '').trim().replace(/```json/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(text);
+  if (lastErr) throw lastErr;
+  throw new Error('Gateway request failed');
 }
 
 exports.handler = async (event, context) => {
@@ -170,8 +164,8 @@ exports.handler = async (event, context) => {
   if (!imageBase64) {
     return { statusCode: 400, body: JSON.stringify({ error: 'A payment screenshot is required.' }) };
   }
-  if (!process.env.DEEPSEEK_API_KEY) {
-    console.error('extract-payment-screenshot: Missing DeepSeek API key');
+  if (!process.env.BAI_API_KEY) {
+    console.error('extract-payment-screenshot: Missing BAI_API_KEY');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
@@ -198,19 +192,19 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // ── Extract with DeepSeek vision ──────────────────────────────────────────
+    // ── Extract with Gemini 3 Flash vision (free — see note at top) ──────────
     let extracted;
     try {
-      extracted = await extractWithDeepSeek(imageBase64, imageMime);
+      extracted = await extractWithGemini(imageBase64, imageMime);
     } catch (err) {
-      console.error('extract-payment-screenshot DeepSeek error:', err.message);
+      console.error('extract-payment-screenshot gateway error:', err.message);
       if (isServiceFailure(err)) {
         // Our own API quota/rate-limit/outage/connectivity issue — NOT the
         // user's screenshot. Never blame their photo for our own service problem.
         return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
       }
-      // Genuine parse/read failure (e.g. DeepSeek returned non-JSON for this
-      // specific image) — accurate to describe as a screenshot-reading issue.
+      // Genuine parse/read failure (e.g. the gateway returned non-JSON for
+      // this specific image) — accurate to describe as a screenshot-reading issue.
       return { statusCode: 500, body: JSON.stringify({ error: 'Could not read the screenshot. Please upload a clear, uncropped screenshot of your payment confirmation.' }) };
     }
 
