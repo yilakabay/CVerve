@@ -2,8 +2,9 @@
 // POST body: { userId, sessionToken, fullName, phone, email, address, appDate, cvText,
 //              jdText, jdUrl, targetPosition, extraPrompt }
 //
-// Writes the application letter with DeepSeek and charges the user's CT
-// balance for the REAL tokens DeepSeek used (see lib/ai-billing.js).
+// Writes the application letter with Claude 5.5 Sonnet (via the B.AI gateway)
+// and charges the user's CT balance for the REAL tokens it used
+// (see lib/ai-billing.js).
 //
 // Response on success: { letterText, tokensUsed, tokenBalance }
 // Response when the user can't afford it: 402 { error, code:'INSUFFICIENT_TOKENS', tokenBalance }
@@ -61,8 +62,8 @@ exports.handler = async (event, context) => {
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
   const { userId, sessionToken, fullName, phone, email, address, appDate, cvText, jdText, jdUrl, targetPosition, extraPrompt } = parsedBody;
 
-  if (!process.env.DEEPSEEK_API_KEY) {
-    console.error('generate-letter: Missing DEEPSEEK_API_KEY');
+  if (!process.env.BAI_API_KEY) {
+    console.error('generate-letter: Missing BAI_API_KEY');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to generate your letter right now. Please try again in a moment.' }) };
   }
 
@@ -176,11 +177,11 @@ exports.handler = async (event, context) => {
       Generate the letter now:
     `;
 
-    // Ask DeepSeek, then charge the real tokens it used. Retries on temporary
-    // DeepSeek failures happen inside runBilledChat and are never charged.
+    // Ask the model, then charge the real tokens it used. Retries on temporary
+    // gateway failures happen inside runBilledChat and are never charged.
     const { text, tokensUsed, tokenBalance } = await runBilledChat({
       userId, sessionToken,
-      feature: 'letter',
+      feature: 'LETTER_GENERATION',
       preAuth: { db, user },
       messages: [
         { role: 'system', content: 'You are a seasoned, empathetic ghostwriter who writes short, genuine, human-sounding job application letters. You follow the formatting rules you are given exactly and reply with the letter only — no preface, no commentary, no markdown.' },
