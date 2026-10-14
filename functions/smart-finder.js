@@ -1,11 +1,12 @@
 // functions/smart-finder.js
 // POST body: { userId, sessionToken, cvText, jobs: [{ jobId, positionIndex, company, title, qualification, experience, shortDescription }] }
 //
-// Sends the user's CV plus a compact list of open positions to DeepSeek and
-// asks it to return only the positions that are a reasonable fit, each with a
-// 0-100 match score and a short reason — so the user doesn't have to read
-// every posting. The user is charged the REAL tokens DeepSeek used
-// (lib/ai-billing.js), so a bigger batch of jobs costs more CT than a small one.
+// Sends the user's CV plus a compact list of open positions to DeepSeek V4.1-Flash
+// (via the B.AI gateway) and asks it to return only the positions that are a
+// reasonable fit, each with a 0-100 match score and a short reason — so the
+// user doesn't have to read every posting. The user is charged the REAL
+// tokens it used (lib/ai-billing.js), so a bigger batch of jobs costs more CT
+// than a small one.
 //
 // Response on success: { success, matches, tokensUsed, tokenBalance }
 // Not enough CT:        402 { error, code:'INSUFFICIENT_TOKENS', tokenBalance }
@@ -32,8 +33,8 @@ exports.handler = async (event, context) => {
 
   const { userId, sessionToken, cvText, jobs } = body;
 
-  if (!process.env.DEEPSEEK_API_KEY) {
-    console.error('smart-finder: Missing DEEPSEEK_API_KEY');
+  if (!process.env.BAI_API_KEY) {
+    console.error('smart-finder: Missing BAI_API_KEY');
     return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
   }
 
@@ -98,7 +99,7 @@ exports.handler = async (event, context) => {
 
     const { parsed, tokensUsed, tokenBalance } = await runBilledChat({
       userId, sessionToken,
-      feature: 'smart-finder',
+      feature: 'SMART_FINDER',
       messages: [
         { role: 'system', content: 'You are a careful job-matching assistant. You reply with valid JSON only.' },
         { role: 'user',   content: prompt }
