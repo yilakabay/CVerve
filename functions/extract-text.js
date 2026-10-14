@@ -1,7 +1,36 @@
-const pdfParse = require('pdf-parse');
-const mammoth  = require('mammoth');
+// functions/extract-text.js
+// POST body: { userId, sessionToken, files: [{ data, type }], fileType, feature, free }
+//
+//   files[].data — base64 file content
+//   files[].type — mime type (application/pdf, image/*, application/msword, ...)
+//   feature      — which FEATURE_MODELS key to bill the Gemini fallback against
+//                  (defaults to 'GENERIC_EXTRACTION'). Pass 'CV_EXTRACTION' for
+//                  CV-chat certificate/education uploads, 'LETTER_EXTRACTION'
+//                  for Application Letter uploads, etc.
+//   free         — true for payment-screenshot extraction and CV-upload-to-
+//                  storage extraction, which must never be charged even when
+//                  the Gemini fallback is used.
+//
+// STRATEGY (hybrid, cheapest-first):
+//   1. Try local, free extraction for every file:
+//        - pdf-parse for text-based PDFs
+//        - mammoth for Word docs
+//        - tesseract.js (+ sharp pre-processing) OCR for images
+//   2. Only if a file comes back EMPTY from step 1 do we fall back to asking
+//      Gemini 3 Flash (via the B.AI gateway) to read the text out of it. This
+//      is the only point where the user is charged CT (unless `free: true`),
+//      and only for the files that actually needed it.
+//
+// Response on success: { success, extractedText, fileType, filesProcessed,
+//                         successfulFiles, tokensUsed, tokenBalance }
+// Not enough CT (only possible if the Gemini fallback was needed and the user
+// can't cover it): 402 { error, code:'INSUFFICIENT_TOKENS', tokenBalance }
+
+const pdfParse  = require('pdf-parse');
+const mammoth   = require('mammoth');
 const tesseract = require('tesseract.js');
-const sharp    = require('sharp');
+const sharp     = require('sharp');
+const { runBilledChat, getDb, authenticate, errorResponse, AIError } = require('./lib/ai-billing');
 
 // ── Time budget ──────────────────────────────────────────────────────────
 // OCR with tesseract is slow, and the function used to keep going until the
@@ -59,13 +88,12 @@ async function extractTextFromPDF(pdfBuffer) {
       console.log(`pdf-parse succeeded: ${data.text.length} chars`);
       return data.text;
     }
-    // No text found — likely image-based. Return empty so the handler
-    // marks this file as 0 successful, triggering a 400 that the client
-    // catches and retries with rasterised images.
-    throw new Error('PDF contains no extractable text (may be image-based).');
+    // No text found — likely image-based. Return empty so the caller falls
+    // back to the Gemini vision path.
+    return '';
   } catch (error) {
     console.log('PDF extraction failed:', error.message);
-    throw new Error(error.message);
+    return '';
   }
 }
 
@@ -76,32 +104,71 @@ async function extractTextFromImage(imageBuffer) {
   try {
     console.log('Processing image with OCR...');
     const text = await ocrImageBuffer(imageBuffer);
-    if (text && text.trim().length > 0) return text;
-    throw new Error('No text found in image');
+    return text || '';
   } catch (error) {
     console.error('Image OCR failed:', error.message);
     try {
       const { data: { text } } = await tesseract.recognize(imageBuffer, 'eng');
-      return text || '[No text could be extracted from the image]';
+      return text || '';
     } catch (e) {
-      throw new Error('Could not extract text from image. The image may be too low quality or contain no text.');
+      return '';
     }
   }
 }
 
-async function extractTextFromFile(base64Data, mimeType) {
+// Local, free extraction attempt. Returns '' (never throws) when it can't
+// get usable text, so the caller knows to fall back to Gemini.
+async function extractTextLocally(base64Data, mimeType) {
   const buffer = Buffer.from(base64Data, 'base64');
 
   if (mimeType.includes('pdf')) {
     return await extractTextFromPDF(buffer);
   } else if (mimeType.includes('word') || mimeType.includes('document')) {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
+    try {
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value || '';
+    } catch (e) {
+      console.log('mammoth extraction failed:', e.message);
+      return '';
+    }
   } else if (mimeType.includes('image')) {
     return await extractTextFromImage(buffer);
+  } else if (mimeType.includes('text')) {
+    try { return buffer.toString('utf-8'); } catch (e) { return ''; }
   } else {
-    throw new Error('Unsupported file type: ' + mimeType);
+    return '';
   }
+}
+
+// ── Gemini 3 Flash fallback (billed, via the B.AI gateway) ─────────────────
+// Only used when local extraction came back empty. Sends the file as a
+// vision message so Gemini can read text straight off the image/page.
+async function extractTextWithGemini({ userId, sessionToken, feature, free, preAuth, base64Data, mimeType }) {
+  const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+  const { text, tokensUsed, tokenBalance } = await runBilledChat({
+    userId, sessionToken,
+    feature: feature || 'GENERIC_EXTRACTION',
+    free,
+    preAuth,
+    messages: [
+      {
+        role: 'system',
+        content: 'You transcribe every piece of readable text from a document or image exactly as it appears, in reading order. Reply with the extracted text only — no commentary, no markdown, no summary. If genuinely no text is visible, reply with an empty response.'
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Extract all text from this file.' },
+          { type: 'image_url', image_url: { url: dataUrl } }
+        ]
+      }
+    ],
+    maxTokens: 2000,
+    temperature: 0
+  });
+
+  return { text: (text || '').trim(), tokensUsed, tokenBalance };
 }
 
 exports.handler = async (event, context) => {
@@ -119,17 +186,26 @@ exports.handler = async (event, context) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON in request body' }) };
   }
 
-  const { files, fileType } = requestBody;
+  const { userId, sessionToken, files, fileType, feature, free } = requestBody;
+
+  if (!files || !Array.isArray(files) || files.length === 0) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Files are required and must be an array' }) };
+  }
 
   try {
-    if (!files || !Array.isArray(files) || files.length === 0) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Files are required and must be an array' }) };
-    }
+    // Authenticate once up front — even local-only extraction runs are gated
+    // behind a valid session, and we need the user doc ready in case any
+    // file needs the billed Gemini fallback.
+    const db   = await getDb();
+    const user = await authenticate(db, userId, sessionToken);
 
     console.log(`Starting text extraction for ${fileType} (${files.length} file(s))`);
 
     let combinedText = '';
     let successfulFiles = 0;
+    let totalTokensUsed = 0;
+    let latestTokenBalance;
+    let geminiBlockedError = null; // set if the user can't afford a needed Gemini fallback
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -147,26 +223,68 @@ exports.handler = async (event, context) => {
         continue;
       }
 
+      let text = '';
       try {
-        const text = await withTimeout(
-          extractTextFromFile(file.data, file.type),
+        text = await withTimeout(
+          extractTextLocally(file.data, file.type),
           timeLeft,
           'This file took too long to read'
         );
-        if (text && text.trim().length > 0) {
-          combinedText += text + '\n\n';
-          successfulFiles++;
-          console.log(`File ${i + 1}: extracted ${text.length} chars`);
-        } else {
-          combinedText += `[File ${i + 1}: No text could be extracted]\n\n`;
-        }
       } catch (error) {
-        console.error(`File ${i + 1} error:`, error.message);
-        combinedText += `[File ${i + 1}: ${error.message}]\n\n`;
+        console.error(`File ${i + 1} local extraction error:`, error.message);
+        text = '';
+      }
+
+      // Step 2: local extraction gave nothing usable — fall back to Gemini,
+      // but only if we haven't already hit a billing wall on an earlier file.
+      if ((!text || text.trim().length === 0) && !geminiBlockedError) {
+        const timeLeftForGemini = EXTRACTION_BUDGET_MS - (Date.now() - startedAt);
+        if (timeLeftForGemini < MIN_TIME_TO_START_FILE_MS) {
+          combinedText += `[File ${i + 1}: No text could be extracted]\n\n`;
+          continue;
+        }
+        try {
+          console.log(`File ${i + 1}: local extraction empty, falling back to Gemini`);
+          const geminiResult = await withTimeout(
+            extractTextWithGemini({
+              userId, sessionToken, feature, free,
+              preAuth: { db, user },
+              base64Data: file.data,
+              mimeType: file.type
+            }),
+            timeLeftForGemini,
+            'This file took too long to read'
+          );
+          text = geminiResult.text;
+          totalTokensUsed += geminiResult.tokensUsed;
+          latestTokenBalance = geminiResult.tokenBalance;
+        } catch (error) {
+          if (error instanceof AIError && error.extra && error.extra.code === 'INSUFFICIENT_TOKENS') {
+            // Don't fail the whole request yet — just remember it, so files
+            // already extracted (free, local) still get returned, but we
+            // stop spending on further Gemini fallbacks this run.
+            geminiBlockedError = error;
+            combinedText += `[File ${i + 1}: Not enough CT to read this file]\n\n`;
+            continue;
+          }
+          console.error(`File ${i + 1} Gemini fallback error:`, error.message);
+          text = '';
+        }
+      }
+
+      if (text && text.trim().length > 0) {
+        combinedText += text + '\n\n';
+        successfulFiles++;
+        console.log(`File ${i + 1}: extracted ${text.length} chars`);
+      } else if (!geminiBlockedError) {
+        combinedText += `[File ${i + 1}: No text could be extracted]\n\n`;
       }
     }
 
     if (combinedText.trim().length === 0 || successfulFiles === 0) {
+      // If the ONLY reason nothing came through is an unaffordable Gemini
+      // fallback, surface that as a proper 402 so the app shows Top Up.
+      if (geminiBlockedError) return errorResponse(geminiBlockedError);
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -182,10 +300,13 @@ exports.handler = async (event, context) => {
         extractedText: combinedText,
         fileType,
         filesProcessed: files.length,
-        successfulFiles
+        successfulFiles,
+        tokensUsed: totalTokensUsed,
+        tokenBalance: latestTokenBalance !== undefined ? latestTokenBalance : Math.max(0, Number(user.tokens) || 0)
       })
     };
   } catch (error) {
+    if (error instanceof AIError) return errorResponse(error);
     console.error('Extraction error:', error);
     return {
       statusCode: 500,
