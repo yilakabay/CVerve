@@ -3,7 +3,8 @@
 // POST body: { userId, sessionToken, base64, mediaType }
 //
 // Reads the text of ONE image (or ONE page of a scanned PDF that cv.html has
-// already drawn to a JPEG) using DeepSeek vision, and returns it.
+// already drawn to a JPEG) using Gemini 3 Flash (via the B.AI gateway), and
+// returns it.
 //
 // ── NETLIFY FREE PLAN TIME LIMIT ──────────────────────────────────────────
 // Netlify's free plan runs synchronous Functions with a HARD 10-second
@@ -15,7 +16,7 @@
 //
 // All budgets below are now sized to fit inside 10s, including: JSON parse,
 // DB connect + authenticate() (can be slow on a cold Lambda/Mongo
-// connection), the DeepSeek vision call itself, and a possible one retry.
+// connection), the Gemini vision call itself, and a possible one retry.
 // If you move this function to a paid Netlify plan with a longer timeout,
 // you can raise TOTAL_BUDGET_MS and FIRST_ATTEMPT_MS back up — bigger/denser
 // images and a full retry attempt both genuinely do better with more room.
@@ -43,19 +44,25 @@
 // assuming a fixed retry budget exists.
 //
 // ── RESPONSE ─────────────────────────────────────────────────────────────
-//   success:  200 { success:true, text, usage }     (text may be '' if the image has no text)
-//   failure:  200 { success:false, reason, retryable, error }
-//   auth:     401/403/... via errorResponse() — same as cv-chat.js
+//   success:  200 { success:true, text, usage, tokensUsed, tokenBalance }
+//   failure:  200 { success:false, reason, retryable, error, tokenBalance? }
+//   auth/billing: errorResponse() — same shape as cv-chat.js / extract-text.js
 //
 // ── BILLING ──────────────────────────────────────────────────────────────
-// Image reading is NOT charged in CT here — same as before (cv-chat.js's
-// extractionCostCT() returns 0). The token counts are returned in `usage`
-// so charging can be added later in one place.
+// This is the CV-chat document-extraction path (certificates, transcripts,
+// etc. the user attaches in the chat), which — unlike payment-screenshot or
+// CV-upload-to-storage extraction — is NOT free: every extraction here
+// deducts real CT, per the standard rule: don't even ask the AI to spend a
+// token at 0 balance, but if the user has at least 1 CT, make the call —
+// just don't deliver the text unless the balance actually covers the whole
+// real cost. Deduction is always floored, never rounded, via deductTokens().
 
-const { getDb, authenticate, errorResponse } = require('./lib/ai-billing');
-
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_VISION_MODEL = 'deepseek-flash'; // same model cv-chat.js and extract-payment-screenshot.js use
+const {
+  getDb, authenticate, errorResponse,
+  assertCanStart, assertCanDeliver,
+  callAI, deductTokens,
+  FEATURE_MODELS
+} = require('./lib/ai-billing');
 
 // Same dev gate as cv-chat.js — only this account may use the CV feature for now.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
@@ -63,10 +70,10 @@ const CV_DEV_ALLOWED_USER_ID = '0985576139';
 // ── Time budget (milliseconds) — MUST fit inside Netlify's free-plan 10s cap ──
 // TOTAL_BUDGET_MS is measured from the very start of the handler (before
 // auth), so DB/auth time is automatically taken out of what's left for the
-// DeepSeek call. Keep a safety margin below 10000 for cold starts, network
+// Gemini call. Keep a safety margin below 10000 for cold starts, network
 // jitter, and the time this function itself needs to parse/serialize JSON.
 const TOTAL_BUDGET_MS  = 9000;  // whole call, including auth — stay under Netlify's 10s free-plan ceiling
-const FIRST_ATTEMPT_MS = 6500;  // longest the first DeepSeek call may take
+const FIRST_ATTEMPT_MS = 6500;  // longest the first Gemini call may take
 const MIN_RETRY_MS     = 1800;  // don't start a retry with less time than this
 const RETRY_PAUSE_MS   = 300;   // short — there usually isn't much time to spare
 
@@ -76,47 +83,36 @@ const EXTRACT_PROMPT = 'Extract all readable text from this document/image (cert
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// One DeepSeek vision call. Errors are tagged `transient` when trying again
-// could plausibly work (rate limit, server error, timeout, network).
+// Problems that usually go away by themselves (rate limit, server error,
+// timeout) vs. ones that would just fail the same way again. Matches exactly
+// what callAI() itself throws: a plain AbortError on timeout, or an Error
+// with .retryable set true/false on an HTTP error (see ai-billing.js).
+function isTransientError(e) {
+  if (!e) return false;
+  if (e.name === 'AbortError') return true; // timed out
+  return e.retryable === true;
+}
+
+// One Gemini vision call via the B.AI gateway. attempts:1 — this function's
+// own loop below is what handles retries, with its own Netlify-safe time
+// budget; callAI is deliberately told not to retry on top of that.
+// Returns { text, usage, cost } — cost is already computed by callAI()
+// using MODEL_RATES, so there's no need to call costFromUsage() again.
 async function visionRead(base64, mime, timeoutMs) {
-  let res;
-  try {
-    res = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_VISION_MODEL,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: EXTRACT_PROMPT },
-            { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
-          ]
-        }]
-      }),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-  } catch (e) {
-    const err = new Error('DeepSeek request failed: ' + e.message);
-    err.transient = true; // timeout or network problem
-    throw err;
-  }
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const err = new Error(`DeepSeek HTTP ${res.status}: ${detail.slice(0, 200)}`);
-    err.transient = res.status === 429 || res.status === 408 || res.status >= 500;
-    throw err;
-  }
-
-  const data = await res.json();
-  const text = data && data.choices && data.choices[0] && data.choices[0].message
-    ? data.choices[0].message.content
-    : '';
-  return { text: String(text || '').trim(), usage: data.usage || null };
+  const r = await callAI({
+    model: FEATURE_MODELS.CV_EXTRACTION, // Gemini 3 Flash
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: EXTRACT_PROMPT },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+      ]
+    }],
+    maxTokens: 1500,
+    timeoutMs,
+    attempts: 1
+  });
+  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost };
 }
 
 exports.handler = async (event, context) => {
@@ -124,8 +120,8 @@ exports.handler = async (event, context) => {
   const started = Date.now();
 
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
-  if (!DEEPSEEK_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'DEEPSEEK_API_KEY is not configured on the server.' }) };
+  if (!process.env.BAI_API_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'BAI_API_KEY is not configured on the server.' }) };
   }
 
   let body;
@@ -139,10 +135,12 @@ exports.handler = async (event, context) => {
     return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
   }
 
-  // Log in first: nobody gets to use DeepSeek through this function without a valid session.
+  // Log in, then check the balance BEFORE spending anything on a Gemini call.
+  let db, user, balance;
   try {
-    const db = await getDb();
-    await authenticate(db, userId, sessionToken);
+    db = await getDb();
+    user = await authenticate(db, userId, sessionToken);
+    balance = assertCanStart(user); // balance must be > 0 — don't even ask Gemini to spend a token at 0
   } catch (e) {
     return errorResponse(e, 'Something went wrong. Please try again.');
   }
@@ -160,7 +158,7 @@ exports.handler = async (event, context) => {
 
   // If auth/DB already ate most of the budget (cold start, slow Mongo
   // connection), there may not be enough time left to even attempt a
-  // DeepSeek call safely. Fail fast with a clean, retryable error instead
+  // Gemini call safely. Fail fast with a clean, retryable error instead
   // of starting a fetch that Netlify will kill mid-flight.
   const afterAuthLeft = TOTAL_BUDGET_MS - (Date.now() - started);
   if (afterAuthLeft < 2500) {
@@ -174,17 +172,43 @@ exports.handler = async (event, context) => {
     const timeoutMs = attempt === 0 ? Math.min(FIRST_ATTEMPT_MS, left) : left;
     try {
       const r = await visionRead(base64, mime, timeoutMs);
-      return { statusCode: 200, body: JSON.stringify({ success: true, text: r.text, usage: r.usage }) };
+      const cost = r.cost || 0; // already computed by callAI() via MODEL_RATES, already floored
+
+      // Even with balance > 0 at the start, don't hand back the text unless
+      // the balance actually covers the whole real price — if not, this is
+      // a clean 402 (same shape as every other AI endpoint), nothing charged.
+      try {
+        assertCanDeliver(balance, cost);
+      } catch (e) {
+        return errorResponse(e, "You don't have enough CT to cover this extraction. Please top up.");
+      }
+
+      const newBalance = await deductTokens(db, userId, cost, {
+        feature: 'CV_EXTRACTION',
+        model: FEATURE_MODELS.CV_EXTRACTION,
+        promptTokens:     r.usage && r.usage.prompt_tokens,
+        completionTokens: r.usage && r.usage.completion_tokens
+      });
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          text: r.text,
+          usage: r.usage,
+          tokensUsed: cost,
+          tokenBalance: newBalance
+        })
+      };
     } catch (e) {
       lastErr = e;
       console.error(`extract-file attempt ${attempt + 1} failed:`, e.message);
-      if (!e.transient) break;                 // would fail the same way again
+      if (!isTransientError(e)) break; // would fail the same way again
       if (attempt === 0) await sleep(RETRY_PAUSE_MS);
     }
   }
 
   // Tell the user the truth: a busy service is not the same as a bad file.
-  if (lastErr && lastErr.transient) {
+  if (lastErr && isTransientError(lastErr)) {
     return { statusCode: 200, body: JSON.stringify({ success: false, reason: 'Service busy — press Retry', retryable: true, error: lastErr.message }) };
   }
   return { statusCode: 200, body: JSON.stringify({ success: false, reason: "Couldn't be read", retryable: false, error: lastErr ? lastErr.message : 'Unknown error' }) };
