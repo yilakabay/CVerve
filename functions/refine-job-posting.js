@@ -3,7 +3,8 @@
 //
 // Admin pastes a job posting URL OR supplies text already extracted client-side
 // (e.g. via extract-text.js, same flow used for letter generation uploads).
-// This function resolves the raw text, then asks DeepSeek to structure it into:
+// This function resolves the raw text, then asks Gemini 3 Flash (via the
+// B.AI gateway) to structure it into:
 //   { company, positions: [ { title, qualification, experience, salary, expireDate,
 //                              shortDescription, fullDescription } ] }
 //
@@ -13,10 +14,12 @@
 // This does NOT save anything — admin.html reviews/edits the structured result,
 // then calls manage-jobs.js (action: 'create') to actually post it.
 //
-// Uses DeepSeek (text only). This is an ADMIN tool, so it is NOT charged to
-// any user's CT balance — it's part of running the platform.
+// This is an ADMIN tool, so it is NOT charged to any user's CT balance — it's
+// part of running the platform. It calls `callAI` directly (not
+// `runBilledChat`, which enforces a per-user balance gate that doesn't apply
+// here).
 
-const { callDeepSeek, parseJsonLoose } = require('./lib/ai-billing');
+const { callAI, parseJsonLoose, MODEL_IDS } = require('./lib/ai-billing');
 const crypto = require('crypto');
 const https  = require('https');
 const http   = require('http');
@@ -88,8 +91,8 @@ exports.handler = async (event, context) => {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
-  if (!process.env.DEEPSEEK_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing DeepSeek API key' }) };
+  if (!process.env.BAI_API_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing B.AI API key' }) };
   }
 
   try {
@@ -161,7 +164,8 @@ exports.handler = async (event, context) => {
     let structured, lastError;
     for (let pass = 1; pass <= 2; pass++) {
       try {
-        const result = await callDeepSeek({
+        const result = await callAI({
+          model: MODEL_IDS.GEMINI_FLASH,
           messages: [
             { role: 'system', content: 'You turn raw job postings into clean structured JSON. You reply with valid JSON only.' },
             { role: 'user',   content: prompt }
@@ -185,7 +189,7 @@ exports.handler = async (event, context) => {
         break;
       } catch (err) {
         lastError = err;
-        console.error(`refine-job-posting DeepSeek pass ${pass} failed:`, err.message);
+        console.error(`refine-job-posting AI pass ${pass} failed:`, err.message);
         if (err.retryable === false) break;
       }
     }
