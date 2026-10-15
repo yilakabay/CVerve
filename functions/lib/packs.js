@@ -10,11 +10,11 @@
 // See lib/ai-billing.js for how tokens are counted and deducted.
 
 const PACKS = {
-  ind_500k: { id: 'ind_500k', tier: 'individual', tokens:   500000, price:  45, label: '500,000 CT',    recommended: false },
-  ind_1m:   { id: 'ind_1m',   tier: 'individual', tokens:  1000000, price:  85, label: '1,000,000 CT',  recommended: true  },
-  ind_2m:   { id: 'ind_2m',   tier: 'individual', tokens:  2000000, price: 165, label: '2,000,000 CT',  recommended: false },
-  agy_5m:   { id: 'agy_5m',   tier: 'agency',     tokens:  5000000, price: 405, label: '5,000,000 CT',  recommended: false },
-  agy_10m:  { id: 'agy_10m',  tier: 'agency',     tokens: 10000000, price: 805, label: '10,000,000 CT', recommended: true  }
+  ind_500k: { id: 'ind_500k', tier: 'individual', tokens:   500000, price:   65, label: '500,000 CT',    recommended: false },
+  ind_1m:   { id: 'ind_1m',   tier: 'individual', tokens:  1000000, price:  125, label: '1,000,000 CT',  recommended: true  },
+  ind_2m:   { id: 'ind_2m',   tier: 'individual', tokens:  2000000, price:  240, label: '2,000,000 CT',  recommended: false },
+  agy_5m:   { id: 'agy_5m',   tier: 'agency',     tokens:  5000000, price:  580, label: '5,000,000 CT',  recommended: false },
+  agy_10m:  { id: 'agy_10m',  tier: 'agency',     tokens: 10000000, price: 1100, label: '10,000,000 CT', recommended: true  }
 };
 
 // Pending payments made just before the switch to tokens still carry the old
