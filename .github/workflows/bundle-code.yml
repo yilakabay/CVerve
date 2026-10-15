@@ -1,0 +1,30 @@
+name: Bundle Code
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Bundle all tracked files into one text file
+        run: |
+          OUT="all_code.txt"
+          > "$OUT"
+          git ls-files | while IFS= read -r f; do
+            echo "================================================================" >> "$OUT"
+            echo "FILE: $f" >> "$OUT"
+            echo "================================================================" >> "$OUT"
+            cat "$f" >> "$OUT" 2>/dev/null
+            echo "" >> "$OUT"
+            echo "" >> "$OUT"
+          done
+
+      - name: Upload bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-code-bundle
+          path: all_code.txt
