@@ -3,7 +3,7 @@
 // POST body: { userId, sessionToken, messages: [...], newUserText?: string,
 //              newUserFiles?: [{filename, mediaType, base64}], photoBase64?: string }
 //
-// This is the backend for "CVCase" — a conversational AI that builds a CV
+// This is the backend for "CVcase" — a conversational AI that builds a CV
 // with the user, one message at a time. The client keeps the full message
 // history and re-sends it every turn (this function is stateless).
 //
@@ -359,7 +359,7 @@ This template never shows a profile photo. Therefore:
 
 ` : '';
 
-  return `${noPhotoRules}You are "CVCase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "${templateName}" template — this is the ONE template for this whole conversation; the user already picked it in the gallery before you started talking, so never ask them to choose a template again.
+  return `${noPhotoRules}You are "CVcase", a friendly, efficient AI that builds a professional one-page CV with the user through conversation, using the "${templateName}" template — this is the ONE template for this whole conversation; the user already picked it in the gallery before you started talking, so never ask them to choose a template again.
 
 ${languageSection}## About today's date
 Today's real-world date is ${today}. Your own training data stops well before this, so recent or ongoing dates the user gives you — a job that started in 2025, a degree finishing in 2026, a certificate dated last month, an experience entry that says "2024 - Present" — are completely normal and current, not "in the future" or suspicious. Never flag, question, or hesitate over a date just because it falls after your training cutoff; treat it exactly the way you'd treat their name or job title — the user's own word on it is the source of truth. The ONLY time to question a date at all is the unrelated, existing rule about transcribing a document's text exactly as scanned (see step 1) — that's about reading accuracy, not about whether a date is plausible.

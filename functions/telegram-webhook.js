@@ -50,7 +50,7 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 
 // The app's live Mini App URL — tapping this button opens it directly inside
 // Telegram without leaving the chat.
-const CVCASE_APP_URL = 'https://cverve.netlify.app/app';
+const CVcase_APP_URL = 'https://cverve.netlify.app/app';
 
 function httpsPost(url, payload) {
   return new Promise((resolve, reject) => {
@@ -79,7 +79,7 @@ function httpsPost(url, payload) {
 async function setAppMenuButton(botToken, chatId) {
   const res = await httpsPost(`https://api.telegram.org/bot${botToken}/setChatMenuButton`, {
     chat_id: chatId,
-    menu_button: { type: 'web_app', text: '🚀 Open App', web_app: { url: CVCASE_APP_URL } }
+    menu_button: { type: 'web_app', text: '🚀 Open App', web_app: { url: CVcase_APP_URL } }
   });
   if (!res || res.ok !== true) {
     console.error('setChatMenuButton failed:', JSON.stringify(res));
@@ -110,7 +110,7 @@ const shareOnlyKeyboard = {
 };
 
 const appOnlyKeyboard = {
-  inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVCASE_APP_URL } }]]
+  inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVcase_APP_URL } }]]
 };
 
 async function ensureAppMenuButton(botToken, chatId, tgUserId, tgCol) {
