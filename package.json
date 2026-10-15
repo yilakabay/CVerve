@@ -4,13 +4,11 @@
   "description": "Backend functions for CVerve application",
   "dependencies": {
     "mongodb": "^5.7.0",
-    "axios": "^1.6.0",
     "pdf-parse": "^1.1.1",
     "mammoth": "^1.6.0",
     "tesseract.js": "^4.1.1",
     "sharp": "^0.33.2",
     "bcryptjs": "^2.4.3",
-    "@google/generative-ai": "^0.21.0",
     "pdfkit": "^0.15.0"
   }
 }
