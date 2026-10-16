@@ -53,22 +53,103 @@
   #cropCanvas { touch-action:none; background:#111; border-radius:8px; }
   #historySidebar.open { transform: translateX(0); }
 
-  /* Brand logo mark — solid fill normally; switches to a self-drawing
-     outline while CVcase is thinking, via the .thinking class toggle. */
-  .logo-mark path { fill: #0088CC; stroke: none; transition: fill 0.2s; }
-  .logo-mark.thinking path {
-    fill: none;
-    stroke: #0088CC;
-    stroke-width: 14;
-    stroke-dasharray: var(--logo-draw-len, 3000);
-    stroke-dashoffset: var(--logo-draw-len, 3000);
-    animation: logoDrawEraseCv 1.8s cubic-bezier(0.4,0,0.6,1) infinite;
+  /* Brand logo mark — always solid; the .thinking row next to it (dots +
+     cycling phase label) is what shows CVcase is working. See the
+     "thinking indicator" block below for the dot animations. */
+  .logo-mark path { fill: #0088CC; stroke: none; }
+
+  /* ── Thinking indicator: three brand-colored dots + a cycling phase label ──
+     Each phase gets its own dot choreography (set via phase-* class on
+     .cv-think-dots) and the label text "blows" out/in between phases —
+     a quick blur+drift dissolve, not a plain crossfade. */
+  .cv-think-row { display:flex; align-items:center; gap:10px; height:20px; }
+  .cv-think-dots { position:relative; width:46px; height:20px; flex-shrink:0; }
+  .cv-think-dot {
+    position:absolute; top:50%; left:50%; width:7px; height:7px; border-radius:50%;
+    background:#0088CC; margin:-3.5px 0 0 -3.5px; will-change:transform;
   }
-  @keyframes logoDrawEraseCv {
-    0%   { stroke-dashoffset: var(--logo-draw-len, 3000); }
-    42%  { stroke-dashoffset: 0; }
-    58%  { stroke-dashoffset: 0; }
-    100% { stroke-dashoffset: calc(-1 * var(--logo-draw-len, 3000)); }
+  .cv-think-label {
+    font-size:12px; font-weight:700; color:#0088CC; letter-spacing:.2px;
+    display:inline-block; will-change:filter, opacity, transform;
+  }
+  .cv-think-label.cv-blow-out { animation: cvPhaseBlowOut .3s ease-in forwards; }
+  .cv-think-label.cv-blow-in  { animation: cvPhaseBlowIn .38s ease-out forwards; }
+  @keyframes cvPhaseBlowOut {
+    0%   { opacity:1; filter:blur(0); transform:translate(0,0); }
+    100% { opacity:0; filter:blur(5px); transform:translate(7px,-4px); }
+  }
+  @keyframes cvPhaseBlowIn {
+    0%   { opacity:0; filter:blur(5px); transform:translate(-7px,4px); }
+    100% { opacity:1; filter:blur(0); transform:translate(0,0); }
+  }
+
+  /* Phase: Thinking — sequential rope-weave bounce, one dot after another */
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(1) { left:9px;  animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:0s; }
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(2) { left:23px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.15s; }
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(3) { left:37px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.3s; }
+  @keyframes cvWaveBounce {
+    0%, 60%, 100% { transform: translateY(0) scale(1); }
+    30%           { transform: translateY(-9px) scale(1.15); }
+  }
+
+  /* Phase: Organizing — orbiting into a triangle, converging to a single point, out again */
+  .cv-think-dots.cv-phase-orbit .cv-think-dot:nth-child(1) { animation: cvOrbit1 2s cubic-bezier(.45,0,.55,1) infinite; }
+  .cv-think-dots.cv-phase-orbit .cv-think-dot:nth-child(2) { animation: cvOrbit2 2s cubic-bezier(.45,0,.55,1) infinite; }
+  .cv-think-dots.cv-phase-orbit .cv-think-dot:nth-child(3) { animation: cvOrbit3 2s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes cvOrbit1 {
+    0%, 100% { transform: translate(-15px, 7px) rotate(0deg) scale(1); }
+    50%      { transform: translate(0,0) rotate(160deg) scale(.3); }
+  }
+  @keyframes cvOrbit2 {
+    0%, 100% { transform: translate(15px, 7px) rotate(0deg) scale(1); }
+    50%      { transform: translate(0,0) rotate(-160deg) scale(.3); }
+  }
+  @keyframes cvOrbit3 {
+    0%, 100% { transform: translate(0, -12px) rotate(0deg) scale(1); }
+    50%      { transform: translate(0,0) rotate(160deg) scale(.3); }
+  }
+
+  /* Phase: Summarizing — dots weave past each other like a braid */
+  .cv-think-dots.cv-phase-weave .cv-think-dot:nth-child(1) { animation: cvWeaveA 1.3s ease-in-out infinite; }
+  .cv-think-dots.cv-phase-weave .cv-think-dot:nth-child(2) { animation: cvWeaveB 1.3s ease-in-out infinite; animation-delay:.12s; }
+  .cv-think-dots.cv-phase-weave .cv-think-dot:nth-child(3) { animation: cvWeaveA 1.3s ease-in-out infinite; animation-delay:.24s; }
+  @keyframes cvWeaveA {
+    0%, 100% { transform: translate(-17px,-4px); }
+    50%      { transform: translate(17px,4px); }
+  }
+  @keyframes cvWeaveB {
+    0%, 100% { transform: translate(17px,4px); }
+    50%      { transform: translate(-17px,-4px); }
+  }
+
+  /* Phase: Polishing — synchronized shine/pulse */
+  .cv-think-dots.cv-phase-pulse .cv-think-dot { animation: cvPulse 1s ease-in-out infinite; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(1) { left:9px;  animation-delay:0s; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(2) { left:23px; animation-delay:.15s; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(3) { left:37px; animation-delay:.3s; }
+  @keyframes cvPulse {
+    0%, 100% { transform: scale(1);   box-shadow: 0 0 0 rgba(0,136,204,0); }
+    50%      { transform: scale(1.5); box-shadow: 0 0 8px rgba(0,136,204,.65); }
+  }
+
+  /* Phase: Presenting file — all three merge into one dot, hold, release */
+  .cv-think-dots.cv-phase-converge .cv-think-dot:nth-child(1) { animation: cvConverge1 1.8s cubic-bezier(.3,0,.2,1) infinite; }
+  .cv-think-dots.cv-phase-converge .cv-think-dot:nth-child(2) { animation: cvConverge2 1.8s cubic-bezier(.3,0,.2,1) infinite; }
+  .cv-think-dots.cv-phase-converge .cv-think-dot:nth-child(3) { animation: cvConverge3 1.8s cubic-bezier(.3,0,.2,1) infinite; }
+  @keyframes cvConverge1 {
+    0%, 18%  { transform: translate(-15px, 7px) scale(1); }
+    50%, 68% { transform: translate(0,0) scale(1.7); }
+    100%     { transform: translate(-15px, 7px) scale(1); }
+  }
+  @keyframes cvConverge2 {
+    0%, 18%  { transform: translate(15px, 7px) scale(1); }
+    50%, 68% { transform: translate(0,0) scale(0); }
+    100%     { transform: translate(15px, 7px) scale(1); }
+  }
+  @keyframes cvConverge3 {
+    0%, 18%  { transform: translate(0, -12px) scale(1); }
+    50%, 68% { transform: translate(0,0) scale(0); }
+    100%     { transform: translate(0, -12px) scale(1); }
   }
 </style>
 </head>
@@ -290,52 +371,93 @@
   let cropZoom = 1, cropOffsetX = 0, cropOffsetY = 0, cropDragging = false, cropLastX = 0, cropLastY = 0;
   let lastLogoMarkEl = null; // the ONE logo element — moved and re-animated, never recreated
 
-  // Single brand mark used for BOTH states: solid (sitting under the latest
-  // finished reply) and animated (drawing itself while CVcase "thinks").
-  // Sending a new message pulls this same element down to the bottom of
-  // the chat and switches it into its drawing animation; when the reply
-  // arrives, it settles back to solid, right under the new reply.
-  const LOGO_MARK_SVG = `<svg class="logo-mark" viewBox="278 288 562 342" style="width:28px;height:auto;display:block;">
-    <path class="logo-mark-path" d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z"/>
-    <path class="logo-mark-path" d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z"/>
+  // Single brand mark used for BOTH states: sitting solid under the latest
+  // finished reply, and (with the thinking row next to it) shown while
+  // CVcase is working. Sending a new message pulls this same element down
+  // to the bottom of the chat and starts the phase-dot indicator; when the
+  // reply arrives, the indicator stops and the row is removed, leaving the
+  // same solid logo spot it always had.
+  const LOGO_MARK_SVG = `<svg class="logo-mark" viewBox="278 288 562 342" style="width:28px;height:auto;display:block;flex-shrink:0;">
+    <path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z"/>
+    <path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z"/>
   </svg>`;
 
-  // Creates the single logo mark element the first time it's needed.
+  // The phase sequence shown while a turn is in flight. Since cv-chat.js
+  // answers in one shot (no streaming), there's no live signal from the
+  // server for which of these is actually happening — this is a timed,
+  // looping sequence like other chat apps use, not a readout of real
+  // server state. Each phase pairs a label with its own dot choreography
+  // (the cv-phase-* classes defined in <style> above).
+  const CV_THINK_PHASES = [
+    { label: 'Thinking',        dotClass: 'cv-phase-wave',     ms: 2200 },
+    { label: 'Organizing',      dotClass: 'cv-phase-orbit',    ms: 2400 },
+    { label: 'Summarizing',     dotClass: 'cv-phase-weave',    ms: 2200 },
+    { label: 'Polishing',       dotClass: 'cv-phase-pulse',    ms: 2000 },
+    { label: 'Presenting file', dotClass: 'cv-phase-converge', ms: 2600 }
+  ];
+  let thinkPhaseTimer = null;
+  let thinkPhaseIdx = 0;
+
+  // Creates the single logo+thinking-row element the first time it's needed.
   function ensureLogoMarkEl() {
     if (lastLogoMarkEl) return lastLogoMarkEl;
     const mark = document.createElement('div');
-    mark.className = 'flex justify-start mt-1 mb-1';
-    mark.innerHTML = LOGO_MARK_SVG;
+    mark.className = 'flex justify-start items-center gap-2 mt-1 mb-1';
+    mark.innerHTML = LOGO_MARK_SVG +
+      '<div class="cv-think-row hidden">' +
+        '<div class="cv-think-dots cv-phase-wave"><span class="cv-think-dot"></span><span class="cv-think-dot"></span><span class="cv-think-dot"></span></div>' +
+        '<span class="cv-think-label">' + CV_THINK_PHASES[0].label + '</span>' +
+      '</div>';
     lastLogoMarkEl = mark;
     return mark;
   }
 
-  // Moves the logo mark to the bottom of the chat (pulling it down past
-  // whatever was just sent) and switches it into the drawing animation.
+  // Advances to the next phase: dots get their new choreography instantly,
+  // the label "blows" out and the new one blows in a beat later.
+  function advanceThinkPhase() {
+    if (!lastLogoMarkEl) return;
+    thinkPhaseIdx = (thinkPhaseIdx + 1) % CV_THINK_PHASES.length;
+    const phase = CV_THINK_PHASES[thinkPhaseIdx];
+    const dots = lastLogoMarkEl.querySelector('.cv-think-dots');
+    const label = lastLogoMarkEl.querySelector('.cv-think-label');
+    if (dots) dots.className = 'cv-think-dots ' + phase.dotClass;
+    if (label) {
+      label.classList.remove('cv-blow-in');
+      label.classList.add('cv-blow-out');
+      setTimeout(() => {
+        label.textContent = phase.label;
+        label.classList.remove('cv-blow-out');
+        label.classList.add('cv-blow-in');
+      }, 260);
+    }
+    thinkPhaseTimer = setTimeout(advanceThinkPhase, phase.ms);
+  }
+
+  // Moves the logo+row to the bottom of the chat (pulling it down past
+  // whatever was just sent) and starts the phase-dot indicator.
   function pullLogoDownAndAnimate() {
     const log = document.getElementById('chatLog');
     const mark = ensureLogoMarkEl();
     log.appendChild(mark); // appendChild on an existing node MOVES it
-    mark.querySelector('.logo-mark').classList.add('thinking');
-    initLogoDrawLength();
+    const row = mark.querySelector('.cv-think-row');
+    const dots = mark.querySelector('.cv-think-dots');
+    const label = mark.querySelector('.cv-think-label');
+    thinkPhaseIdx = 0;
+    if (row) row.classList.remove('hidden');
+    if (dots) dots.className = 'cv-think-dots ' + CV_THINK_PHASES[0].dotClass;
+    if (label) { label.textContent = CV_THINK_PHASES[0].label; label.classList.remove('cv-blow-out', 'cv-blow-in'); }
+    if (thinkPhaseTimer) clearTimeout(thinkPhaseTimer);
+    thinkPhaseTimer = setTimeout(advanceThinkPhase, CV_THINK_PHASES[0].ms);
     scrollChatToBottom();
   }
 
-  // Reply has arrived — stop the animation so the mark settles back to solid.
+  // Reply has arrived — stop the phase cycle and hide the indicator, leaving
+  // just the plain solid logo mark where it always sits.
   function settleLogoMark() {
-    if (lastLogoMarkEl) lastLogoMarkEl.querySelector('.logo-mark').classList.remove('thinking');
-  }
-
-  // Measure the real path length once so the dash animation traces the
-  // exact outline instead of a rough guess (only needs to run once ever).
-  let logoDrawLenSet = false;
-  function initLogoDrawLength() {
-    if (logoDrawLenSet) return;
-    const p = document.querySelector('.logo-mark-path');
-    if (p) {
-      const len = p.getTotalLength();
-      document.documentElement.style.setProperty('--logo-draw-len', len + 'px');
-      logoDrawLenSet = true;
+    if (thinkPhaseTimer) { clearTimeout(thinkPhaseTimer); thinkPhaseTimer = null; }
+    if (lastLogoMarkEl) {
+      const row = lastLogoMarkEl.querySelector('.cv-think-row');
+      if (row) row.classList.add('hidden');
     }
   }
 
