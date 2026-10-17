@@ -1264,6 +1264,22 @@ function sseEncode(eventName, dataObj) {
   return `event: ${eventName}\ndata: ${JSON.stringify(dataObj)}\n\n`;
 }
 
+// ── Heartbeat ──────────────────────────────────────────────────────────────
+// Real phase events only fire at a handful of specific moments (reading a
+// file, starting the chat model, calling a tool) — between them, especially
+// during one single slow AI call, this connection can sit with NO bytes
+// flowing for 10-30+ seconds. Mobile networks, NAT routers, and in-app
+// browsers (Telegram's WebView included) commonly treat a connection that's
+// gone quiet that long as dead and silently drop it — this is a routine,
+// expected failure mode for any long-held streaming connection, not a sign
+// of a bad connection on the user's end. A heartbeat line keeps real bytes
+// moving the whole time so nothing in between ever sees "idle" long enough
+// to kill it. ": " starts an SSE *comment* line — valid per the SSE spec,
+// completely ignored by any correct parser (including fetchCvChatStream in
+// cv.html, which only reacts to lines starting with "event:"/"data:") — so
+// this is invisible to the app and exists purely to keep the pipe open.
+const HEARTBEAT_INTERVAL_MS = 8000;
+
 export default async (req, context) => {
   const encoder = new TextEncoder();
   // Adapts the Web standard Request into the same {httpMethod, body} shape
@@ -1276,6 +1292,12 @@ export default async (req, context) => {
         try { controller.enqueue(encoder.encode(sseEncode('phase', { phase }))); }
         catch (e) { /* stream already closed (client navigated away) — nothing to do */ }
       };
+
+      const heartbeat = setInterval(() => {
+        try { controller.enqueue(encoder.encode(': heartbeat\n\n')); }
+        catch (e) { /* stream already closed — stop trying */ clearInterval(heartbeat); }
+      }, HEARTBEAT_INTERVAL_MS);
+
       let result;
       try {
         result = await runTurn(event, emitPhase);
@@ -1285,6 +1307,8 @@ export default async (req, context) => {
         // that try/catch is even reached (e.g. the Request body read above).
         console.error('cv-chat streaming wrapper: unexpected error:', e);
         result = { statusCode: 500, body: JSON.stringify({ error: 'Something went wrong. Please try again.' }) };
+      } finally {
+        clearInterval(heartbeat);
       }
       try {
         controller.enqueue(encoder.encode(sseEncode('result', { status: result.statusCode, body: result.body })));
