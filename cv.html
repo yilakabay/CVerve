@@ -452,7 +452,13 @@
     const label = mark.querySelector('.cv-think-label');
     const first = CV_PHASE_INFO[CV_PHASE_DEFAULT];
     lastShownPhase = CV_PHASE_DEFAULT;
-    if (logoSvg) logoSvg.classList.add('hidden'); // the dots carry the "thinking" state, not the logo
+    // Set display directly rather than toggling a class: the SVG carries an
+    // inline style="...display:block;..." (see LOGO_MARK_SVG) which, being
+    // an inline style, beats any class-based "hidden" rule in the cascade
+    // regardless of class order — so classList.add('hidden') alone never
+    // actually hid it. Setting .style.display inline is the only thing with
+    // high enough specificity to override another inline style.
+    if (logoSvg) logoSvg.style.display = 'none'; // the dots carry the "thinking" state, not the logo
     if (row) row.classList.remove('hidden');
     if (dots) dots.className = 'cv-think-dots ' + first.dotClass;
     if (label) { label.textContent = first.label; label.classList.remove('cv-blow-out', 'cv-blow-in'); }
@@ -466,7 +472,7 @@
     if (lastLogoMarkEl) {
       const logoSvg = lastLogoMarkEl.querySelector('.logo-mark');
       const row = lastLogoMarkEl.querySelector('.cv-think-row');
-      if (logoSvg) logoSvg.classList.remove('hidden');
+      if (logoSvg) logoSvg.style.display = 'block';
       if (row) row.classList.add('hidden');
     }
   }
