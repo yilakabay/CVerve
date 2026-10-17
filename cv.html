@@ -62,11 +62,11 @@
      Each phase gets its own dot choreography (set via phase-* class on
      .cv-think-dots) and the label text "blows" out/in between phases —
      a quick blur+drift dissolve, not a plain crossfade. */
-  .cv-think-row { display:flex; align-items:center; gap:10px; height:20px; }
-  .cv-think-dots { position:relative; width:46px; height:20px; flex-shrink:0; }
+  .cv-think-row { display:flex; align-items:center; gap:8px; height:14px; }
+  .cv-think-dots { position:relative; width:26px; height:14px; flex-shrink:0; }
   .cv-think-dot {
-    position:absolute; top:50%; left:50%; width:7px; height:7px; border-radius:50%;
-    background:#0088CC; margin:-3.5px 0 0 -3.5px; will-change:transform;
+    position:absolute; top:50%; left:50%; width:4px; height:4px; border-radius:50%;
+    background:#0088CC; margin:-2px 0 0 -2px; will-change:transform;
   }
   .cv-think-label {
     font-size:12px; font-weight:700; color:#0088CC; letter-spacing:.2px;
@@ -84,12 +84,12 @@
   }
 
   /* Phase: Thinking — sequential rope-weave bounce, one dot after another */
-  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(1) { left:9px;  animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:0s; }
-  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(2) { left:23px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.15s; }
-  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(3) { left:37px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.3s; }
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(1) { left:5px;  animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:0s; }
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(2) { left:13px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.15s; }
+  .cv-think-dots.cv-phase-wave .cv-think-dot:nth-child(3) { left:21px; animation: cvWaveBounce 1.1s ease-in-out infinite; animation-delay:.3s; }
   @keyframes cvWaveBounce {
     0%, 60%, 100% { transform: translateY(0) scale(1); }
-    30%           { transform: translateY(-9px) scale(1.15); }
+    30%           { transform: translateY(-5px) scale(1.15); }
   }
 
   /* Phase: Organizing — orbiting into a triangle, converging to a single point, out again */
@@ -97,15 +97,15 @@
   .cv-think-dots.cv-phase-orbit .cv-think-dot:nth-child(2) { animation: cvOrbit2 2s cubic-bezier(.45,0,.55,1) infinite; }
   .cv-think-dots.cv-phase-orbit .cv-think-dot:nth-child(3) { animation: cvOrbit3 2s cubic-bezier(.45,0,.55,1) infinite; }
   @keyframes cvOrbit1 {
-    0%, 100% { transform: translate(-15px, 7px) rotate(0deg) scale(1); }
+    0%, 100% { transform: translate(-9px, 4px) rotate(0deg) scale(1); }
     50%      { transform: translate(0,0) rotate(160deg) scale(.3); }
   }
   @keyframes cvOrbit2 {
-    0%, 100% { transform: translate(15px, 7px) rotate(0deg) scale(1); }
+    0%, 100% { transform: translate(9px, 4px) rotate(0deg) scale(1); }
     50%      { transform: translate(0,0) rotate(-160deg) scale(.3); }
   }
   @keyframes cvOrbit3 {
-    0%, 100% { transform: translate(0, -12px) rotate(0deg) scale(1); }
+    0%, 100% { transform: translate(0, -7px) rotate(0deg) scale(1); }
     50%      { transform: translate(0,0) rotate(160deg) scale(.3); }
   }
 
@@ -114,22 +114,22 @@
   .cv-think-dots.cv-phase-weave .cv-think-dot:nth-child(2) { animation: cvWeaveB 1.3s ease-in-out infinite; animation-delay:.12s; }
   .cv-think-dots.cv-phase-weave .cv-think-dot:nth-child(3) { animation: cvWeaveA 1.3s ease-in-out infinite; animation-delay:.24s; }
   @keyframes cvWeaveA {
-    0%, 100% { transform: translate(-17px,-4px); }
-    50%      { transform: translate(17px,4px); }
+    0%, 100% { transform: translate(-10px,-2px); }
+    50%      { transform: translate(10px,2px); }
   }
   @keyframes cvWeaveB {
-    0%, 100% { transform: translate(17px,4px); }
-    50%      { transform: translate(-17px,-4px); }
+    0%, 100% { transform: translate(10px,2px); }
+    50%      { transform: translate(-10px,-2px); }
   }
 
   /* Phase: Polishing — synchronized shine/pulse */
   .cv-think-dots.cv-phase-pulse .cv-think-dot { animation: cvPulse 1s ease-in-out infinite; }
-  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(1) { left:9px;  animation-delay:0s; }
-  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(2) { left:23px; animation-delay:.15s; }
-  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(3) { left:37px; animation-delay:.3s; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(1) { left:5px;  animation-delay:0s; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(2) { left:13px; animation-delay:.15s; }
+  .cv-think-dots.cv-phase-pulse .cv-think-dot:nth-child(3) { left:21px; animation-delay:.3s; }
   @keyframes cvPulse {
     0%, 100% { transform: scale(1);   box-shadow: 0 0 0 rgba(0,136,204,0); }
-    50%      { transform: scale(1.5); box-shadow: 0 0 8px rgba(0,136,204,.65); }
+    50%      { transform: scale(1.5); box-shadow: 0 0 5px rgba(0,136,204,.65); }
   }
 
   /* Phase: Presenting file — all three merge into one dot, hold, release */
@@ -137,19 +137,19 @@
   .cv-think-dots.cv-phase-converge .cv-think-dot:nth-child(2) { animation: cvConverge2 1.8s cubic-bezier(.3,0,.2,1) infinite; }
   .cv-think-dots.cv-phase-converge .cv-think-dot:nth-child(3) { animation: cvConverge3 1.8s cubic-bezier(.3,0,.2,1) infinite; }
   @keyframes cvConverge1 {
-    0%, 18%  { transform: translate(-15px, 7px) scale(1); }
+    0%, 18%  { transform: translate(-9px, 4px) scale(1); }
     50%, 68% { transform: translate(0,0) scale(1.7); }
-    100%     { transform: translate(-15px, 7px) scale(1); }
+    100%     { transform: translate(-9px, 4px) scale(1); }
   }
   @keyframes cvConverge2 {
-    0%, 18%  { transform: translate(15px, 7px) scale(1); }
+    0%, 18%  { transform: translate(9px, 4px) scale(1); }
     50%, 68% { transform: translate(0,0) scale(0); }
-    100%     { transform: translate(15px, 7px) scale(1); }
+    100%     { transform: translate(9px, 4px) scale(1); }
   }
   @keyframes cvConverge3 {
-    0%, 18%  { transform: translate(0, -12px) scale(1); }
+    0%, 18%  { transform: translate(0, -7px) scale(1); }
     50%, 68% { transform: translate(0,0) scale(0); }
-    100%     { transform: translate(0, -12px) scale(1); }
+    100%     { transform: translate(0, -7px) scale(1); }
   }
 </style>
 </head>
@@ -382,42 +382,49 @@
     <path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z"/>
   </svg>`;
 
-  // The phase sequence shown while a turn is in flight. Since cv-chat.js
-  // answers in one shot (no streaming), there's no live signal from the
-  // server for which of these is actually happening — this is a timed,
-  // looping sequence like other chat apps use, not a readout of real
-  // server state. Each phase pairs a label with its own dot choreography
-  // (the cv-phase-* classes defined in <style> above).
-  const CV_THINK_PHASES = [
-    { label: 'Thinking',        dotClass: 'cv-phase-wave',     ms: 2200 },
-    { label: 'Organizing',      dotClass: 'cv-phase-orbit',    ms: 2400 },
-    { label: 'Summarizing',     dotClass: 'cv-phase-weave',    ms: 2200 },
-    { label: 'Polishing',       dotClass: 'cv-phase-pulse',    ms: 2000 },
-    { label: 'Presenting file', dotClass: 'cv-phase-converge', ms: 2600 }
-  ];
-  let thinkPhaseTimer = null;
-  let thinkPhaseIdx = 0;
+  // What each REAL backend phase (see emitPhase() in cv-chat.mjs) looks
+  // like on screen — a label plus its own dot choreography (the
+  // cv-phase-* classes defined in <style> above). This is NOT a guessed/
+  // timed sequence: cv-chat.mjs streams one of these phase keys over SSE
+  // at the actual moment each thing happens (reading a file, calling the
+  // chat model, calling check_template_fit, calling polish_review_text,
+  // calling finalize_pdf) — see fetchCvChatStream() below, which calls
+  // setThinkPhase() the instant each event arrives. There is deliberately
+  // no "summarizing" entry: the backend has no real step that corresponds
+  // to it, and this only shows phases it can actually prove are happening.
+  const CV_PHASE_INFO = {
+    reading_files:   { label: 'Reading files',   dotClass: 'cv-phase-weave'    },
+    thinking:        { label: 'Thinking',        dotClass: 'cv-phase-wave'     },
+    organizing:      { label: 'Organizing',      dotClass: 'cv-phase-orbit'    },
+    polishing:       { label: 'Polishing',       dotClass: 'cv-phase-pulse'    },
+    presenting_file: { label: 'Presenting file', dotClass: 'cv-phase-converge' }
+  };
+  const CV_PHASE_DEFAULT = 'thinking'; // true the instant any turn starts
 
   // Creates the single logo+thinking-row element the first time it's needed.
   function ensureLogoMarkEl() {
     if (lastLogoMarkEl) return lastLogoMarkEl;
     const mark = document.createElement('div');
     mark.className = 'flex justify-start items-center gap-2 mt-1 mb-1';
+    const first = CV_PHASE_INFO[CV_PHASE_DEFAULT];
     mark.innerHTML = LOGO_MARK_SVG +
       '<div class="cv-think-row hidden">' +
-        '<div class="cv-think-dots cv-phase-wave"><span class="cv-think-dot"></span><span class="cv-think-dot"></span><span class="cv-think-dot"></span></div>' +
-        '<span class="cv-think-label">' + CV_THINK_PHASES[0].label + '</span>' +
+        '<div class="cv-think-dots ' + first.dotClass + '"><span class="cv-think-dot"></span><span class="cv-think-dot"></span><span class="cv-think-dot"></span></div>' +
+        '<span class="cv-think-label">' + first.label + '</span>' +
       '</div>';
     lastLogoMarkEl = mark;
     return mark;
   }
 
-  // Advances to the next phase: dots get their new choreography instantly,
-  // the label "blows" out and the new one blows in a beat later.
-  function advanceThinkPhase() {
+  // Called with a REAL phase key as soon as cv-chat.mjs's SSE stream reports
+  // it. Unknown/future phase keys are ignored rather than shown blank, so an
+  // older cached page never crashes on a phase it doesn't know about yet.
+  let lastShownPhase = null;
+  function setThinkPhase(phaseKey) {
     if (!lastLogoMarkEl) return;
-    thinkPhaseIdx = (thinkPhaseIdx + 1) % CV_THINK_PHASES.length;
-    const phase = CV_THINK_PHASES[thinkPhaseIdx];
+    const phase = CV_PHASE_INFO[phaseKey];
+    if (!phase || phaseKey === lastShownPhase) return;
+    lastShownPhase = phaseKey;
     const dots = lastLogoMarkEl.querySelector('.cv-think-dots');
     const label = lastLogoMarkEl.querySelector('.cv-think-label');
     if (dots) dots.className = 'cv-think-dots ' + phase.dotClass;
@@ -430,35 +437,95 @@
         label.classList.add('cv-blow-in');
       }, 260);
     }
-    thinkPhaseTimer = setTimeout(advanceThinkPhase, phase.ms);
   }
 
   // Moves the logo+row to the bottom of the chat (pulling it down past
-  // whatever was just sent) and starts the phase-dot indicator.
+  // whatever was just sent) and shows the indicator at its default phase —
+  // real phase events (via setThinkPhase) take over from here as they arrive.
   function pullLogoDownAndAnimate() {
     const log = document.getElementById('chatLog');
     const mark = ensureLogoMarkEl();
     log.appendChild(mark); // appendChild on an existing node MOVES it
+    const logoSvg = mark.querySelector('.logo-mark');
     const row = mark.querySelector('.cv-think-row');
     const dots = mark.querySelector('.cv-think-dots');
     const label = mark.querySelector('.cv-think-label');
-    thinkPhaseIdx = 0;
+    const first = CV_PHASE_INFO[CV_PHASE_DEFAULT];
+    lastShownPhase = CV_PHASE_DEFAULT;
+    if (logoSvg) logoSvg.classList.add('hidden'); // the dots carry the "thinking" state, not the logo
     if (row) row.classList.remove('hidden');
-    if (dots) dots.className = 'cv-think-dots ' + CV_THINK_PHASES[0].dotClass;
-    if (label) { label.textContent = CV_THINK_PHASES[0].label; label.classList.remove('cv-blow-out', 'cv-blow-in'); }
-    if (thinkPhaseTimer) clearTimeout(thinkPhaseTimer);
-    thinkPhaseTimer = setTimeout(advanceThinkPhase, CV_THINK_PHASES[0].ms);
+    if (dots) dots.className = 'cv-think-dots ' + first.dotClass;
+    if (label) { label.textContent = first.label; label.classList.remove('cv-blow-out', 'cv-blow-in'); }
     scrollChatToBottom();
   }
 
-  // Reply has arrived — stop the phase cycle and hide the indicator, leaving
-  // just the plain solid logo mark where it always sits.
+  // Reply has arrived — hide the dots and bring the solid logo back to its
+  // usual resting spot.
   function settleLogoMark() {
-    if (thinkPhaseTimer) { clearTimeout(thinkPhaseTimer); thinkPhaseTimer = null; }
+    lastShownPhase = null;
     if (lastLogoMarkEl) {
+      const logoSvg = lastLogoMarkEl.querySelector('.logo-mark');
       const row = lastLogoMarkEl.querySelector('.cv-think-row');
+      if (logoSvg) logoSvg.classList.remove('hidden');
       if (row) row.classList.add('hidden');
     }
+  }
+
+  // ── Reads cv-chat.mjs's SSE stream and returns the same {status, ok, data}
+  // shape the old plain fetch()+res.json() call used to produce, so nothing
+  // downstream in performTurn() has to change except where it reads those
+  // three values. Along the way, each real "phase" event is handed to
+  // onPhase() the instant it arrives — that's what drives setThinkPhase()
+  // live instead of on a timer. The stream's single "result" event carries
+  // the exact statusCode/body cv-chat.mjs's handler always returned.
+  async function fetchCvChatStream(payload, onPhase) {
+    const res = await fetch('/.netlify/functions/cv-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    // No readable stream (e.g. the function errored before ever starting
+    // the SSE response) — fall back to reading it as plain JSON/text.
+    if (!res.body || typeof res.body.getReader !== 'function') {
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      return { status: res.status, ok: res.ok, data: data || {} };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let finalStatus = res.status;
+    let finalData = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        if (!block.trim()) continue;
+        let eventName = 'message', dataLine = '';
+        block.split('\n').forEach(line => {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+        });
+        if (!dataLine) continue;
+        let parsed;
+        try { parsed = JSON.parse(dataLine); } catch (e) { continue; }
+        if (eventName === 'phase' && parsed && parsed.phase) {
+          try { onPhase(parsed.phase); } catch (e) {}
+        } else if (eventName === 'result') {
+          finalStatus = parsed.status;
+          try { finalData = JSON.parse(parsed.body); } catch (e) { finalData = {}; }
+        }
+      }
+    }
+
+    return { status: finalStatus, ok: finalStatus >= 200 && finalStatus < 300, data: finalData || {} };
   }
 
   function scrollChatToBottom() {
@@ -1460,26 +1527,27 @@
         serverFiles = turn.userFiles.map(toServerFile);
       }
 
-      const res = await fetch('/.netlify/functions/cv-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUserId, // checked again server-side — see cv-chat.js
-          sessionToken: localStorage.getItem('cv_sessionToken') || '', // needed so the server can charge CT for the AI tokens used
-          messages: turn.beforeMessages,
-          newUserText: turn.userText || undefined,
-          newUserFiles: serverFiles.length ? serverFiles : undefined,
-          photoBase64: turn.photoBase64 || undefined,
-          templateId: currentSession ? currentSession.templateId : undefined
-        })
-      });
-      const data = await res.json();
+      // fetchCvChatStream reads cv-chat.mjs's SSE response: real "phase"
+      // events drive setThinkPhase() live as they arrive, and the one
+      // "result" event at the end carries the exact same statusCode/body
+      // the handler has always returned — so everything below this line
+      // reads {status, ok, data} exactly like it used to read
+      // {res.status, res.ok, data from res.json()}.
+      const { status, ok, data } = await fetchCvChatStream({
+        userId: currentUserId, // checked again server-side — see cv-chat.mjs
+        sessionToken: localStorage.getItem('cv_sessionToken') || '', // needed so the server can charge CT for the AI tokens used
+        messages: turn.beforeMessages,
+        newUserText: turn.userText || undefined,
+        newUserFiles: serverFiles.length ? serverFiles : undefined,
+        photoBase64: turn.photoBase64 || undefined,
+        templateId: currentSession ? currentSession.templateId : undefined
+      }, setThinkPhase);
       settleLogoMark();
 
       // Account deleted or session no longer valid — don't show a confusing
       // "something went wrong" chat bubble for this; sign out immediately.
-      if (res.status === 401 || res.status === 404) {
-        cvForceLogout(res.status === 404 ? 'account-deleted' : 'session-expired');
+      if (status === 401 || status === 404) {
+        cvForceLogout(status === 404 ? 'account-deleted' : 'session-expired');
         return;
       }
 
@@ -1490,10 +1558,10 @@
       }
 
       let replyWrap;
-      if (res.status === 402) {
+      if (status === 402) {
         replyWrap = addBubble('assistant', "You don't have enough CT to continue. Please top up in the CVcase app (Account → Top Up CT), then tap retry on your message.");
         try { cvMaybeAutoPromptTopup(); } catch (e) {}
-      } else if (!res.ok || !data.success) {
+      } else if (!ok || !data.success) {
         replyWrap = addBubble('assistant', 'Sorry, something went wrong: ' + (data.error || 'unknown error'));
       } else {
         conversationMessages = data.messages;

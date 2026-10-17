@@ -259,6 +259,18 @@
 // unclear, network error, low balance) — a UI label staying in English is a
 // cosmetic miss, never worth breaking the chat over.
 
+// ── ESM/CommonJS bridge ───────────────────────────────────────────────────
+// This file is .mjs (ES module) so it can return a streaming Response (see
+// the "LIVE PHASE STREAMING" note near the bottom) — Netlify's streaming
+// support needs the modern Request/Response handler shape, which the old
+// Lambda-style `exports.handler` can't return from. Everything else in this
+// file is completely unchanged from the CommonJS version: createRequire
+// gives a real, synchronous require() so every `require('./lib/...')` call
+// below still works exactly as written, with zero changes to any of the
+// template/library modules themselves (they stay CommonJS).
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
 // ── Template registry ──────────────────────────────────────────────────
 // Each entry maps a templateId (chosen by the user in the gallery, sent by
 // the client with every request) to its measure()/render() module. Adding
@@ -902,8 +914,16 @@ async function handleTranslateUI(body, db) {
   }
 }
 
-exports.handler = async (event, context) => {
-  context.callbackWaitsForEmptyEventLoop = false;
+// The original body of this function is completely unchanged from the old
+// `exports.handler` version — same auth, same billing, same tool loop, same
+// time budgets. The only additions are the `emitPhase` calls at a handful of
+// real checkpoints (reading files, calling the chat model, running
+// check_template_fit/polish_review_text/finalize_pdf), each firing a live
+// SSE event to the browser. `emitPhase` is a no-op if the caller doesn't
+// want streaming (see runTurn's default below), so this function behaves
+// identically either way.
+async function runTurn(event, emitPhase) {
+  if (typeof emitPhase !== 'function') emitPhase = () => {}; // default no-op, as promised above
   const handlerStarted = Date.now(); // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file
 
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -997,6 +1017,12 @@ exports.handler = async (event, context) => {
     // tighter — the chat loop still needs real time left after this.
     const results = [];
     const extractStart = Date.now();
+    // Real phase, not a guess: only fires when at least one file genuinely
+    // still needs server-side reading (most arrive already extracted by
+    // cv.html — see the FIX note near the top of this file).
+    if (toRead.some(f => !(f && (typeof f.extractedText === 'string' || f.readError)))) {
+      emitPhase('reading_files');
+    }
     for (const f of toRead) {
       // Already read in the browser — use it as is.
       if (f && typeof f.extractedText === 'string') {
@@ -1119,6 +1145,7 @@ exports.handler = async (event, context) => {
         };
       }
 
+      emitPhase('thinking'); // real: about to call the chat model itself
       const result = await callAI({
         model: FEATURE_MODELS.CV_CHAT,
         messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto',
@@ -1146,6 +1173,18 @@ exports.handler = async (event, context) => {
       for (const tc of toolCalls) {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave as {} */ }
+
+        // Real, per-tool phase signal — emitted right before the tool that
+        // actually does that work runs, not a guess. check_template_fit is
+        // the real layout/organizing pass, polish_review_text is a separate
+        // billed AI call that rewrites the content into final review text,
+        // and finalize_pdf is the real render-and-deliver step. Any other
+        // tool (e.g. request_photo_upload) doesn't match one of the shown
+        // phases, so it's left alone — the indicator just stays on
+        // whatever real phase was last shown.
+        if (tc.function.name === 'check_template_fit') emitPhase('organizing');
+        else if (tc.function.name === 'polish_review_text') emitPhase('polishing');
+        else if (tc.function.name === 'finalize_pdf') emitPhase('presenting_file');
 
         const toolResult = await callTool(tc.function.name, args, template.mod.noPhoto ? null : photoBase64, templateId, body.userId);
 
@@ -1194,4 +1233,57 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({ error: 'Something went wrong while building your CV. Please try again.', tokenBalance })
     };
   }
+}
+
+// ── LIVE PHASE STREAMING ───────────────────────────────────────────────────
+// cv.html shows a small "... Thinking / Organizing / Polishing / Presenting
+// file" indicator while a turn is in flight. This used to be a client-side
+// timer cycling through those labels on a guess — now it's a real readout:
+// runTurn() above calls emitPhase() at the actual moments each of those
+// things happens (see the calls inside the file-reading loop and the tool
+// loop), and this wrapper turns each call into one Server-Sent Event the
+// browser reads live, before the turn has finished.
+//
+// The SSE stream carries two kinds of events:
+//   event: phase   data: {"phase":"thinking"}          — zero or more, live
+//   event: result  data: {"status":200,"body":"..."}    — always exactly one,
+//                                                          last, then closes
+// `body` in the result event is the EXACT SAME JSON string runTurn() always
+// returned — nothing about the response shape changed, only how/when the
+// browser learns about it. cv.html reads the stream and parses that same
+// JSON once the result event arrives (see performTurn() there).
+function sseEncode(eventName, dataObj) {
+  return `event: ${eventName}\ndata: ${JSON.stringify(dataObj)}\n\n`;
+}
+
+export default async (req, context) => {
+  const encoder = new TextEncoder();
+  // Adapts the Web standard Request into the same {httpMethod, body} shape
+  // runTurn() has always read — so runTurn()'s own body never had to change.
+  const event = { httpMethod: req.method, body: await req.text() };
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emitPhase = (phase) => {
+        try { controller.enqueue(encoder.encode(sseEncode('phase', { phase }))); }
+        catch (e) { /* stream already closed (client navigated away) — nothing to do */ }
+      };
+      let result;
+      try {
+        result = await runTurn(event, emitPhase);
+      } catch (e) {
+        // runTurn() already catches everything itself and returns a 500 —
+        // this is only a last-resort net in case something throws before
+        // that try/catch is even reached (e.g. the Request body read above).
+        console.error('cv-chat streaming wrapper: unexpected error:', e);
+        result = { statusCode: 500, body: JSON.stringify({ error: 'Something went wrong. Please try again.' }) };
+      }
+      try {
+        controller.enqueue(encoder.encode(sseEncode('result', { status: result.statusCode, body: result.body })));
+      } catch (e) { /* stream already closed — nothing to do */ }
+      controller.close();
+    }
+  });
+
+  return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
 };
