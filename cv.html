@@ -521,30 +521,6 @@
     let buf = '';
     let finalStatus = res.status;
     let finalData = null;
-    let sawResultEvent = false; // did we ever successfully parse a "result" event's JSON?
-
-    // Parses one "event:...\ndata:..." block (no trailing blank line needed —
-    // used both mid-stream, where a blank line always separates blocks, and
-    // once more at the very end on whatever is left in the buffer, in case
-    // the stream closed right after the final block with no trailing \n\n).
-    function handleBlock(block) {
-      if (!block.trim()) return;
-      let eventName = 'message', dataLine = '';
-      block.split('\n').forEach(line => {
-        if (line.startsWith('event:')) eventName = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
-      });
-      if (!dataLine) return;
-      let parsed;
-      try { parsed = JSON.parse(dataLine); } catch (e) { return; }
-      if (eventName === 'phase' && parsed && parsed.phase) {
-        try { onPhase(parsed.phase); } catch (e) {}
-      } else if (eventName === 'result') {
-        finalStatus = parsed.status;
-        try { finalData = JSON.parse(parsed.body); sawResultEvent = true; }
-        catch (e) { finalData = {}; sawResultEvent = true; }
-      }
-    }
 
     while (true) {
       const { done, value } = await reader.read();
@@ -552,30 +528,24 @@
       buf += decoder.decode(value, { stream: true });
       let sep;
       while ((sep = buf.indexOf('\n\n')) !== -1) {
-        handleBlock(buf.slice(0, sep));
+        const block = buf.slice(0, sep);
         buf = buf.slice(sep + 2);
+        if (!block.trim()) continue;
+        let eventName = 'message', dataLine = '';
+        block.split('\n').forEach(line => {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+        });
+        if (!dataLine) continue;
+        let parsed;
+        try { parsed = JSON.parse(dataLine); } catch (e) { continue; }
+        if (eventName === 'phase' && parsed && parsed.phase) {
+          try { onPhase(parsed.phase); } catch (e) {}
+        } else if (eventName === 'result') {
+          finalStatus = parsed.status;
+          try { finalData = JSON.parse(parsed.body); } catch (e) { finalData = {}; }
+        }
       }
-    }
-    // Flush any bytes the decoder was still holding onto (a split multi-byte
-    // character at the very end of the stream), then handle whatever is left
-    // in buf even without a trailing blank-line separator — this is exactly
-    // what was silently dropping the "result" event (and with it the whole
-    // reply) when the stream closed right after it with no final \n\n,
-    // surfacing to the user as a content-free "Sorry, something went wrong:
-    // unknown error" even though the server had actually finished cleanly.
-    buf += decoder.decode();
-    if (buf.trim()) handleBlock(buf);
-
-    // The stream ended but we never got a parseable "result" event at all —
-    // genuinely lost data (truncated connection, proxy cutoff, etc.), not
-    // just a format hiccup in one event. Surface that plainly instead of an
-    // empty {} that renders as "unknown error" with no useful information.
-    if (!sawResultEvent) {
-      return {
-        status: 0,
-        ok: false,
-        data: { error: 'The connection was interrupted before the reply finished. Please try again.' }
-      };
     }
 
     return { status: finalStatus, ok: finalStatus >= 200 && finalStatus < 300, data: finalData || {} };
