@@ -39,38 +39,41 @@
 // field everywhere in the app). The reply includes `tokensUsed` and
 // `tokenBalance` so the app can update the balance on screen.
 //
-// ── NETLIFY FREE PLAN TIME LIMIT — READ THIS FIRST ────────────────────────
-// Netlify's free plan runs synchronous Functions with a HARD 10-second
-// execution ceiling (the 26s+ window is Pro-only). This function does TWO
-// time-hungry things in sequence — (1) a file-extraction fallback step, then
-// (2) a tool-use loop that can call the AI gateway up to MAX_TOOL_ITERATIONS
-// times, each one a full network round trip — and the old budgets (15s just
-// for extraction, with no cap at all on the loop's own time) could never fit
-// in 10s together. When Netlify killed the function mid-loop, the user lost
-// the whole turn with no clean error and — worse — with no guarantee of
+// ── EXECUTION TIME BUDGET — READ THIS FIRST ───────────────────────────────
+// This runs as a Netlify Functions 2.0 streaming function (see the
+// `export default` wrapper + sseEncode at the bottom of this file), which
+// has a 60-second execution ceiling. This function does TWO time-hungry
+// things in sequence — (1) a file-extraction fallback step, then (2) a
+// tool-use loop that can call the AI gateway up to MAX_TOOL_ITERATIONS
+// times, each one a full network round trip — so both steps still need their
+// own time budgets to avoid one slow file or a stuck AI call eating the
+// whole 60s and leaving the user with no clean error and no guarantee of
 // which AI calls had already been billed.
 //
-// Two changes fix this:
-//   1. EXTRACTION_TIME_BUDGET_MS is cut down a lot (see below). In normal
-//      operation this fallback path barely runs anyway, because cv.html now
-//      reads images/PDFs via extract-file.js BEFORE calling this function —
-//      see the "FIX: files are now read BEFORE this function is called" note
-//      further down. This budget only matters for the old-shape fallback.
-//   2. A single HANDLER_DEADLINE_MS wall-clock budget now wraps the WHOLE
+// Two mechanisms keep that bounded:
+//   1. EXTRACTION_TIME_BUDGET_MS (see below) bounds the old-shape fallback
+//      extraction path. In normal operation this path barely runs anyway,
+//      because cv.html now reads images/PDFs via extract-file.js BEFORE
+//      calling this function — see the "FIX: files are now read BEFORE this
+//      function is called" note further down. This budget only matters for
+//      that old-shape fallback.
+//   2. A single HANDLER_DEADLINE_MS wall-clock budget wraps the WHOLE
 //      handler. Before extraction starts, and before every single AI call
 //      inside the tool loop, the code checks how much real time is left. If
 //      there isn't enough left to safely attempt another call, it stops on
 //      its own — charges for whatever was actually used, and returns a
 //      normal, clean reply asking the user to send another message to
-//      continue — instead of letting Netlify hard-kill the function
+//      continue — instead of running past the platform's own limit
 //      mid-call.
 //
-// This does mean a genuinely complex turn (lots of files + several tool
-// calls) may now take 2-3 user messages instead of 1 on the free plan. That
-// trade-off is unavoidable on a 10s ceiling — the alternative is what you
-// had before (silent failures). If you upgrade to a paid Netlify plan with a
-// longer timeout, raise HANDLER_DEADLINE_MS and EXTRACTION_TIME_BUDGET_MS
-// back up and most turns will go back to finishing in one shot.
+// This means even a genuinely complex turn (lots of files + several tool
+// calls) almost always finishes within one message now that the real 60s
+// budget is used, rather than the overly conservative ~8.5s this used to be
+// capped at (a leftover from when this ran as a classic 10s-limited
+// function) — that old cap was cutting off real, in-progress AI calls
+// (especially slower models like deepseek-v4-pro on a turn with an attached
+// document) well before they could finish, which showed up in the logs as
+// "AbortError: This operation was aborted".
 //
 // ── MODEL: OpenAI-compatible tool-calling format ──────────────────────────
 // This file uses OpenAI-style messages (role/content, tool_calls, role:'tool'
@@ -312,19 +315,25 @@ const {
 const BAI_API_KEY = process.env.BAI_API_KEY;
 const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see HANDLER_DEADLINE_MS below for the real, time-based cap
 
-// ── Whole-handler wall-clock deadline — MUST fit inside Netlify's free-plan
-// 10s cap ─────────────────────────────────────────────────────────────────
-// This is the actual guard against Netlify hard-killing the function mid
-// tool-loop. It is checked (a) once before the extraction fallback runs and
-// (b) before every single AI call inside the tool loop. If too little time
-// is left to safely start another call, the code stops itself, bills for
-// whatever was genuinely used, and returns a normal reply asking the user to
-// continue — instead of letting the platform kill it mid-request.
+// ── Whole-handler wall-clock deadline ─────────────────────────────────────
+// This is the actual guard against the function running past its platform
+// limit mid tool-loop. It is checked (a) once before the extraction
+// fallback runs and (b) before every single AI call inside the tool loop.
+// If too little time is left to safely start another call, the code stops
+// itself, bills for whatever was genuinely used, and returns a normal reply
+// asking the user to continue — instead of letting the platform kill it
+// mid-request.
 //
-// 8500ms leaves ~1.5s of margin inside Netlify's 10s free-plan ceiling for
-// JSON parsing, response serialization, and general runtime jitter. Raise
-// this (e.g. to ~24000 on a 26s paid-plan timeout) if you upgrade.
-const HANDLER_DEADLINE_MS = 8500;
+// cv-chat.mjs runs as a Netlify Functions 2.0 streaming function (see the
+// `export default` wrapper + sseEncode at the bottom of this file), which
+// has a 60s execution ceiling — not the old classic-function 10s free-plan
+// limit this comment used to describe. 8500ms was sized for that old 10s
+// ceiling and was cutting off real AI calls (especially slower models like
+// deepseek-v4-pro on a turn with an attached document) well before they
+// could finish, surfacing as AbortError in the logs. 50000ms leaves ~10s of
+// margin inside the real 60s ceiling for JSON parsing, response
+// serialization, and runtime jitter.
+const HANDLER_DEADLINE_MS = 50000;
 // Don't even start an AI chat-loop call with less than this much time
 // left — a chat-loop call realistically needs at least this long to have a
 // chance of finishing instead of being cut off mid-stream.
@@ -503,9 +512,10 @@ function toolsFor(template) {
 // "files are now read BEFORE this function is called" note at the top). The
 // code below is the fallback for files that arrive in the old shape
 // (base64 / pages) — it is unchanged except that vision calls now retry once
-// and failures give a clearer reason, AND the time budgets are now small
-// enough to fit alongside the chat loop inside Netlify's free-plan 10s cap
-// (see HANDLER_DEADLINE_MS above and EXTRACTION_TIME_BUDGET_MS below).
+// and failures give a clearer reason, AND the time budgets below leave real
+// room for the chat loop afterward inside the function's real 60s streaming
+// ceiling (see HANDLER_DEADLINE_MS above and EXTRACTION_TIME_BUDGET_MS
+// below).
 //
 // ── LIMITS (why they exist) ──────────────────────────────────────────────
 // Extracted text is pasted into the conversation, and the WHOLE conversation
@@ -522,17 +532,15 @@ const MAX_FILE_BASE64_CHARS = 5.5 * 1024 * 1024; // skip absurdly large single f
 
 // This is now ONLY a budget for the old-shape fallback path (files that
 // arrive as base64/pages instead of already-extracted text), AND it has to
-// leave real room for the chat loop afterward inside the same 10s Netlify
-// free-plan ceiling. 4s here + MIN_TIME_TO_START_CHAT_CALL_MS (3s) + margin
-// is deliberately tight — this path should rarely run at all in normal
-// operation (see the note above), so it's fine for it to be strict and fail
-// fast (flagging files as "ran out of time, press Retry") rather than eat
-// into the chat loop's budget.
-const EXTRACTION_TIME_BUDGET_MS = 4000;
-// Cap on any single vision call made from inside this fallback path —
-// smaller than before so one slow image can't eat the whole extraction
-// budget by itself.
-const MAX_SINGLE_VISION_CALL_MS = 4000;
+// leave real room for the chat loop afterward inside the function's real
+// 60s streaming ceiling (HANDLER_DEADLINE_MS = 50000). This path should
+// rarely run at all in normal operation (see the note above), so 15s is
+// generous without starving the chat loop that follows it.
+const EXTRACTION_TIME_BUDGET_MS = 15000;
+// Cap on any single vision call made from inside this fallback path — large
+// enough for one slow image/page without eating the whole extraction budget
+// by itself (several pages can still be read within EXTRACTION_TIME_BUDGET_MS).
+const MAX_SINGLE_VISION_CALL_MS = 12000;
 
 const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written. TRANSCRIBE LITERALLY: this applies above all to names of people, schools, and organizations. Do not "clean up", autocorrect, or substitute a name for a more common/familiar-looking one, even if a word looks unusual or you suspect it is probably a well-known name spelled differently. Copy exactly the characters you can make out. If part of a word or name is genuinely illegible, write it as-is with [?] immediately after the unclear part rather than guessing a plausible replacement — never silently swap in a different, more common name.';
 
@@ -1100,9 +1108,9 @@ async function runTurn(event, emitPhase) {
   let awaitingPhoto = false;
 
   // If extraction alone already ate almost the whole deadline, don't even
-  // attempt an AI chat call — Netlify would very likely kill the function
-  // mid-call, which is worse than returning a clean "try again" reply now.
-  // This is the main new safeguard for the free-plan 10s cap.
+  // attempt an AI chat call — the function would very likely run out of its
+  // 60s execution ceiling mid-call, which is worse than returning a clean
+  // "try again" reply now. This is the main safeguard for HANDLER_DEADLINE_MS.
   // NOTE: the two needsContinue `reply` strings below (here and further down
   // in the tool loop) are deliberately fixed, plain English — they're not
   // generated by the model, so they can't naturally pick up the user's
@@ -1127,9 +1135,9 @@ async function runTurn(event, emitPhase) {
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       // Wall-clock check before every AI call — this is what actually keeps
-      // the whole handler under Netlify's free-plan 10s ceiling. This check
-      // stops a NEW call from starting; it cannot interrupt one already in
-      // flight.
+      // the whole handler under its 60s execution ceiling (HANDLER_DEADLINE_MS).
+      // This check stops a NEW call from starting; it cannot interrupt one
+      // already in flight.
       const timeLeftForCall = timeLeft(handlerStarted);
       if (timeLeftForCall < MIN_TIME_TO_START_CHAT_CALL_MS) {
         const tokenBalance = await chargeOnce();
