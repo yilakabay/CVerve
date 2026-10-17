@@ -1171,10 +1171,23 @@ async function runTurn(event, emitPhase) {
       if (toolCalls.some(tc => tc.function.name === 'request_photo_upload')) awaitingPhoto = true;
 
       if (toolCalls.length === 0) {
+        // The model can legitimately come back with NO text and NO tool call
+        // — most often after it's just been handed a file with no question
+        // attached, where it has nothing obvious to say or do next. That's a
+        // real, if uncommon, model response shape, not a bug in this code —
+        // but forwarding an empty string as the "reply" left the user
+        // staring at a blank message (cv.html showed it as the placeholder
+        // "(no reply)"), which looks broken and gives no next step. Substitute
+        // one clear, honest fallback whenever that happens, here at the
+        // source, so every surface that reads this response (cv.html, the
+        // Telegram bot) gets something a user can act on instead of silence.
+        const replyText = (msg.content && msg.content.trim())
+          ? msg.content
+          : "Got it — I've received that. What would you like me to do next?";
         const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content || '', messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
+          body: JSON.stringify({ success: true, reply: replyText, messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
         };
       }
 
