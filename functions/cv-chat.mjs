@@ -351,6 +351,60 @@ function timeLeft(startedAt) {
 // bypassed, so the server must independently refuse everyone else here.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
+// ── Keeping long conversations usable ────────────────────────────────────
+// `messages` is the full OpenAI-format history and it's sent back and forth
+// on every single turn (see conversationMessages in cv.html) — nothing ever
+// trimmed it, so a long CV-building session (lots of files, lots of
+// back-and-forth edits) could grow without bound. Every extra message makes
+// every future AI call in this conversation bigger: slower (more likely to
+// eat into the Netlify execution ceiling — see HANDLER_DEADLINE_MS — which
+// is the same failure mode as "connection interrupted"), and more
+// expensive. But the one thing that must never be lost is the user's actual
+// CV content (name, experience, education, etc.) — it lives ONLY in the
+// model's memory of its own past check_template_fit / finalize_pdf tool
+// calls, nowhere else server-side. So this can't be a naive "keep the last
+// N messages" trim — that would silently forget real facts about the user.
+//
+// Once a conversation gets long, compact it instead of just capping it:
+// pull the content object out of the most recent check_template_fit /
+// finalize_pdf call (whichever happened last) and restate it as a short,
+// explicit system reminder, then drop everything older than a generous
+// recent window of raw turns. The model always still has the full, current
+// CV content either way — it just stops paying, in tokens and time, to
+// re-read the entire history of how the conversation got there. This keeps
+// the session "as long as it can remember" rather than cutting memory off
+// at a fixed point — the actual content survives indefinitely; only the
+// surrounding chatter past a generous window gets summarized away.
+const MAX_RAW_MESSAGES = 60;     // once the history exceeds this many messages, compact it
+const KEEP_RECENT_MESSAGES = 30; // ...and keep this many of the most recent ones verbatim
+function compactMessagesIfNeeded(msgs) {
+  if (msgs.length <= MAX_RAW_MESSAGES) return msgs;
+
+  let latestContent = null;
+  for (let i = msgs.length - 1; i >= 0 && !latestContent; i--) {
+    const m = msgs[i];
+    if (m.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue;
+    for (const tc of m.tool_calls) {
+      if (!tc.function || (tc.function.name !== 'finalize_pdf' && tc.function.name !== 'check_template_fit')) continue;
+      try {
+        const args = JSON.parse(tc.function.arguments || '{}');
+        if (args && args.content) { latestContent = args.content; break; }
+      } catch { /* malformed args — keep scanning further back */ }
+    }
+  }
+
+  const hasSystem = msgs[0] && msgs[0].role === 'system';
+  const system = hasSystem ? [msgs[0]] : [];
+  const rest = hasSystem ? msgs.slice(1) : msgs;
+  const recent = rest.slice(-KEEP_RECENT_MESSAGES);
+  const memoryNote = latestContent ? [{
+    role: 'system',
+    content: 'An earlier part of this conversation has been summarized to keep things fast — none of the user\'s actual information is lost. The CV content object exactly as last confirmed is below; treat it as fully accurate and current, and keep building on it precisely as if you had the entire original history:\n\n' + JSON.stringify(latestContent)
+  }] : [];
+
+  return [...system, ...memoryNote, ...recent];
+}
+
 function buildSystemPrompt(templateName, convLanguage, noPhoto = false) {
   // Computed fresh on every call (never hardcoded) so this stays correct as
   // real time passes — see the "About today's date" note just below for why
@@ -423,7 +477,11 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
      - The sidebar (where Education/Skills/Languages live) suits short, scannable entries — a handful of one-line items, not paragraphs. Prefer placement:"sidebar" for compact lists like tools, interests, or a short project list.
      - The main column (where Experience/Achievements/Certifications live) suits longer or more detailed entries — a project with a description, multiple bullet points, or a paragraph. Prefer placement:"main" for anything with real detail.
      - Whichever you pick, ALWAYS call check_template_fit with the content object that includes the new customSections entry before telling the user it's been added — the renderer wraps everything to the real column width automatically (so long items can't run off the page or off the sidebar), but fit (whether the page still has room at all) is only ever something check_template_fit's numbers can tell you, never your own guess. If it doesn't fit, follow the same "give one specific, confident recommendation" rule as any other overflow case (see below) — a custom section is exactly the kind of thing that's reasonable to suggest trimming first, since it's an extra the user chose to add on top of the base CV.
-3. If a section is thin or missing (e.g. no experience, no skills), do NOT just leave it empty and do NOT interrogate the user with a long form. Ask ONE short, friendly question at a time, offering an easy way out — e.g. "Have you done any internship, volunteer work, or class project? If not, no worries, I can suggest some based on your field." If they still have nothing, propose 3-5 common, reasonable skills/achievements for their field of study as SUGGESTIONS ONLY, clearly labeled as suggestions, and ask them to confirm/edit before including them. NEVER silently invent facts (like a specific employer, degree, or grade) — only suggest generic, clearly-labeled filler for skills/soft-skills, never for verifiable facts.
+3. You are acting as a professional CV writer advocating for someone who usually doesn't know what counts as CV-worthy content — not a form that copies whatever the user happens to volunteer. A blank or thin section is a failure you are responsible for preventing, not a fact about the user you just report back. Before treating any section as "the user has nothing", actively dig for the real things most people in this situation actually have but don't think to mention:
+   - No work experience? Ask about internships, part-time or casual jobs, volunteering, freelance or gig work, student leadership/club roles, and — especially for students and recent graduates — academic projects, a thesis or capstone, research assistantships, or group coursework with a real deliverable. Any one of these can become a genuine Experience or customSections entry, not filler.
+   - No certifications? Ask about short courses, online certificates (even free ones — Coursera, Google, HubSpot, etc.), workshops, trainings at a past job or school, or language/software proficiency tests. Many people have one or two of these and don't think to mention them unprompted.
+   - No achievements? Ask about awards, scholarships, being top of class/cohort, competition results, published or presented work, or anything a teacher/manager specifically praised.
+   Ask ONE short, friendly question at a time, naming 2-3 concrete examples like the above so the user recognizes something they actually have (a vague "do you have any experience?" rarely jogs memory the way a specific example does) — and always offer an easy way out ("if none of that applies, no worries, I can suggest some instead"). Only once the user has genuinely confirmed they have nothing of that kind should you fall back to proposing 3-5 common, reasonable skills/achievements for their field of study as SUGGESTIONS ONLY, clearly labeled as suggestions, for them to confirm/edit before including. A real detail you drew out of them with a good question is always better than a generic suggestion — reach for the question first, the suggestion second. NEVER silently invent verifiable facts (a specific employer, degree, grade, date, or certificate name) — suggestions stay limited to generic, clearly-labeled skill/soft-skill phrasing or a clearly-labeled customSections idea (e.g. "want me to add an Academic Projects section for that thesis?"), never to facts you can't verify.
    - Contact details: ask for phone, email, location, and LinkedIn together in one friendly question, but don't insist on all of them — if the user only has one or two, that's completely fine, just leave the others out of contact rather than asking again or inventing something. If they give LinkedIn as a handle or a name instead of a full URL, follow the "About LinkedIn" rule above — offer the likely full link and where to copy it, then use whatever they end up confirming or sticking with.
    - References: ask if they'd like to include a reference, and if so how many (most CVs list 1-3). Collect each one's name/role/email/phone the same way — one short, friendly question at a time, not a long form — and put all of them in the references array in the order given. If the user has none, use an empty array and move on without pushing back.
    - Remember: nothing about a photo belongs in this step either, however natural it might feel to mention while you're already asking about contact details or references. Hold that entirely until step 6.
@@ -437,6 +495,7 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
 6. Once the user explicitly confirms that text looks right (or finishes correcting it and confirms), THIS is the first and only moment you may say anything about a photo at all. Call request_photo_upload and ask them to attach their photo. Do NOT ask for a photo any earlier than this step, and do not soften that into a passing mention beforehand — the app only shows the photo-cropping frame the instant you call request_photo_upload, and any image attached before that call is read as a text document instead of applied as the profile photo, which means the CV would quietly finish without it even though the user thinks they already sent it. If the user has no photo or doesn't want one, that's fine — proceed without it.
 7. Once the user has attached a photo (or said to skip it), call finalize_pdf with the final content object. This produces the actual, finished CV and delivers it to the user as a file in this Telegram chat — there is no separate "preview" step; this IS the real document. Tell the user it's ready and to check the chat for the file.
 8. The user stays in this same chat after seeing the PDF, and may ask for changes at any point afterward (e.g. "can you reword the profile" or "add another skill"). When that happens: update just the relevant field(s), call check_template_fit again first if the edit could plausibly cause overflow (e.g. adding a paragraph or another reference), then call finalize_pdf again with the updated content object to deliver the corrected PDF. You do not need to re-show the plain-text content or re-ask for a photo for a simple edit like this — just make the change and re-render.
+   - The one exception: if the user asks to add, change, retake, or remove their photo — at ANY point, including well after the CV is already finished — treat that exactly like step 6: call request_photo_upload again so the app opens the crop frame for them, then finalize_pdf again once they've attached the new photo (or confirmed removing it). This is the one case in this step where re-calling request_photo_upload is correct and expected — the "only once" framing in step 6 is about not asking unprompted mid-build, not a one-time-ever limit on the whole conversation.
 
 ## Hard rules
 - The content object — every field in it, including section labels/headers — is always written in English, no matter what language you're chatting with the user in. See "About language" above for the full rule and why.
@@ -462,7 +521,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'request_photo_upload',
-      description: 'Call this ONLY once the user has explicitly confirmed the organized CV content, shown to them as plain chat text, looks right — and you are ready to ask them for their profile photo. This is also the FIRST and ONLY time you may mention a photo at all in the conversation — never refer to the photo, even in passing, before calling this. Calling this tells the app to show the photo-cropping frame the next time the user attaches an image — before this call, any image the user sends is treated as a document, not a photo.',
+      description: 'Call this once the user has explicitly confirmed the organized CV content, shown to them as plain chat text, looks right — and you are ready to ask them for their profile photo (step 6). Never refer to the photo, even in passing, before this first call. Calling this tells the app to show the photo-cropping frame the next time the user attaches an image — before this call, any image the user sends is treated as a document, not a photo. You may also call this again LATER in the conversation, even well after the CV has already been finalized, if the user asks to add, change, or retake their photo at that point — see step 8.',
       parameters: { type: 'object', properties: {} }
     }
   },
@@ -755,6 +814,8 @@ function buildPolishPrompt(content) {
     'Rules:',
     '- Never change, invent, or omit a fact: names, dates, employers, schools, grades, contact details, and every bullet\'s actual content must come through exactly as given. You are only touching phrasing and flow, never substance.',
     '- Keep each section genuinely easy to scan — short lines/paragraphs, not a wall of text — while sounding like a person wrote it, not a template.',
+    '- Sound like a specific, real human being talking about a specific person\'s career, not an AI narrating a generic template. Actively avoid stock CV/cover-letter phrases and corporate filler — e.g. "results-driven", "dynamic professional", "team player", "passionate about", "proven track record", "go-getter", "detail-oriented self-starter" — and avoid restarting every bullet or sentence with the same shape ("Responsible for...", "Managed...", "Worked on..." repeated down a whole list). Vary sentence openings and rhythm the way an actual person varies their phrasing when they talk about different things, section to section and bullet to bullet.',
+    '- Let the person\'s actual facts drive the specific wording — two different CVs, or two different sections of the same CV, should not read like they were poured from the same mold. If the content is genuinely thin in a section, write a short, honest line rather than padding it out with generic enthusiasm.',
     '- Do not add a greeting, a closing line, or a confirmation question ("does this look right?") — the calling app adds that separately. Reply with the review text itself only, no markdown fences, no commentary before or after it.',
     '- Write in English, exactly as the content object\'s own fields are written (this mirrors the app\'s existing rule that CV content is always English regardless of the chat language).',
     '',
@@ -778,7 +839,7 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
         model: FEATURE_MODELS.CV_POLISH,
         messages: [{ role: 'user', content: buildPolishPrompt(args.content) }],
         maxTokens: 1200,
-        temperature: 0.6
+        temperature: 0.85 // was 0.6 — a bit more room for natural, varied phrasing so output doesn't read as a generic, repetitive template; still well short of incoherent
       });
       return {
         ok: true,
@@ -823,6 +884,52 @@ async function callTool(name, args, latestPhotoBase64, templateId, userId) {
 // app-injected placeholder standing in for a photo upload, never something
 // the user actually typed, so it must never be read as a language sample.
 const PHOTO_PLACEHOLDER_USER_TEXT = "Here's my photo.";
+
+// ── Whether the client should treat the next attached image as a PHOTO ───
+// This used to be a one-shot flag: true only in the exact response where the
+// model happened to call request_photo_upload, with the client latching it
+// true client-side until a photo was picked. That's fragile against the
+// normal, common case of the user replying with plain text first ("yes") —
+// a later turn's AI reply ("go ahead, attach it") makes no NEW tool call
+// (the tool is meant to be called once), so that later turn's response
+// reported awaitingPhoto:false, and if the client's own latched state was
+// ever lost or raced (page reload, a "Continue" resume, another tab/device
+// picking the session back up) the photo the user then attached would be
+// silently read as a document instead.
+//
+// Recompute this fresh, from the actual conversation history, on every
+// single response instead of tracking an edge-triggered flag: find the most
+// recent request_photo_upload call anywhere in the conversation, then check
+// whether it's already been resolved — either the photo placeholder turn
+// (PHOTO_PLACEHOLDER_USER_TEXT) came in after it, or the model moved on and
+// rendered the PDF (finalize_pdf) after it without one, e.g. the user chose
+// to skip. If neither has happened yet, a photo is still genuinely pending,
+// so every reply from here until it's resolved reports awaitingPhoto:true —
+// robust no matter how many plain-text turns happen in between, no matter
+// what interrupts the session.
+//
+// This also means the SAME mechanism naturally supports changing/adding the
+// photo later, after the CV is already built: if the model calls
+// request_photo_upload again at that point (see the system prompt's step 8
+// for when it's allowed to), this function re-arms exactly the same way.
+function computeAwaitingPhoto(allMessages) {
+  let lastRequestIdx = -1;
+  for (let i = 0; i < allMessages.length; i++) {
+    const m = allMessages[i];
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) &&
+        m.tool_calls.some(tc => tc.function && tc.function.name === 'request_photo_upload')) {
+      lastRequestIdx = i;
+    }
+  }
+  if (lastRequestIdx === -1) return false;
+  for (let i = lastRequestIdx + 1; i < allMessages.length; i++) {
+    const m = allMessages[i];
+    if (m.role === 'user' && typeof m.content === 'string' && m.content.indexOf(PHOTO_PLACEHOLDER_USER_TEXT) !== -1) return false;
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) &&
+        m.tool_calls.some(tc => tc.function && tc.function.name === 'finalize_pdf')) return false;
+  }
+  return true;
+}
 
 function englishStringsResult(uiStrings, tokenBalance) {
   return { success: true, lang: 'English', strings: uiStrings, tokensUsed: 0, tokenBalance: tokenBalance ?? null };
@@ -978,6 +1085,7 @@ async function runTurn(event, emitPhase) {
     const convLanguage = (uiLanguage && uiLanguage !== 'en' && uiLanguageName) ? uiLanguageName : 'English';
     messages.unshift({ role: 'system', content: buildSystemPrompt(template.name, convLanguage, !!template.mod.noPhoto) });
   }
+  messages = compactMessagesIfNeeded(messages);
 
   // ── Log-in + "can they even start this turn?" — BEFORE any file is read
   // or anything is sent to the AI gateway. Per the product rule, this is a
@@ -1129,7 +1237,11 @@ async function runTurn(event, emitPhase) {
 
   let finalPdfBase64 = null;
   let telegramDelivered = null; // null = no PDF rendered this turn; true/false once one is
-  let awaitingPhoto = false;
+  // awaitingPhoto is no longer tracked as a one-shot flag here — it's
+  // recomputed fresh from the full `messages` history at each response point
+  // below via computeAwaitingPhoto(messages), which is robust across
+  // however many plain-text turns happen between the ask and the attach.
+  // See computeAwaitingPhoto's own comment for why.
 
   // If extraction alone already ate almost the whole deadline, don't even
   // attempt an AI chat call — the function would very likely run out of its
@@ -1150,7 +1262,7 @@ async function runTurn(event, emitPhase) {
         success: true,
         reply: "That took a bit long to process on this end — nothing was lost.",
         needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
-        messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
+        messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages),
         tokensUsed: usedCost, tokenBalance, unreadFiles
       })
     };
@@ -1173,7 +1285,7 @@ async function runTurn(event, emitPhase) {
             success: true,
             reply: "I've made some progress, but didn't finish this step.",
             needsContinue: true, // tells cv.html to show a "Continue" button instead of treating this as a normal finished reply
-            messages, finalPdfBase64, telegramDelivered, awaitingPhoto,
+            messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages),
             tokensUsed: usedCost, tokenBalance, unreadFiles
           })
         };
@@ -1194,7 +1306,6 @@ async function runTurn(event, emitPhase) {
       messages.push(msg);
 
       const toolCalls = msg.tool_calls || [];
-      if (toolCalls.some(tc => tc.function.name === 'request_photo_upload')) awaitingPhoto = true;
 
       if (toolCalls.length === 0 && !(msg.content && msg.content.trim())) {
         // The model came back with NEITHER text NOR a tool call. This isn't
@@ -1231,7 +1342,7 @@ async function runTurn(event, emitPhase) {
         const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: replyText, messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
+          body: JSON.stringify({ success: true, reply: replyText, messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages), tokensUsed: usedCost, tokenBalance, unreadFiles })
         };
       }
 
@@ -1242,7 +1353,7 @@ async function runTurn(event, emitPhase) {
         const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
-          body: JSON.stringify({ success: true, reply: msg.content, messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
+          body: JSON.stringify({ success: true, reply: msg.content, messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages), tokensUsed: usedCost, tokenBalance, unreadFiles })
         };
       }
 
@@ -1294,7 +1405,7 @@ async function runTurn(event, emitPhase) {
     const tokenBalance = await chargeOnce();
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
+      body: JSON.stringify({ success: true, reply: "I've done several steps in a row — let me know if you'd like me to continue.", messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages), tokensUsed: usedCost, tokenBalance, unreadFiles })
     };
 
   } catch (error) {
