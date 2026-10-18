@@ -403,6 +403,7 @@ LinkedIn is entirely optional and only comes up if the user brings it up or want
 
 ## Your job, step by step
 1. Greet the user briefly and ask them to describe themselves OR upload documents (certificates, transcripts, old CV) — either is fine. Any document or image the user attaches has ALREADY been read for you and appears in the conversation as extracted text labelled with its filename — read that text as the source of information, you never see the raw file yourself.
+   - A file attached with no typed message is the normal way this feature gets used, not an empty or unclear turn — never treat "the user didn't type anything, just attached a file" as having nothing to respond to. The moment a file comes in (an old CV especially), actively read it, pull every real detail into your working content object, tell the user briefly what you found, and immediately ask about whatever's genuinely still missing (or move straight to the next step if it's already solid) — in that SAME reply. Replying with only a generic acknowledgement and no real content or question is exactly the failure to avoid here.
    - If a file could NOT be read, it appears as "[NOT READ: ...]" (or "[Could not read this file.]") under its filename, followed by a system note. The app shows the user a box with a Retry button for those files, so never ask them to re-upload or resend them. Name the unread files, then decide: if what was read is already enough to build a good CV, say the missing files probably aren't essential and suggest continuing; if they likely hold key information, recommend pressing Retry first. Never guess what an unread file contains.
    - NEVER "correct", normalize, or substitute a person's name (or any other proper noun — a school, an organization, a place) based on what name you think it's "probably supposed to be". The extracted text is a raw, sometimes imperfect reading of a photo — treat it as exactly that: a reading, not a hint. If the same name appears to read differently across files, quote EXACTLY what the extracted text shows for each file (verbatim, including any odd characters) and simply ask the user: "Your name reads differently across these — which is your correct full name?" Do NOT propose alternate spellings or similar-sounding real names of your own (e.g. turning a garbled fragment into a common name you know) — that is inventing a fact, not reading one, and a wrong name on someone's CV is a serious, real-world mistake. The user typing their own name is always the source of truth, not your best guess at what the scan "probably" says.
 2. Build a content object matching this exact schema:
@@ -1105,6 +1106,22 @@ async function runTurn(event, emitPhase) {
         ` Say plainly which file names were not read. Then judge: if what WAS read already gives enough to build a good CV, say the missing files probably aren't essential and suggest continuing with what you have (Retry stays available if they change their mind). If the missing files likely hold key information (e.g. the only transcript or an old CV), recommend pressing Retry first.` +
         (cannotRetry.length ? ` These cannot be read even on retry (${cannotRetry.join(', ')}): ask the user to describe what's in them if it matters.` : '') +
         ` Keep this to one or two sentences and never guess what an unread file contains.]`;
+    }
+
+    // The user often attaches a file (an old CV, certificates, transcripts)
+    // with NO typed message at all — that's the normal, expected way to use
+    // this feature, not an empty or ambiguous turn. Without a nudge here,
+    // the model can mistake "no question was asked" for "nothing to do" and
+    // come back with no text and no tool call, which falls through to the
+    // generic placeholder reply below — exactly the complaint that this file
+    // was uploaded but the assistant just said a generic line instead of
+    // actually looking at it. Make the expectation explicit and attach it to
+    // THIS message (not just the system prompt) so it can't be missed.
+    if (!newUserText || !newUserText.trim()) {
+      const readOk = toRead.some((f, i) => !unreadFiles.some(u => u.index === i));
+      if (readOk) {
+        combinedText += `\n\n[System note, not from the user: the user sent this message with no typed text — just the attached file(s) above. This is completely normal, not a gap to wait out. In THIS reply, actually use what you just read: pull every real detail you can (name, education, experience, skills, dates, contact info, certifications, etc.) into your working content object, say briefly what you found, then immediately either ask the one or two most useful follow-up questions to fill real gaps, or — if it already looks complete enough for a solid CV — move straight on to the next step yourself. Never reply with only a generic acknowledgement and no real content or question; that leaves the user with nothing to act on.]`;
+      }
     }
 
     messages.push({ role: 'user', content: combinedText.trim() || '(no message)' });
