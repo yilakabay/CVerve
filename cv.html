@@ -49,6 +49,20 @@
   html.dark body { background:#1e1e21; }
   #chatLog { scroll-behavior: smooth; }
   .msg-bubble { max-width: 82%; }
+  /* Smoke-style fade for the chat top/bottom bars: content scrolling behind
+     them softens out gradually instead of being cut off by a hard line. */
+  .fade-bar-top {
+    background: linear-gradient(to bottom, #f8fafc 0%, #f8fafc 30%, rgba(248,250,252,0) 100%);
+  }
+  html.dark .fade-bar-top {
+    background: linear-gradient(to bottom, #1e1e21 0%, #1e1e21 30%, rgba(30,30,33,0) 100%);
+  }
+  .fade-bar-bottom {
+    background: linear-gradient(to top, #f8fafc 0%, #f8fafc 40%, rgba(248,250,252,0) 100%);
+  }
+  html.dark .fade-bar-bottom {
+    background: linear-gradient(to top, #1e1e21 0%, #1e1e21 40%, rgba(30,30,33,0) 100%);
+  }
   #cropperOverlay { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:200; display:none; align-items:center; justify-content:center; flex-direction:column; }
   #cropCanvas { touch-action:none; background:#111; border-radius:8px; }
   #historySidebar.open { transform: translateX(0); }
@@ -57,6 +71,9 @@
      cycling phase label) is what shows CVcase is working. See the
      "thinking indicator" block below for the dot animations. */
   .logo-mark path { fill: #0088CC; stroke: none; }
+  /* The small brand mark no longer appears pinned at the bottom of the
+     conversation — see the sidebar header for its new home instead. */
+  .logo-mark { display: none !important; }
 
   /* ── Thinking indicator: three brand-colored dots + a cycling phase label ──
      Each phase gets its own dot choreography (set via phase-* class on
@@ -192,35 +209,43 @@
   <!-- ── Floating icons — shown ONLY on the greeting screen (no template
        picked yet), in place of the full top bar: back, menu, "+". ─────── -->
   <div id="greetingFloatBar" class="hidden absolute top-3 left-0 right-0 z-10 flex items-center justify-between px-4">
-    <button onclick="window.location.href='app.html'" class="w-9 h-9 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm text-indigo-600" aria-label="Back">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-    </button>
     <div class="flex items-center gap-2">
-      <button onclick="openSidebar()" class="w-9 h-9 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm text-gray-500 dark:text-gray-300" aria-label="Chat history" title="Chat history">
+      <button onclick="window.location.href='app.html'" class="w-9 h-9 flex items-center justify-center rounded-full text-indigo-600" aria-label="Back">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <button onclick="openSidebar()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-300" aria-label="Chat history" title="Chat history">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M3 9h18"/></svg>
       </button>
-      <button onclick="showGallery()" class="w-9 h-9 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm text-indigo-600" aria-label="New CV" title="New CV">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" d="M12 5v14m-7-7h14"/></svg>
-      </button>
     </div>
+    <button onclick="showGallery()" class="w-9 h-9 flex items-center justify-center rounded-full text-indigo-600" aria-label="New CV" title="New CV">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" d="M12 5v14m-7-7h14"/></svg>
+    </button>
   </div>
 
   <!-- ── Top bar — hidden while the greeting screen (no template picked
-       yet) is showing; see showGreetingHome()/hideGreetingHome(). ─────── -->
-  <div id="chatTopBar" class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+       yet) is showing; see showGreetingHome()/hideGreetingHome(). Floats
+       over the chat log with a soft fade instead of a hard border, so
+       messages scrolling up dissolve under it rather than cutting off. ── -->
+  <div id="chatTopBar" class="fade-bar-top absolute top-0 left-0 right-0 z-20 flex items-center gap-3 px-4 pt-3 pb-5 flex-shrink-0">
     <button onclick="window.location.href='app.html'" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-indigo-600" aria-label="Back">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
     </button>
-    <button onclick="openSidebar()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-300" aria-label="Chat history" title="Chat history">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M3 9h18"/></svg>
-    </button>
-    <div class="w-8 h-8 rounded-full bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 flex items-center justify-center overflow-hidden"><svg viewBox="278 288 562 342" style="width:65%;height:auto;display:block;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg></div>
-    <div class="flex-1 min-w-0">
-      <p class="text-sm font-bold text-gray-800 dark:text-gray-100 truncate">CVcase <span class="text-[10px] font-bold text-amber-500 align-middle">DEV</span></p>
-      <p id="topBarSubtitle" class="text-[11px] text-gray-400 truncate">Minimal / Scandinavian template</p>
+    <!-- pl-10 reserves the space the absolutely-positioned history icon sits
+         in (see below), so a long, truncated title's text never slides
+         under it — it stops short of the icon instead of overlapping it. -->
+    <div class="flex-1 min-w-0 text-center pl-10 pr-1">
+      <!-- text-left (not text-center) so a long title always starts from its
+           first letter and only ever truncates with "…" at the end — a
+           centered, overflowing line truncates invisibly on both sides. -->
+      <p id="topBarSubtitle" class="text-sm font-bold text-gray-800 dark:text-gray-100 truncate text-left">AI-powered CV builder</p>
     </div>
     <button onclick="showGallery()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-indigo-600 flex-shrink-0" aria-label="New CV" title="New CV">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" d="M12 5v14m-7-7h14"/></svg>
+    </button>
+    <!-- Positioned absolutely (not in the flex flow) so it doesn't throw off
+         the title's centering between the back chevron and the + button. -->
+    <button onclick="openSidebar()" class="absolute left-[60px] top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-300" aria-label="Chat history" title="Chat history">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M3 9h18"/></svg>
     </button>
   </div>
 
@@ -228,32 +253,44 @@
   <div id="sidebarBackdrop" onclick="closeSidebar()" class="hidden fixed inset-0 bg-black/40 z-40"></div>
   <div id="historySidebar" class="fixed top-0 left-0 h-full w-72 max-w-[85vw] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 z-50 flex flex-col -translate-x-full transition-transform duration-200">
     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-      <p class="text-sm font-bold text-gray-800 dark:text-gray-100">Your CVs</p>
+      <div class="flex items-center gap-2">
+        <svg viewBox="278 288 562 342" style="width:18px;height:auto;display:block;flex-shrink:0;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
+        <p class="text-sm font-bold text-gray-800 dark:text-gray-100 text-left">CVcase</p>
+      </div>
       <button onclick="closeSidebar()" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500" aria-label="Close">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    <button onclick="showGallery()" class="mx-3 mt-3 flex items-center gap-2 justify-center border border-dashed border-indigo-300 text-indigo-600 text-sm font-semibold rounded-xl py-2 hover:bg-indigo-50 dark:hover:bg-gray-800">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" d="M12 5v14m-7-7h14"/></svg>
-      New CV
-    </button>
-    <div id="sessionList" class="flex-1 overflow-y-auto px-2 py-3 space-y-1"></div>
+    <div class="flex items-center justify-end px-4 mt-3">
+      <button onclick="showGallery()" class="flex items-center gap-1 text-indigo-600 text-sm font-semibold hover:text-indigo-700" aria-label="New CV" title="New CV">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4"><path stroke-linecap="round" d="M12 5v14m-7-7h14"/></svg>
+        New CV
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto pl-5 pr-2 py-3">
+      <!-- Pinned CVs — rendered above "Your CVs" entirely, only shown when
+           at least one chat is pinned. See renderSessionList. -->
+      <div id="pinnedSection" class="hidden mb-3">
+        <p class="text-sm font-bold text-gray-500 dark:text-gray-400 text-left px-0.5 pb-1">Pinned CVs</p>
+        <div id="pinnedList" class="space-y-1"></div>
+      </div>
+      <p class="text-sm font-bold text-gray-500 dark:text-gray-400 text-left px-0.5 pb-1">Your CVs</p>
+      <div id="sessionList" class="space-y-1"></div>
+    </div>
   </div>
 
   <!-- ── Greeting home — the default view of the chat page. Past chats
        stay reachable via the sidebar (history icon); this tap goes
        straight to picking a template for a new CV. ────────────────────── -->
   <div id="greetingHome" class="hidden flex-1 flex-col items-center justify-center px-6 text-center">
-    <div class="flex items-center justify-center gap-2 mb-1">
-      <svg viewBox="278 288 562 342" style="width:1.3em;height:auto;display:block;flex-shrink:0;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
-      <p id="greetingText" class="text-xl font-bold text-gray-800 dark:text-gray-100">Good morning!</p>
-    </div>
+    <svg viewBox="278 288 562 342" style="width:2.6em;height:auto;display:block;flex-shrink:0;margin-bottom:0.5rem;"><path d="M438.71 298.43C451.9 297.2 465.27 297.76 478.5 297.76C499.5 297.76 520.5 297.75 541.5 297.76C552.72 297.77 572.7 295.66 569.76 313.43C568.97 318.25 565.64 322.6 563.32 326.79C558.34 335.78 553.12 344.7 548.34 353.8C546.1 358.07 543.38 366.25 538.75 368.3C533.82 370.5 517.64 369.11 511.5 369.1C490.23 369.06 468.74 368.24 447.5 369.24C395.96 371.66 357.98 416.6 361.71 467.5C365.17 514.61 404.06 549.67 450.54 551.57C466.47 552.22 482.56 551.72 498.5 551.66C503.64 551.64 514.83 550.26 519.23 552.32C522.34 553.77 527.38 563.76 529.56 566.93C536.1 576.45 542.37 586.2 548.54 595.97C550.32 598.79 552.64 601.46 553.91 604.57C556.8 611.7 553.74 619.31 546.44 621.93C539.65 624.36 530.63 622.88 523.5 622.88C508.17 622.88 492.83 622.88 477.5 622.89C461.52 622.9 445.33 623.56 429.5 620.92C386.28 613.73 347.25 589.26 322.12 553.34C308.86 534.39 299.35 512.23 295.19 489.45C278.25 396.62 344.57 307.26 438.71 298.43Z" fill="#0088CC"/><path d="M830.97 297.5C830.37 304.39 821.83 314.33 817.93 320.38C806.81 337.61 795.88 354.95 784.53 372.03C762.12 405.73 740.57 440.02 718.41 473.87C702.45 498.25 685.98 522.36 670.58 547.09C659.13 565.47 647.04 583.56 635.11 601.64C630.33 608.88 626.27 619.04 617.47 622C611.35 624.05 604.83 622.75 599.98 618.52C597.08 616 595.43 612.37 593.33 609.21C588.25 601.55 583.7 593.55 578.55 585.94C569.35 572.35 561.11 558.08 552.26 544.26C536.88 520.27 521.45 496.33 506.37 472.15C500.61 462.91 494.91 453.6 489.01 444.45C486 439.78 481.77 435.21 482.22 429.5C485.51 425.48 489.61 425.76 494.5 425.72C501.83 425.66 509.17 425.75 516.5 425.74C528.04 425.74 539.43 424.63 549.75 430.72C559.92 436.71 564.65 448.15 570.73 457.75C580.71 473.49 590.23 489.53 600.39 505.14C604.13 510.88 607.14 517.46 611.5 522.71C615.92 518.28 618.87 512 622.22 506.71C627.64 498.17 633.12 489.65 638.63 481.16C662.54 444.33 685.46 406.83 709.73 370.25C717.2 359 724.34 347.54 731.75 336.26C736.8 328.56 741.31 320.95 747.97 314.47C765.03 297.85 785.49 293.48 808.5 293.3C815.1 293.25 827.17 290.83 830.97 297.5Z" fill="#0088CC"/></svg>
+    <p id="greetingText" class="text-xl font-bold text-gray-800 dark:text-gray-100">Good morning!</p>
     <button onclick="showGallery()" class="mt-5 px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors">Build your CV</button>
   </div>
 
   <!-- ── Chat log + composer — shown once a chat (new or past) is open ── -->
   <div id="chatArea" class="hidden relative flex-1 flex-col min-h-0">
-  <div id="chatLog" class="flex-1 overflow-y-auto px-4 py-6 space-y-6 max-w-2xl w-full mx-auto"></div>
+  <div id="chatLog" class="flex-1 overflow-y-auto px-4 pt-16 pb-44 space-y-6 max-w-2xl w-full mx-auto"></div>
 
   <!-- Shown while a past chat is being fetched and replayed from the
        sidebar, so the user sees a spinner instead of watching every old
@@ -265,22 +302,28 @@
   </div>
 
 
-  <!-- ── Composer ────────────────────────────────────────────────────── -->
-  <div class="bg-white dark:bg-gray-900 px-3 pb-3 pt-2 flex-shrink-0">
+  <!-- ── Composer — floats over the chat log with a soft fade (see
+       .fade-bar-bottom) instead of a hard shadow/border line. ─────────── -->
+  <div class="fade-bar-bottom absolute bottom-0 left-0 right-0 z-20 px-3 pb-3 pt-6 flex-shrink-0">
     <div class="max-w-2xl w-full mx-auto">
-    <div id="pendingFilesRow" class="hidden flex gap-2 mb-2 px-1 overflow-x-auto"></div>
-    <div class="flex items-end gap-2 border border-gray-200 dark:border-gray-700 rounded-3xl px-2 py-2 bg-white dark:bg-gray-800 shadow-sm focus-within:border-indigo-300">
-      <button onclick="document.getElementById('fileInput').click()" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" title="Attach document or photo" aria-label="Attach">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
-      </button>
-      <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.docx" multiple onchange="handleFilesSelected(event)">
+    <div class="border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm focus-within:border-indigo-300 px-3 py-2.5">
+      <!-- Pending file cards live inside the box, above the text, instead
+           of floating above it as a separate row. -->
+      <div id="pendingFilesRow" class="hidden flex gap-2 mb-2 overflow-x-auto"></div>
       <textarea id="composerInput" rows="1" placeholder="Message CVcase…"
-        class="flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm focus:outline-none dark:text-gray-100 max-h-40 overflow-y-auto"
+        class="w-full resize-none border-0 bg-transparent px-0 py-1 text-sm focus:outline-none dark:text-gray-100 max-h-40 overflow-y-auto"
         style="height:auto;"
         oninput="autoGrowComposer(this)"></textarea>
-      <button onclick="sendMessage()" id="sendBtn" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Send" aria-label="Send">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
-      </button>
+      <!-- Attach ("+") sits on its own row below the text, not inline with it. -->
+      <div class="flex items-center justify-between mt-1">
+        <button onclick="document.getElementById('fileInput').click()" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" title="Attach document or photo" aria-label="Attach">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
+        </button>
+        <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.docx" multiple onchange="handleFilesSelected(event)">
+        <button onclick="sendMessage()" id="sendBtn" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Send" aria-label="Send">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
+        </button>
+      </div>
     </div>
     </div>
   </div>
@@ -2395,29 +2438,154 @@
     return base + (suffix ? '_' + suffix : '') + '.pdf';
   }
 
+  // Small inline icon glyphs reused by the session row menu (rename / pin /
+  // unpin / delete) — kept as plain strings so each menu item can prefix its
+  // label with one via innerHTML.
+  const SESSION_MENU_ICONS = {
+    rename: '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>',
+    pin: '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 10.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V16a1 1 0 001 1h12a1 1 0 001-1v-.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V7a1 1 0 011-1 2 2 0 000-4H8a2 2 0 000 4 1 1 0 011 1z"/></svg>',
+    unpin: '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 9.34V7a1 1 0 011-1 2 2 0 000-4H7.89"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 9v1.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V16a1 1 0 001 1h11"/><path stroke-linecap="round" stroke-linejoin="round" d="M2 2l20 20"/></svg>',
+    delete: '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7h12z"/></svg>',
+    dots: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>'
+  };
+
+  // Closes whatever session row menu is currently open, if any. Called
+  // before opening a new one and on outside clicks, so only one is ever
+  // visible at a time.
+  let closeOpenSessionMenu = null;
+
   function renderSessionList() {
     const list = document.getElementById('sessionList');
+    const pinnedSection = document.getElementById('pinnedSection');
+    const pinnedList = document.getElementById('pinnedList');
     list.innerHTML = '';
-    sessions.forEach(session => {
-      const row = document.createElement('div');
-      row.className = 'group flex items-center gap-1 px-2 py-2 rounded-lg cursor-pointer ' +
-        (currentSession && session.id === currentSession.id ? 'bg-indigo-50 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800');
+    pinnedList.innerHTML = '';
+    if (closeOpenSessionMenu) { closeOpenSessionMenu(); closeOpenSessionMenu = null; }
 
-      const titleEl = document.createElement('div');
-      titleEl.className = 'flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-200 truncate';
-      titleEl.textContent = formatSessionTitle(session);
-      titleEl.onclick = () => loadSession(session.id);
-      row.appendChild(titleEl);
+    const pinned = sessions.filter(s => s.pinned);
+    const normal = sessions.filter(s => !s.pinned);
 
-      const renameBtn = document.createElement('button');
-      renameBtn.className = 'w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700';
-      renameBtn.title = 'Rename';
-      renameBtn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>';
-      renameBtn.onclick = (e) => { e.stopPropagation(); startRenameSession(session, row, titleEl); };
-      row.appendChild(renameBtn);
+    pinnedSection.classList.toggle('hidden', pinned.length === 0);
+    pinned.forEach(session => pinnedList.appendChild(buildSessionRow(session, true)));
+    normal.forEach(session => list.appendChild(buildSessionRow(session, false)));
+  }
 
-      list.appendChild(row);
-    });
+  function buildSessionRow(session, isPinned) {
+    const row = document.createElement('div');
+    row.className = 'group relative flex items-center gap-1 px-2 py-2 rounded-lg cursor-pointer ' +
+      (currentSession && session.id === currentSession.id ? 'bg-indigo-50 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800');
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-200 truncate';
+    titleEl.textContent = formatSessionTitle(session);
+    titleEl.onclick = () => loadSession(session.id);
+    row.appendChild(titleEl);
+
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700';
+    menuBtn.title = 'More';
+    menuBtn.setAttribute('aria-label', 'More options');
+    menuBtn.innerHTML = SESSION_MENU_ICONS.dots;
+    menuBtn.onclick = (e) => { e.stopPropagation(); toggleSessionMenu(session, row, titleEl, isPinned, menuBtn); };
+    row.appendChild(menuBtn);
+
+    return row;
+  }
+
+  function toggleSessionMenu(session, row, titleEl, isPinned, menuBtn) {
+    // If this row's own menu is already open, a second click just closes it.
+    if (row.querySelector('.session-menu-popup')) {
+      if (closeOpenSessionMenu) { closeOpenSessionMenu(); closeOpenSessionMenu = null; }
+      return;
+    }
+    if (closeOpenSessionMenu) { closeOpenSessionMenu(); closeOpenSessionMenu = null; }
+
+    const menu = document.createElement('div');
+    menu.className = 'session-menu-popup absolute right-0 top-full mt-1 z-50 w-36 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg py-1';
+
+    const makeItem = (iconKey, label, onClick, danger) => {
+      const item = document.createElement('button');
+      item.className = 'w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left ' +
+        (danger ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700');
+      item.innerHTML = SESSION_MENU_ICONS[iconKey] + '<span>' + label + '</span>';
+      item.onclick = (e) => { e.stopPropagation(); closeMenu(); onClick(); };
+      return item;
+    };
+
+    menu.appendChild(makeItem('rename', 'Rename', () => startRenameSession(session, row, titleEl)));
+    if (isPinned) {
+      menu.appendChild(makeItem('unpin', 'Unpin', () => setSessionPinned(session, false)));
+    } else {
+      menu.appendChild(makeItem('pin', 'Pin', () => setSessionPinned(session, true)));
+    }
+    menu.appendChild(makeItem('delete', 'Delete', () => confirmDeleteSession(session), true));
+
+    row.appendChild(menu);
+
+    function closeMenu() {
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      document.removeEventListener('click', outsideClick);
+      if (closeOpenSessionMenu === closeMenu) closeOpenSessionMenu = null;
+    }
+    function outsideClick(e) { if (!menu.contains(e.target) && e.target !== menuBtn) closeMenu(); }
+    // Deferred so the click that opened the menu doesn't immediately close it.
+    setTimeout(() => document.addEventListener('click', outsideClick), 0);
+    closeOpenSessionMenu = closeMenu;
+  }
+
+  function setSessionPinned(session, pinned) {
+    session.pinned = pinned;
+    if (currentSession && currentSession.id === session.id) currentSession.pinned = pinned;
+    cvSessionsApi('pin', { sessionId: session.id, pinned }).catch(e => console.error('Pin failed:', e));
+    renderSessionList();
+  }
+
+  function confirmDeleteSession(session) {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-6';
+
+    const box = document.createElement('div');
+    box.className = 'w-full max-w-xs rounded-xl bg-white dark:bg-gray-900 shadow-lg p-5';
+
+    const title = document.createElement('p');
+    title.className = 'text-base font-bold text-red-600';
+    title.textContent = 'Delete this CV chat?';
+    box.appendChild(title);
+
+    const body = document.createElement('p');
+    body.className = 'mt-2 text-sm text-gray-600 dark:text-gray-300';
+    body.textContent = '"' + formatSessionTitle(session) + '" will be permanently deleted. This cannot be undone.';
+    box.appendChild(body);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'mt-5 flex items-center justify-end gap-2';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => overlay.remove();
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'px-3 py-1.5 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.onclick = () => { overlay.remove(); deleteSession(session); };
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(deleteBtn);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  }
+
+  function deleteSession(session) {
+    sessions = sessions.filter(s => s.id !== session.id);
+    renderSessionList();
+    cvSessionsApi('delete', { sessionId: session.id }).catch(e => console.error('Delete failed:', e));
+    if (currentSession && currentSession.id === session.id) {
+      currentSession = null;
+      showGreetingHome();
+    }
   }
 
   function startRenameSession(session, row, titleEl) {
@@ -2432,7 +2600,10 @@
       const val = input.value.trim();
       if (val) {
         session.title = val; session.titleManual = true;
-        if (currentSession && currentSession.id === session.id) { currentSession.title = val; currentSession.titleManual = true; }
+        if (currentSession && currentSession.id === session.id) {
+          currentSession.title = val; currentSession.titleManual = true;
+          document.getElementById('topBarSubtitle').textContent = formatSessionTitle(currentSession);
+        }
         cvSessionsApi('rename', { sessionId: session.id, title: val }).catch(e => console.error('Rename failed:', e));
       }
       renderSessionList();
@@ -2570,7 +2741,7 @@
     addBubble('user', '', [{ filename: templateName + '.jpg', mediaType: 'image/jpeg', status: 'ready', _previewUrl: tplPreviewThumb }]);
     addBubble('assistant', `Great choice! You've picked the ${templateName} template. I'm ready to help you build your CV with it — tell me about yourself, or attach a document (old CV, transcript, certificate) and I'll pull details from it.\n\nጥሩ ምርጫ ነው በአማርኛ ማውራት እንችላለን። ይህ ማለት ሲቪው በአማርኛ ይሰራል ማለት አይደለም። CVዉ የሚሰራው በእንግሊዝኛ ነው። ቋንቋው እኔ እና አንተ/አንች ትእዛዞችን ለመለዋወጥ ብቻ ነው።`);
 
-    document.getElementById('topBarSubtitle').textContent = templateName + ' template';
+    document.getElementById('topBarSubtitle').textContent = formatSessionTitle(currentSession);
     renderSessionList();
     saveSessionToServer(); // create the doc on the server right away, so a refresh right after picking a template doesn't lose it
   }
@@ -2581,7 +2752,7 @@
 
     resetChatUIForSession();
     showChatView();
-    document.getElementById('topBarSubtitle').textContent = (listEntry.templateName || 'CV') + ' template';
+    document.getElementById('topBarSubtitle').textContent = formatSessionTitle(listEntry);
 
     // Show a spinner over the whole chat area while the session is fetched
     // and replayed, instead of letting the user watch every old message get
@@ -2604,6 +2775,7 @@
         templateName: data.session.templateName,
         title: data.session.title,
         titleManual: data.session.titleManual,
+        pinned: !!data.session.pinned,
         createdAt: data.session.createdAt,
         updatedAt: data.session.updatedAt,
         messages: data.session.messages || [],
