@@ -171,18 +171,34 @@ function costFromUsage(model, usage) {
 // ── Call the B.AI gateway (OpenAI-compatible) with safe retries ───────────
 // `messages` can include vision content (image_url parts) for extraction.
 // Returns { message, text, usage, cost }. `usage` is the gateway's real numbers.
+//
+// `timeoutMs` is a TOTAL budget for this whole call, across every attempt —
+// not a per-attempt allowance. Callers (cv-chat.mjs above all) work out
+// timeoutMs as "this is all the wall-clock time I can safely give you before
+// my own deadline", so a retry that restarted the clock at the full
+// timeoutMs again could silently use up to attempts × timeoutMs — e.g. with
+// attempts:2 and a 40s budget, a genuinely slow-but-not-erroring first
+// attempt could abort at 40s and then get a FULL second 40s attempt, total
+// ~80s, blowing straight through Netlify's real 60s execution ceiling with
+// nothing ever sent back to the client (the exact "connection was
+// interrupted" symptom, worse the bigger the conversation/context gets).
+// Each attempt below now only gets whatever is actually left of the total
+// budget, so the whole call can never run longer than timeoutMs promised.
 async function callAI({ model, messages, maxTokens, temperature, json, tools, toolChoice, timeoutMs, attempts }) {
   const apiKey = process.env.BAI_API_KEY;
   if (!apiKey) throw new Error('BAI_API_KEY is not configured on the server.');
   if (!model) throw new Error('callAI requires a model id (use MODEL_IDS / FEATURE_MODELS).');
 
   const maxAttempts = attempts || 3;
+  const totalBudgetMs = timeoutMs || 25000;
   const started = Date.now();
   let lastErr;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const remaining = totalBudgetMs - (Date.now() - started);
+    if (attempt > 1 && remaining < 1000) break; // not enough of the total budget left for another real attempt
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 25000);
+    const timer = setTimeout(() => controller.abort(), Math.max(1000, remaining));
     try {
       const payload = {
         model,
@@ -224,8 +240,13 @@ async function callAI({ model, messages, maxTokens, temperature, json, tools, to
       const isAbort = err && err.name === 'AbortError';
       const retryable = isAbort || err.retryable === true || (err.cause && err.cause.code);
       console.error(`B.AI gateway attempt ${attempt}/${maxAttempts} (${model}) failed:`, err.message);
-      // Don't start another attempt if we've already used a lot of the time budget.
-      if (!retryable || attempt === maxAttempts || (Date.now() - started) > 16000) break;
+      // Don't start another attempt if we've already used up the time budget —
+      // the remaining-budget check at the top of the loop (next iteration)
+      // now handles this correctly for any timeoutMs, so there's no need for
+      // a hardcoded cutoff here any more (a fixed 16s used to cut retries
+      // short on long-budget callers like the main chat loop, and could in
+      // principle let a short-budget caller retry past what it asked for).
+      if (!retryable || attempt === maxAttempts) break;
       await new Promise(r => setTimeout(r, 1500));
     }
   }
