@@ -25,6 +25,10 @@
 //   'rename' → { sessionId, title } → sets title + titleManual only, without
 //              needing the full messages/displayLog payload.
 //
+//   'pin'    → { sessionId, pinned } → sets the pinned flag only.
+//
+//   'delete' → { sessionId } → deletes the session outright.
+//
 // ── Two limits, so storage per user stays bounded no matter how long someone
 //    chats or how many CVs they generate ──
 //
@@ -136,6 +140,7 @@ exports.handler = async (event, context) => {
           sessions: rows.map(r => ({
             sessionId: r.sessionId, title: r.title, titleManual: !!r.titleManual,
             templateId: r.templateId, templateName: r.templateName,
+            pinned: !!r.pinned,
             createdAt: r.createdAt, updatedAt: r.updatedAt
           }))
         })
@@ -154,6 +159,7 @@ exports.handler = async (event, context) => {
           session: {
             sessionId: doc.sessionId, templateId: doc.templateId, templateName: doc.templateName,
             title: doc.title, titleManual: !!doc.titleManual,
+            pinned: !!doc.pinned,
             createdAt: doc.createdAt, updatedAt: doc.updatedAt,
             messages: doc.messages || [], displayLog: doc.displayLog || []
           }
@@ -196,6 +202,20 @@ exports.handler = async (event, context) => {
       const trimmedTitle = (title || '').toString().trim().slice(0, 200);
       if (!trimmedTitle) return { statusCode: 400, body: JSON.stringify({ error: 'Title cannot be empty.' }) };
       await col.updateOne({ userId, sessionId }, { $set: { title: trimmedTitle, titleManual: true, updatedAt: new Date() } });
+      return { statusCode: 200, body: JSON.stringify({ success: true }) };
+    }
+
+    if (action === 'pin') {
+      const { sessionId, pinned } = body;
+      if (!sessionId) return { statusCode: 400, body: JSON.stringify({ error: 'sessionId is required' }) };
+      await col.updateOne({ userId, sessionId }, { $set: { pinned: !!pinned, updatedAt: new Date() } });
+      return { statusCode: 200, body: JSON.stringify({ success: true }) };
+    }
+
+    if (action === 'delete') {
+      const { sessionId } = body;
+      if (!sessionId) return { statusCode: 400, body: JSON.stringify({ error: 'sessionId is required' }) };
+      await col.deleteOne({ userId, sessionId });
       return { statusCode: 200, body: JSON.stringify({ success: true }) };
     }
 
