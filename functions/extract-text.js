@@ -162,17 +162,17 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
     messages: [
       {
         role: 'system',
-        content: 'You transcribe every piece of readable text from a document or image exactly as it appears, in reading order. Reply with the extracted text only — no commentary, no markdown, no summary. If genuinely no text is visible, reply with an empty response.'
+        content: 'You transcribe every piece of readable text from a document or image exactly as it appears, in reading order, from top to bottom — not just a header, letterhead, or logo area. Certificates and transcripts usually have their most important content in a central body paragraph, often in italic or cursive script (the actual certifying statement: name, degree, field of study, GPA/score, dates) — that text is the main point of the document and must be included in full, not skipped in favor of the letterhead or contact details. Reply with the extracted text only — no commentary, no markdown, no summary. If genuinely no text is visible, reply with an empty response.'
       },
       {
         role: 'user',
         content: [
-          { type: 'text', text: 'Extract all text from this file.' },
+          { type: 'text', text: 'Extract all text from this file, including any body paragraph in italic or cursive script.' },
           { type: 'image_url', image_url: { url: dataUrl } }
         ]
       }
     ],
-    maxTokens: 2000,
+    maxTokens: 3000,
     temperature: 0
   });
 

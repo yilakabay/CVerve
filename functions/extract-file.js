@@ -81,7 +81,7 @@ const RETRY_PAUSE_MS   = 400;   // short — there usually isn't much time to sp
 
 const MAX_BASE64_CHARS = 4.5 * 1024 * 1024; // one file per call, so this stays well under the ~6 MB request limit
 
-const EXTRACT_PROMPT = 'Extract all readable text from this document/image (certificate, transcript, CV, ID, etc). Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. If it is a certificate or award, include the recipient name, the title/subject, the issuing body, and any date exactly as written. TRANSCRIBE LITERALLY: this applies above all to names of people, schools, and organizations. Do not "clean up", autocorrect, or substitute a name for a more common/familiar-looking one, even if a word looks unusual or you suspect it is probably a well-known name spelled differently. Copy exactly the characters you can make out. If part of a word or name is genuinely illegible, write it as-is with [?] immediately after the unclear part rather than guessing a plausible replacement — never silently swap in a different, more common name.';
+const EXTRACT_PROMPT = 'Extract EVERY piece of readable text from this document/image (certificate, transcript, CV, ID, etc), from top to bottom — not just the header, letterhead, logo text, or contact details at the top of the page. Certificates in particular usually have their MOST IMPORTANT content in a central body paragraph, often set in italic or cursive script (e.g. "This is to certify that [name] has graduated from [institution] with a [degree] in [field] on [date] with a GPA/score of [X]"). That certifying paragraph — including the exact degree, field of study, GPA/score, and dates — is the main point of the document and must be transcribed in full, in addition to the letterhead, any registrar/office stamps or seals, and the signature block. Do not stop after the header/logo area; read all the way down the page, including italicized or decorative text, before replying. Reply with the plain extracted text only — no commentary, no markdown formatting, no summary. TRANSCRIBE LITERALLY: this applies above all to names of people, schools, and organizations. Do not "clean up", autocorrect, or substitute a name for a more common/familiar-looking one, even if a word looks unusual or you suspect it is probably a well-known name spelled differently. Copy exactly the characters you can make out. If part of a word or name is genuinely illegible, write it as-is with [?] immediately after the unclear part rather than guessing a plausible replacement — never silently swap in a different, more common name.';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -110,7 +110,7 @@ async function visionRead(base64, mime, timeoutMs) {
         { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
       ]
     }],
-    maxTokens: 1500,
+    maxTokens: 3000, // was 1500 — dense certificates (letterhead + full certifying paragraph + stamps + signature block) need more room
     timeoutMs,
     attempts: 1
   });
