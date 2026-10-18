@@ -43,20 +43,17 @@
 //     or returned unparseable output → the "could not read the screenshot"
 //     message, which is accurate in that case.
 //
-// ── NETLIFY FREE PLAN TIME LIMIT ──────────────────────────────────────────
-// Netlify's free plan runs synchronous Functions with a HARD 10-second
-// execution ceiling (the 26s+ window only applies on paid plans). The
-// budgets below used to total 22s across attempts alone — on top of the
-// MongoDB connect + two collection lookups that happen first — which meant
-// the platform was killing this function outright before a real error (or
-// success) could ever come back. That showed up to users as a generic
-// failure that had nothing to do with their screenshot.
+// ── NETLIFY SYNCHRONOUS FUNCTION TIME LIMIT ───────────────────────────────
+// Netlify's synchronous Functions have a real 60-second execution ceiling
+// (platform-wide, not plan-dependent). The budgets below were sized for an
+// inaccurate "10s free-plan cap" and were cutting the gateway call off at
+// 6-8s — well before the platform would ever kill this function — which
+// could show up to users as a generic failure that had nothing to do with
+// their screenshot.
 //
-// TOTAL_BUDGET_MS is now measured from the start of the extraction step
-// (after Mongo connect/lookups), and is sized so that the gateway call + one
-// retry + Mongo work together stay under 10s with margin. If this function
-// moves to a paid Netlify plan with a longer timeout, these numbers can go
-// back up — a full second attempt genuinely helps on a slow/busy call.
+// TOTAL_BUDGET_MS is measured from the start of the extraction step (after
+// Mongo connect/lookups), and is sized so the gateway call + one retry +
+// Mongo work together stay comfortably under the real 60s ceiling.
 //
 // FIX: one automatic retry. A gateway call that fails with HTTP 429 / 5xx, a
 // timeout or a network error is tried one more time (after a short pause, and
@@ -70,11 +67,11 @@ const { callAI, MODEL_IDS } = require('./lib/ai-billing');
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
-// ── Time budget (milliseconds) — MUST fit inside Netlify's free-plan 10s cap ──
-const TOTAL_BUDGET_MS  = 8000;  // all gateway attempts together, leaving room for Mongo + response serialization
-const FIRST_ATTEMPT_MS = 6000;  // longest the first attempt may take
-const MIN_RETRY_MS     = 1800;  // don't start a retry with less time than this
-const RETRY_PAUSE_MS   = 300;
+// ── Time budget (milliseconds) — MUST fit inside Netlify's real 60s sync cap ──
+const TOTAL_BUDGET_MS  = 45000; // all gateway attempts together, leaving room for Mongo + response serialization
+const FIRST_ATTEMPT_MS = 30000; // longest the first attempt may take
+const MIN_RETRY_MS     = 5000;  // don't start a retry with less time than this
+const RETRY_PAUSE_MS   = 400;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

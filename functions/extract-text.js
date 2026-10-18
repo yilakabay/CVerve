@@ -39,9 +39,17 @@ const { runBilledChat, getDb, authenticate, errorResponse, AIError } = require('
 // takes too long, it is reported as "took too long" and the function still
 // answers in time with whatever WAS read, so the app can show a clear message
 // (or fall back to reading the PDF as page images, a couple of pages at a time).
-// Keep this comfortably under the function's timeout (netlify.toml / dashboard).
-const EXTRACTION_BUDGET_MS = 20000;
-const MIN_TIME_TO_START_FILE_MS = 2000;
+//
+// Netlify's synchronous Functions have a real 60-second execution ceiling
+// (platform-wide, not plan-dependent). 20000ms here was sized for an
+// inaccurate "10s free-plan cap" and was cutting off tesseract OCR / the
+// Gemini fallback mid-read for genuinely slow files (multi-page scanned
+// certificates, dense transcripts) well before the platform would ever
+// have killed the function — that showed up as extraction silently failing
+// after a long wait. Budget is now sized to the real ceiling with a safety
+// margin for cold starts and this function's own overhead.
+const EXTRACTION_BUDGET_MS = 50000;
+const MIN_TIME_TO_START_FILE_MS = 3000;
 
 // Resolves with the promise's result, or rejects after `ms` milliseconds.
 function withTimeout(promise, ms, message) {

@@ -6,20 +6,22 @@
 // already drawn to a JPEG) using Gemini 3 Flash (via the B.AI gateway), and
 // returns it.
 //
-// ── NETLIFY FREE PLAN TIME LIMIT ──────────────────────────────────────────
-// Netlify's free plan runs synchronous Functions with a HARD 10-second
-// execution ceiling (the longer 26s limit is Pro-only). The budgets below
-// used to total 22s, which meant Netlify itself was killing this function
-// with a raw 502/504 well before any of the code's own "ran out of time"
-// or retry logic ever got a chance to run — that's what was showing up as
-// "extraction fails" with no clean error message.
+// ── NETLIFY SYNCHRONOUS FUNCTION TIME LIMIT ───────────────────────────────
+// Netlify's synchronous Functions have a hard 60-second execution ceiling
+// (this is a platform-wide limit, not tied to plan). The budgets below used
+// to be sized for an inaccurate "10-second free-plan cap" — 9s total, 6.5s
+// for the first Gemini call — which meant THIS CODE was aborting its own
+// vision call and giving up well before Netlify would ever have killed it.
+// Dense scanned documents (certificates, transcripts, multi-page education
+// records) routinely need more than 6.5s for Gemini to read, so this was
+// silently failing real, legitimate extractions and showing up to users as
+// "fails after a long wait" (many pages retried, every one cut short).
 //
-// All budgets below are now sized to fit inside 10s, including: JSON parse,
-// DB connect + authenticate() (can be slow on a cold Lambda/Mongo
-// connection), the Gemini vision call itself, and a possible one retry.
-// If you move this function to a paid Netlify plan with a longer timeout,
-// you can raise TOTAL_BUDGET_MS and FIRST_ATTEMPT_MS back up — bigger/denser
-// images and a full retry attempt both genuinely do better with more room.
+// All budgets below are now sized to fit inside the real 60s ceiling, with
+// a safety margin for cold starts, network jitter, and this function's own
+// JSON parse/serialize time. The client (cv.html) already allows 30s per
+// attempt per call, so there was always room on that side — the ceiling was
+// coming entirely from these numbers.
 //
 // ── WHY THIS FUNCTION EXISTS ─────────────────────────────────────────────
 // cv-chat.js used to read every attached file itself, one after another,
@@ -67,15 +69,15 @@ const {
 // Same dev gate as cv-chat.js — only this account may use the CV feature for now.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
-// ── Time budget (milliseconds) — MUST fit inside Netlify's free-plan 10s cap ──
+// ── Time budget (milliseconds) — MUST fit inside Netlify's real 60s sync cap ──
 // TOTAL_BUDGET_MS is measured from the very start of the handler (before
 // auth), so DB/auth time is automatically taken out of what's left for the
-// Gemini call. Keep a safety margin below 10000 for cold starts, network
+// Gemini call. Keep a safety margin below 60000 for cold starts, network
 // jitter, and the time this function itself needs to parse/serialize JSON.
-const TOTAL_BUDGET_MS  = 9000;  // whole call, including auth — stay under Netlify's 10s free-plan ceiling
-const FIRST_ATTEMPT_MS = 6500;  // longest the first Gemini call may take
-const MIN_RETRY_MS     = 1800;  // don't start a retry with less time than this
-const RETRY_PAUSE_MS   = 300;   // short — there usually isn't much time to spare
+const TOTAL_BUDGET_MS  = 50000; // whole call, including auth — stay under Netlify's real 60s sync ceiling
+const FIRST_ATTEMPT_MS = 35000; // longest the first Gemini call may take — dense scans genuinely need this
+const MIN_RETRY_MS     = 5000;  // don't start a retry with less time than this
+const RETRY_PAUSE_MS   = 400;   // short — there usually isn't much time to spare
 
 const MAX_BASE64_CHARS = 4.5 * 1024 * 1024; // one file per call, so this stays well under the ~6 MB request limit
 
@@ -161,7 +163,7 @@ exports.handler = async (event, context) => {
   // Gemini call safely. Fail fast with a clean, retryable error instead
   // of starting a fetch that Netlify will kill mid-flight.
   const afterAuthLeft = TOTAL_BUDGET_MS - (Date.now() - started);
-  if (afterAuthLeft < 2500) {
+  if (afterAuthLeft < 5000) {
     return { statusCode: 200, body: JSON.stringify({ success: false, reason: 'Service busy — press Retry', retryable: true, error: 'Not enough time left in this request after logging in.' }) };
   }
 
