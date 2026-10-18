@@ -1156,6 +1156,8 @@ async function runTurn(event, emitPhase) {
     };
   }
 
+  let usedEmptyReplyRetry = false; // one automatic re-ask, see the empty-response branch below
+
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       // Wall-clock check before every AI call — this is what actually keeps
@@ -1194,29 +1196,53 @@ async function runTurn(event, emitPhase) {
       const toolCalls = msg.tool_calls || [];
       if (toolCalls.some(tc => tc.function.name === 'request_photo_upload')) awaitingPhoto = true;
 
-      if (toolCalls.length === 0) {
-        // The model can legitimately come back with NO text and NO tool call
-        // — most often after it's just been handed a file with no question
-        // attached, where it has nothing obvious to say or do next. That's a
-        // real, if uncommon, model response shape, not a bug in this code —
-        // but forwarding an empty string as the "reply" left the user
-        // staring at a blank message (cv.html showed it as the placeholder
-        // "(no reply)"), which looks broken and gives no next step. Substitute
-        // one clear, honest fallback whenever that happens, here at the
-        // source, so every surface that reads this response (cv.html, the
-        // Telegram bot) gets something a user can act on instead of silence.
+      if (toolCalls.length === 0 && !(msg.content && msg.content.trim())) {
+        // The model came back with NEITHER text NOR a tool call. This isn't
+        // limited to "just got a file with no question" turns — it can also
+        // happen on an ordinary text turn (e.g. the user answers a
+        // clarifying question like "use the document version" and the model
+        // goes quiet instead of confirming and moving on). Forwarding an
+        // empty string as the "reply" left the user staring at a blank/
+        // generic message, which looks broken and gives no next step.
+        //
+        // Give the model ONE real chance to recover first, rather than
+        // immediately substituting canned text: drop a short, explicit
+        // system-role nudge into the conversation telling it a reply with
+        // no content and no tool call is not a valid turn, and ask it to
+        // actually respond now (confirm what was just decided, state what
+        // it knows, ask a real follow-up, or call the right tool). Only if
+        // it still comes back empty on the retry do we fall back to one
+        // fixed, honest line — so the canned fallback becomes a true last
+        // resort instead of the common outcome.
+        if (!usedEmptyReplyRetry) {
+          usedEmptyReplyRetry = true;
+          messages.push({
+            role: 'system',
+            content: 'Your last reply had no text and called no tool — that is not a valid turn and the user would see nothing. Look at what the user just said (an answer to a question, a decision, a file, anything) and respond for real right now: acknowledge or confirm what they told you, say what you now know or did, and either ask one genuinely useful next question or move the CV forward yourself (calling a tool if that is the right next step). Do not reply with nothing, and do not use a generic placeholder like "Got it, thanks — let\'s keep going."'
+          });
+          continue;
+        }
         // Deliberately NOT an open question like "what would you like me to
         // do next?" — that puts the decision back on a user who often has no
         // idea what comes next in building a CV, which is the opposite of
         // the "you're the expert, drive this forward" instruction given in
         // the system prompt above. This just nudges the conversation along.
-        const replyText = (msg.content && msg.content.trim())
-          ? msg.content
-          : "Got it, thanks — let's keep going with your CV.";
+        const replyText = "Got it, thanks — let's keep going with your CV.";
         const tokenBalance = await chargeOnce();
         return {
           statusCode: 200,
           body: JSON.stringify({ success: true, reply: replyText, messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
+        };
+      }
+
+      if (toolCalls.length === 0) {
+        // Normal end of turn: the model replied with real text and chose not
+        // to call a tool (e.g. it confirmed a decision and asked a follow-up
+        // question). Nothing more to do — send it straight back.
+        const tokenBalance = await chargeOnce();
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: true, reply: msg.content, messages, finalPdfBase64, telegramDelivered, awaitingPhoto, tokensUsed: usedCost, tokenBalance, unreadFiles })
         };
       }
 
