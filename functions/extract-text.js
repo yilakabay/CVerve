@@ -154,8 +154,21 @@ async function extractTextLocally(base64Data, mimeType) {
 // a rotated or decorative body paragraph got missed on the first read, the
 // same failure mode this file's rotation instructions are meant to prevent
 // but don't always catch on their own. See extract-file.js's matching
-// MIN_EXPECTED_CHARS/looksIncomplete comment for the full reasoning.
+// MIN_EXPECTED_CHARS/looksIncomplete comment for the full reasoning — this
+// also mirrors its length-alone-isn't-enough fix: a university letterhead
+// (registrar/directorate name, phone, fax, PO box, website) can clear a
+// plain character-count floor all by itself with zero real content, so a
+// letterhead-marker-heavy, content-marker-free result counts as incomplete
+// regardless of length.
 const MIN_EXPECTED_CHARS = 140;
+const LETTERHEAD_MARKERS = /\b(tel|fax|p\.?\s?o\.?\s?box|website|directorate|registrar|alumni)\b/i;
+const CONTENT_MARKERS = /\b(certif|graduat|awarded|diploma|transcript|gpa|degree in|hereby|examination|cumulative|cgpa|has (?:been|graduated)|this is to)\b/i;
+function looksIncomplete(text) {
+  const t = (text || '').trim();
+  if (t.length < MIN_EXPECTED_CHARS) return true;
+  if (LETTERHEAD_MARKERS.test(t) && !CONTENT_MARKERS.test(t)) return true;
+  return false;
+}
 
 // ── Gemini 3 Flash fallback (billed, via the B.AI gateway) ─────────────────
 // Only used when local extraction came back empty. Sends the file as a
@@ -192,7 +205,7 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
   // Weak-looking first read — most likely a missed, rotated body paragraph.
   // One more, more pointed look, naming that exact failure. Any problem
   // here just falls back to the first (still real) result.
-  if (text.length < MIN_EXPECTED_CHARS) {
+  if (looksIncomplete(text)) {
     try {
       const second = await runBilledChat({
         userId, sessionToken,

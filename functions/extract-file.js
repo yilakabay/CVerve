@@ -103,9 +103,26 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // failure directly (it is very likely a reading that missed a rotated body
 // paragraph), rather than a generic re-ask — and keep whichever reading of
 // the two actually came back longer/more complete.
+//
+// Length alone isn't a reliable enough signal, though: a university letter-
+// head with a registrar/directorate name, phone, fax, PO box, and website
+// can easily run well past a couple hundred characters ALL BY ITSELF, with
+// zero actual document content — that's exactly what slipped through here
+// (a pure letterhead read at ~180 characters cleared a 140-char floor with
+// room to spare). So also check directly for the shape of the problem: text
+// that is heavy on letterhead/contact markers (Tel:, Fax:, PO box,
+// "Directorate", "Registrar", a website) but has none of the markers that
+// show actual document content came through (certify, graduated, degree,
+// GPA, a date, "this is to", etc.) is still an incomplete read, regardless
+// of how long the letterhead itself happens to be.
 const MIN_EXPECTED_CHARS = 140;
+const LETTERHEAD_MARKERS = /\b(tel|fax|p\.?\s?o\.?\s?box|website|directorate|registrar|alumni)\b/i;
+const CONTENT_MARKERS = /\b(certif|graduat|awarded|diploma|transcript|gpa|degree in|hereby|examination|cumulative|cgpa|has (?:been|graduated)|this is to)\b/i;
 function looksIncomplete(text) {
-  return !text || text.trim().length < MIN_EXPECTED_CHARS;
+  const t = (text || '').trim();
+  if (t.length < MIN_EXPECTED_CHARS) return true;
+  if (LETTERHEAD_MARKERS.test(t) && !CONTENT_MARKERS.test(t)) return true;
+  return false;
 }
 
 const SECOND_PASS_PROMPT = 'Your first reading of this image only came back short — most likely it only captured a letterhead, logo, or stamp and missed the main body of the page. This almost always means the page is rotated 90, 180, or 270 degrees and a paragraph of body text (often in italic or cursive script) running sideways or upside down relative to the letterhead was overlooked entirely, not just misread. Look again, carefully, at the WHOLE image: mentally rotate it in each direction if needed, find any text block you did not transcribe the first time — especially a central certifying/body paragraph — and transcribe it in full this time, in addition to everything you already found (letterhead, stamps/seals, signature block). Reply with the complete plain extracted text only, no commentary.';
