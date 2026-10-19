@@ -1437,7 +1437,15 @@
   // reads what is still missing — nothing is ever read twice.
   // Text PDFs and Word files were already read when they were attached.
   const EXTRACT_FILE_URL = '/.netlify/functions/extract-file';
-  const EXTRACT_PARALLEL = 3; // was 2 — modest bump so a multi-file/multi-page turn clears faster; each lane is a separate Netlify invocation, so this isn't a server concurrency problem
+  // Back down to 2. It was briefly raised to 3, but extract-file.js can now
+  // make up to TWO Gemini calls per image (the second-look pass added for
+  // short/letterhead-only reads — see its own comment there), so 3 parallel
+  // lanes meant up to 6 simultaneous calls to the AI gateway for one
+  // multi-file turn. That's the likely cause of "this file read fine alone
+  // but failed when sent together with others" — a burst big enough to get
+  // rate-limited (429) on the gateway side. 2 lanes keeps real speed gains
+  // for multi-file turns while halving that burst.
+  const EXTRACT_PARALLEL = 2;
   // extract-file.js (server) budgets itself up to TOTAL_BUDGET_MS=50000 for a
   // dense scan, inside Netlify's real 60s ceiling. This used to be 30000 here
   // — meaning the CLIENT gave up and aborted the fetch at 30s while the
@@ -1463,17 +1471,22 @@
   // One call to extract-file.js. Never throws. Resolves to
   //   { ok: true, text }  |  { ok: false, reason, retryable }  |  { signedOut: true, status }
   async function readImageOnServer(base64, mediaType) {
-    // Only ONE attempt here — extract-file.js already runs its own internal
-    // retry (for 429/5xx/timeout) inside its own time budget. Retrying again
-    // at this layer used to stack a second up-to-57s wait on top of the
-    // first, so a single slow page could tie up the whole turn for close to
-    // two minutes before the user ever saw the "Retry" option. One real
-    // attempt, long enough to actually hear back from the server, then let
-    // the existing Retry button (shown for exactly this reason — see
-    // unreadFiles below) be the second attempt, under the user's control.
-    for (let attempt = 0; attempt < 1; attempt++) {
+    // Two attempts, but asymmetric: a full-length first attempt (long enough
+    // to actually hear back from a legitimately slow extraction), and only
+    // if that one fails for a RETRYABLE reason (429/5xx/our own timeout — see
+    // below), one short, capped second attempt. This used to be a single
+    // attempt only, reasoning that extract-file.js already retries
+    // internally — true in isolation, but a multi-file turn fires several of
+    // these calls at the AI gateway at once (see EXTRACT_PARALLEL), which
+    // makes a transient 429 under that burst meaningfully more likely, and
+    // with no retry here at all that showed up as "this file reads fine
+    // alone but fails when sent with others". Capping the retry's own
+    // timeout (rather than giving it the full 57s again) keeps the worst
+    // case well short of the ~2 minutes a full second attempt would risk.
+    const RETRY_TIMEOUT_MS = 25000;
+    for (let attempt = 0; attempt < 2; attempt++) {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), EXTRACT_CALL_TIMEOUT_MS);
+      const timer = setTimeout(() => ctrl.abort(), attempt === 0 ? EXTRACT_CALL_TIMEOUT_MS : RETRY_TIMEOUT_MS);
       try {
         const res = await fetch(EXTRACT_FILE_URL, {
           method: 'POST',
@@ -1502,10 +1515,13 @@
         // reason (via errorResponse) when the real cost exceeds the balance —
         // treat that the same as a 402: show the popup, don't retry.
         if (res.ok && data && data.success === false) {
+          const retryable = data.retryable !== false;
           if (res.status === 402 || /not enough ct/i.test(data.error || data.reason || '')) {
             try { cvMaybeAutoPromptTopup(); } catch (e) {}
           }
-          return { ok: false, reason: data.reason || "Couldn't be read", retryable: data.retryable !== false };
+          if (!retryable) return { ok: false, reason: data.reason || "Couldn't be read", retryable: false };
+          if (attempt === 0) continue; // one more, capped-timeout attempt before giving up
+          return { ok: false, reason: data.reason || "Couldn't be read", retryable: true };
         }
         // A 402 from the auth/assertCanStart path (0 balance) comes back as a
         // plain errorResponse(), not the success:false shape above.
