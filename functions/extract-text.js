@@ -148,13 +148,22 @@ async function extractTextLocally(base64Data, mimeType) {
   }
 }
 
+// A genuine certificate/transcript/ID page essentially always yields more
+// than this once the body paragraph, stamps, and signature block are
+// included — so a suspiciously short result is a cheap, decent signal that
+// a rotated or decorative body paragraph got missed on the first read, the
+// same failure mode this file's rotation instructions are meant to prevent
+// but don't always catch on their own. See extract-file.js's matching
+// MIN_EXPECTED_CHARS/looksIncomplete comment for the full reasoning.
+const MIN_EXPECTED_CHARS = 140;
+
 // ── Gemini 3 Flash fallback (billed, via the B.AI gateway) ─────────────────
 // Only used when local extraction came back empty. Sends the file as a
 // vision message so Gemini can read text straight off the image/page.
 async function extractTextWithGemini({ userId, sessionToken, feature, free, preAuth, base64Data, mimeType }) {
   const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
-  const { text, tokensUsed, tokenBalance } = await runBilledChat({
+  const first = await runBilledChat({
     userId, sessionToken,
     feature: feature || 'GENERIC_EXTRACTION',
     free,
@@ -176,7 +185,46 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
     temperature: 0
   });
 
-  return { text: (text || '').trim(), tokensUsed, tokenBalance };
+  let text         = (first.text || '').trim();
+  let tokensUsed    = first.tokensUsed || 0;
+  let tokenBalance  = first.tokenBalance;
+
+  // Weak-looking first read — most likely a missed, rotated body paragraph.
+  // One more, more pointed look, naming that exact failure. Any problem
+  // here just falls back to the first (still real) result.
+  if (text.length < MIN_EXPECTED_CHARS) {
+    try {
+      const second = await runBilledChat({
+        userId, sessionToken,
+        feature: feature || 'GENERIC_EXTRACTION',
+        free,
+        preAuth,
+        messages: [
+          {
+            role: 'system',
+            content: 'Your first reading of this image only came back short — most likely it only captured a letterhead, logo, or stamp and missed the main body of the page. This almost always means the page is rotated 90, 180, or 270 degrees and a paragraph of body text (often italic or cursive) running sideways or upside down relative to the letterhead was overlooked entirely, not just misread. Look again, carefully, at the WHOLE image: mentally rotate it in each direction if needed, find any text block you did not transcribe the first time — especially a central certifying/body paragraph — and transcribe it in full this time, in addition to everything you already found. Reply with the complete plain extracted text only, no commentary.'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look again and find the text you missed the first time, including any rotated or italic/cursive body paragraph.' },
+              { type: 'image_url', image_url: { url: dataUrl } }
+            ]
+          }
+        ],
+        maxTokens: 3000,
+        temperature: 0
+      });
+      tokensUsed += (second.tokensUsed || 0);
+      if (typeof second.tokenBalance === 'number') tokenBalance = second.tokenBalance;
+      const secondText = (second.text || '').trim();
+      if (secondText.length > text.length) text = secondText;
+    } catch (e) {
+      console.error('extract-text second-pass (short first read) failed, keeping first result:', e.message);
+    }
+  }
+
+  return { text, tokensUsed, tokenBalance };
 }
 
 exports.handler = async (event, context) => {

@@ -85,6 +85,48 @@ const EXTRACT_PROMPT = 'Extract EVERY piece of readable text from this document/
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Catching a "letterhead-only" read before it ever reaches the user ────
+// Rotation handling was added to EXTRACT_PROMPT (see above) so the model is
+// TOLD to mentally rotate a sideways/upside-down page — but in practice a
+// 90°-rotated page combined with small, decorative/italic body text (very
+// common on certificates) can still make the model stop after the easy,
+// upright part (the letterhead/logo/stamp) and give up on the harder,
+// rotated main paragraph, even with that instruction. Relying on the prompt
+// alone wasn't enough — the fix needs to catch the weak result and actually
+// look again, not just ask more firmly the first time.
+//
+// A genuine certificate/transcript/ID page essentially always has more text
+// than just a letterhead once you include the body paragraph, stamps, and
+// signature block — so a suspiciously short result is a good, cheap signal
+// that something was missed. When that happens and there's still time left
+// in the budget, take one more look with a prompt that names the likely
+// failure directly (it is very likely a reading that missed a rotated body
+// paragraph), rather than a generic re-ask — and keep whichever reading of
+// the two actually came back longer/more complete.
+const MIN_EXPECTED_CHARS = 140;
+function looksIncomplete(text) {
+  return !text || text.trim().length < MIN_EXPECTED_CHARS;
+}
+
+const SECOND_PASS_PROMPT = 'Your first reading of this image only came back short — most likely it only captured a letterhead, logo, or stamp and missed the main body of the page. This almost always means the page is rotated 90, 180, or 270 degrees and a paragraph of body text (often in italic or cursive script) running sideways or upside down relative to the letterhead was overlooked entirely, not just misread. Look again, carefully, at the WHOLE image: mentally rotate it in each direction if needed, find any text block you did not transcribe the first time — especially a central certifying/body paragraph — and transcribe it in full this time, in addition to everything you already found (letterhead, stamps/seals, signature block). Reply with the complete plain extracted text only, no commentary.';
+
+async function visionReadSecondPass(base64, mime, timeoutMs) {
+  const r = await callAI({
+    model: FEATURE_MODELS.CV_EXTRACTION,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: SECOND_PASS_PROMPT },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+      ]
+    }],
+    maxTokens: 3000,
+    timeoutMs,
+    attempts: 1
+  });
+  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost };
+}
+
 // Problems that usually go away by themselves (rate limit, server error,
 // timeout) vs. ones that would just fail the same way again. Matches exactly
 // what callAI() itself throws: a plain AbortError on timeout, or an Error
@@ -174,30 +216,56 @@ exports.handler = async (event, context) => {
     const timeoutMs = attempt === 0 ? Math.min(FIRST_ATTEMPT_MS, left) : left;
     try {
       const r = await visionRead(base64, mime, timeoutMs);
-      const cost = r.cost || 0; // already computed by callAI() via MODEL_RATES, already floored
+      let finalText  = r.text;
+      let totalCost  = r.cost || 0;
+      let totalUsage = r.usage;
+
+      // Weak-looking first read (very likely a missed, rotated body
+      // paragraph — see looksIncomplete's comment) and there's still real
+      // time left: take one more, more pointed look before accepting it.
+      // Any failure here just falls back to the first (still real) result —
+      // never worse than what we already have.
+      if (looksIncomplete(r.text)) {
+        const leftForSecondPass = TOTAL_BUDGET_MS - (Date.now() - started);
+        if (leftForSecondPass > MIN_RETRY_MS) {
+          try {
+            const r2 = await visionReadSecondPass(base64, mime, Math.min(FIRST_ATTEMPT_MS, leftForSecondPass));
+            totalCost += (r2.cost || 0);
+            if (r2.usage) {
+              totalUsage = {
+                prompt_tokens:     ((totalUsage && totalUsage.prompt_tokens)     || 0) + (r2.usage.prompt_tokens     || 0),
+                completion_tokens: ((totalUsage && totalUsage.completion_tokens) || 0) + (r2.usage.completion_tokens || 0)
+              };
+            }
+            if (r2.text && r2.text.length > finalText.length) finalText = r2.text;
+          } catch (e) {
+            console.error('extract-file second-pass (short first read) failed, keeping first result:', e.message);
+          }
+        }
+      }
 
       // Even with balance > 0 at the start, don't hand back the text unless
       // the balance actually covers the whole real price — if not, this is
       // a clean 402 (same shape as every other AI endpoint), nothing charged.
       try {
-        assertCanDeliver(balance, cost);
+        assertCanDeliver(balance, totalCost);
       } catch (e) {
         return errorResponse(e, "You don't have enough CT to cover this extraction. Please top up.");
       }
 
-      const newBalance = await deductTokens(db, userId, cost, {
+      const newBalance = await deductTokens(db, userId, totalCost, {
         feature: 'CV_EXTRACTION',
         model: FEATURE_MODELS.CV_EXTRACTION,
-        promptTokens:     r.usage && r.usage.prompt_tokens,
-        completionTokens: r.usage && r.usage.completion_tokens
+        promptTokens:     totalUsage && totalUsage.prompt_tokens,
+        completionTokens: totalUsage && totalUsage.completion_tokens
       });
       return {
         statusCode: 200,
         body: JSON.stringify({
           success: true,
-          text: r.text,
-          usage: r.usage,
-          tokensUsed: cost,
+          text: finalText,
+          usage: totalUsage,
+          tokensUsed: totalCost,
           tokenBalance: newBalance
         })
       };
