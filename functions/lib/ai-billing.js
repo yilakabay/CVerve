@@ -232,7 +232,15 @@ async function callAI({ model, messages, maxTokens, temperature, json, tools, to
       if (!message) throw Object.assign(new Error('B.AI gateway returned an empty response'), { retryable: true });
 
       const usage = data.usage || null;
-      return { message, text: (message.content || '').trim(), usage, cost: costFromUsage(model, usage) };
+      // finish_reason === 'length' is a hard, unambiguous signal that the
+      // model's answer was physically cut off by max_tokens mid-generation —
+      // distinct from "the model gave up early and wrote a short answer".
+      // Callers that read long documents (CV/certificate extraction) use
+      // this to decide whether to ask for a CONTINUATION rather than relying
+      // on text-shape heuristics alone, which can't tell "short because
+      // truncated" from "short because there's genuinely not much there".
+      const finishReason = choice && choice.finish_reason;
+      return { message, text: (message.content || '').trim(), usage, cost: costFromUsage(model, usage), finishReason };
 
     } catch (err) {
       clearTimeout(timer);
@@ -325,7 +333,7 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
   if (lastErr) throw lastErr;
 
   if (free) {
-    return { text: result.text, parsed, tokensUsed: 0, tokenBalance: Math.max(0, Number(user.tokens) || 0) };
+    return { text: result.text, parsed, tokensUsed: 0, tokenBalance: Math.max(0, Number(user.tokens) || 0), finishReason: result.finishReason };
   }
 
   // The user must be able to cover the REAL cost — if not, discard the
@@ -339,7 +347,7 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
     completionTokens: result.usage && result.usage.completion_tokens
   });
 
-  return { text: result.text, parsed, tokensUsed: result.cost, tokenBalance };
+  return { text: result.text, parsed, tokensUsed: result.cost, tokenBalance, finishReason: result.finishReason };
 }
 
 // Strip ``` fences some models add, then parse JSON.

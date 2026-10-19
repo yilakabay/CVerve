@@ -137,11 +137,41 @@ async function visionReadSecondPass(base64, mime, timeoutMs) {
         { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
       ]
     }],
-    maxTokens: 3000,
+    maxTokens: 4096,
     timeoutMs,
     attempts: 1
   });
-  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost };
+  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost, finishReason: r && r.finishReason };
+}
+
+// finish_reason === 'length' means the response was physically cut off by
+// max_tokens — a different problem from a weak/short read, and one that
+// RE-reading the image from scratch doesn't reliably fix (a genuinely dense
+// document — a long CV, a multi-module certificate — can hit the same cap
+// again on a second attempt). Instead, ask the model to CONTINUE exactly
+// where it stopped, using the text already transcribed as the anchor, and
+// stitch the continuation onto the end. Capped at a couple of rounds so a
+// pathological response can't loop forever.
+function buildContinuationPrompt(soFar) {
+  const tail = soFar.slice(-400);
+  return 'You were transcribing all the text from this image and your response was cut off before you finished — you ran out of room, not out of text. Here is the END of what you already transcribed (for reference only, do not repeat it):\n\n"...' + tail + '"\n\nContinue the transcription EXACTLY where it left off. Do not repeat anything already shown above, do not summarize, do not add commentary — just keep transcribing the remaining text from the image, in reading order, starting right after that point. If that really was the end of all the text on the page, reply with nothing.';
+}
+
+async function visionReadContinuation(base64, mime, soFar, timeoutMs) {
+  const r = await callAI({
+    model: FEATURE_MODELS.CV_EXTRACTION,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: buildContinuationPrompt(soFar) },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
+      ]
+    }],
+    maxTokens: 4096,
+    timeoutMs,
+    attempts: 1
+  });
+  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost, finishReason: r && r.finishReason };
 }
 
 // Problems that usually go away by themselves (rate limit, server error,
@@ -169,11 +199,11 @@ async function visionRead(base64, mime, timeoutMs) {
         { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
       ]
     }],
-    maxTokens: 3000, // was 1500 — dense certificates (letterhead + full certifying paragraph + stamps + signature block) need more room
+    maxTokens: 4096, // was 3000, was 1500 — dense documents (a full CV, a multi-module certificate) can genuinely exceed 3000 output tokens and get cut off mid-sentence
     timeoutMs,
     attempts: 1
   });
-  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost };
+  return { text: String((r && r.text) || '').trim(), usage: r && r.usage, cost: r && r.cost, finishReason: r && r.finishReason };
 }
 
 exports.handler = async (event, context) => {
@@ -237,23 +267,52 @@ exports.handler = async (event, context) => {
       let totalCost  = r.cost || 0;
       let totalUsage = r.usage;
 
+      function addUsage(u) {
+        if (!u) return;
+        totalUsage = {
+          prompt_tokens:     ((totalUsage && totalUsage.prompt_tokens)     || 0) + (u.prompt_tokens     || 0),
+          completion_tokens: ((totalUsage && totalUsage.completion_tokens) || 0) + (u.completion_tokens || 0)
+        };
+      }
+
+      // finish_reason === 'length' is a hard signal the response was cut off
+      // mid-generation (the document is genuinely longer than the token
+      // cap), not a weak/short read — handled by asking for a CONTINUATION,
+      // not a re-read. Loop up to 2 extra rounds in case one continuation
+      // still isn't enough for an especially dense page.
+      let truncated = r.finishReason === 'length';
+      let rounds = 0;
+      while (truncated && rounds < 2) {
+        const left = TOTAL_BUDGET_MS - (Date.now() - started);
+        if (left <= MIN_RETRY_MS) break;
+        rounds++;
+        try {
+          const rc = await visionReadContinuation(base64, mime, finalText, Math.min(FIRST_ATTEMPT_MS, left));
+          totalCost += (rc.cost || 0);
+          addUsage(rc.usage);
+          if (rc.text) finalText = finalText + '\n' + rc.text;
+          truncated = rc.finishReason === 'length';
+        } catch (e) {
+          console.error('extract-file continuation pass failed, keeping what we have:', e.message);
+          break;
+        }
+      }
+
       // Weak-looking first read (very likely a missed, rotated body
       // paragraph — see looksIncomplete's comment) and there's still real
       // time left: take one more, more pointed look before accepting it.
       // Any failure here just falls back to the first (still real) result —
-      // never worse than what we already have.
-      if (looksIncomplete(r.text)) {
+      // never worse than what we already have. Skipped if we already ran a
+      // continuation pass above — that's a different failure mode (length
+      // cap, not a missed section) and re-reading from scratch would just
+      // risk hitting the same cap again for no benefit.
+      if (rounds === 0 && looksIncomplete(r.text)) {
         const leftForSecondPass = TOTAL_BUDGET_MS - (Date.now() - started);
         if (leftForSecondPass > MIN_RETRY_MS) {
           try {
             const r2 = await visionReadSecondPass(base64, mime, Math.min(FIRST_ATTEMPT_MS, leftForSecondPass));
             totalCost += (r2.cost || 0);
-            if (r2.usage) {
-              totalUsage = {
-                prompt_tokens:     ((totalUsage && totalUsage.prompt_tokens)     || 0) + (r2.usage.prompt_tokens     || 0),
-                completion_tokens: ((totalUsage && totalUsage.completion_tokens) || 0) + (r2.usage.completion_tokens || 0)
-              };
-            }
+            addUsage(r2.usage);
             if (r2.text && r2.text.length > finalText.length) finalText = r2.text;
           } catch (e) {
             console.error('extract-file second-pass (short first read) failed, keeping first result:', e.message);

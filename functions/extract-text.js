@@ -170,6 +170,17 @@ function looksIncomplete(text) {
   return false;
 }
 
+// finish_reason === 'length' means the response was physically cut off by
+// max_tokens, not that the model gave up early — see extract-file.js's
+// matching comment. Re-reading from scratch doesn't reliably fix this for a
+// genuinely dense document, so this asks the model to continue exactly
+// where it stopped instead, using the end of what's already transcribed as
+// the anchor, and stitches the continuation on.
+function buildContinuationPrompt(soFar) {
+  const tail = soFar.slice(-400);
+  return 'You were transcribing all the text from this image and your response was cut off before you finished — you ran out of room, not out of text. Here is the END of what you already transcribed (for reference only, do not repeat it):\n\n"...' + tail + '"\n\nContinue the transcription EXACTLY where it left off. Do not repeat anything already shown above, do not summarize, do not add commentary — just keep transcribing the remaining text from the image, in reading order, starting right after that point. If that really was the end of all the text on the page, reply with nothing.';
+}
+
 // ── Gemini 3 Flash fallback (billed, via the B.AI gateway) ─────────────────
 // Only used when local extraction came back empty. Sends the file as a
 // vision message so Gemini can read text straight off the image/page.
@@ -194,7 +205,7 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
         ]
       }
     ],
-    maxTokens: 3000,
+    maxTokens: 4096, // was 3000 — dense documents (a full CV, a multi-module certificate) can genuinely exceed 3000 output tokens and get cut off mid-sentence
     temperature: 0
   });
 
@@ -202,10 +213,52 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
   let tokensUsed    = first.tokensUsed || 0;
   let tokenBalance  = first.tokenBalance;
 
+  // Hard truncation signal — ask for a continuation, not a re-read. Capped
+  // at 2 extra rounds so a pathological response can't loop forever.
+  let truncated = first.finishReason === 'length';
+  let rounds = 0;
+  while (truncated && rounds < 2) {
+    rounds++;
+    try {
+      const cont = await runBilledChat({
+        userId, sessionToken,
+        feature: feature || 'GENERIC_EXTRACTION',
+        free,
+        preAuth,
+        messages: [
+          {
+            role: 'system',
+            content: 'You transcribe text from a document or image exactly as it appears, continuing a transcription that was cut off partway through by a length limit, not because the text ran out.'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: buildContinuationPrompt(text) },
+              { type: 'image_url', image_url: { url: dataUrl } }
+            ]
+          }
+        ],
+        maxTokens: 4096,
+        temperature: 0
+      });
+      tokensUsed += (cont.tokensUsed || 0);
+      if (typeof cont.tokenBalance === 'number') tokenBalance = cont.tokenBalance;
+      const contText = (cont.text || '').trim();
+      if (contText) text = text + '\n' + contText;
+      truncated = cont.finishReason === 'length';
+    } catch (e) {
+      console.error('extract-text continuation pass failed, keeping what we have:', e.message);
+      break;
+    }
+  }
+
   // Weak-looking first read — most likely a missed, rotated body paragraph.
   // One more, more pointed look, naming that exact failure. Any problem
-  // here just falls back to the first (still real) result.
-  if (looksIncomplete(text)) {
+  // here just falls back to the first (still real) result. Skipped if a
+  // continuation pass already ran above — that's a different failure mode
+  // (length cap, not a missed section) and re-reading from scratch would
+  // just risk hitting the same cap again for no benefit.
+  if (rounds === 0 && looksIncomplete(text)) {
     try {
       const second = await runBilledChat({
         userId, sessionToken,
@@ -225,7 +278,7 @@ async function extractTextWithGemini({ userId, sessionToken, feature, free, preA
             ]
           }
         ],
-        maxTokens: 3000,
+        maxTokens: 4096,
         temperature: 0
       });
       tokensUsed += (second.tokensUsed || 0);
