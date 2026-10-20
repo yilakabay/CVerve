@@ -330,10 +330,17 @@ const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see H
 // limit this comment used to describe. 8500ms was sized for that old 10s
 // ceiling and was cutting off real AI calls (especially slower models like
 // deepseek-v4-pro on a turn with an attached document) well before they
-// could finish, surfacing as AbortError in the logs. 50000ms leaves ~10s of
-// margin inside the real 60s ceiling for JSON parsing, response
-// serialization, and runtime jitter.
-const HANDLER_DEADLINE_MS = 50000;
+// could finish, surfacing as AbortError in the logs. 50000ms was meant to
+// leave ~10s of margin inside the real 60s ceiling for JSON parsing,
+// response serialization, and runtime jitter — but that margin was being
+// quietly eaten from the other end too: a cold start (module imports,
+// MongoDB driver init) happens before this file's code even runs, and on a
+// multi-file turn reading the request body (now counted — see
+// handlerStarted above) can itself take real time. 44000ms gives real
+// headroom on both ends, at the cost of handing back a "didn't finish this
+// step, please continue" reply slightly earlier on a genuinely slow turn —
+// far better than the platform silently killing the connection mid-stream.
+const HANDLER_DEADLINE_MS = 44000;
 // Don't even start an AI chat-loop call with less than this much time
 // left — a chat-loop call realistically needs at least this long to have a
 // chance of finishing instead of being cut off mid-stream.
@@ -1045,9 +1052,20 @@ async function handleTranslateUI(body, db) {
 // SSE event to the browser. `emitPhase` is a no-op if the caller doesn't
 // want streaming (see runTurn's default below), so this function behaves
 // identically either way.
-async function runTurn(event, emitPhase) {
+async function runTurn(event, emitPhase, handlerStarted) {
   if (typeof emitPhase !== 'function') emitPhase = () => {}; // default no-op, as promised above
-  const handlerStarted = Date.now(); // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file
+  // wall-clock anchor for HANDLER_DEADLINE_MS — see note at top of file.
+  // Passed in from the real request-entry time (export default, below) rather
+  // than taken fresh here. Taking it here used to miss the time spent on
+  // `await req.text()` reading the request body — invisible for a small
+  // typed message, but a multi-file turn's body can be several MB of base64
+  // image data, and reading/parsing that genuinely takes real wall-clock
+  // time against Netlify's actual 60s ceiling. Not counting it meant the
+  // budget this file enforces could already be a few seconds optimistic
+  // before a single AI call even started — exactly the gap that let some
+  // turns still get hard-killed mid-stream ("the connection was interrupted")
+  // despite every check inside this function passing.
+  if (typeof handlerStarted !== 'number') handlerStarted = Date.now();
 
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
   if (!BAI_API_KEY) {
@@ -1460,6 +1478,10 @@ function sseEncode(eventName, dataObj) {
 const HEARTBEAT_INTERVAL_MS = 8000;
 
 export default async (req, context) => {
+  // The true start of this function's wall-clock budget — captured before
+  // the (possibly large, multi-file) request body is even read, so that
+  // time counts against HANDLER_DEADLINE_MS too. See runTurn()'s comment.
+  const handlerStarted = Date.now();
   const encoder = new TextEncoder();
   // Adapts the Web standard Request into the same {httpMethod, body} shape
   // runTurn() has always read — so runTurn()'s own body never had to change.
@@ -1479,7 +1501,7 @@ export default async (req, context) => {
 
       let result;
       try {
-        result = await runTurn(event, emitPhase);
+        result = await runTurn(event, emitPhase, handlerStarted);
       } catch (e) {
         // runTurn() already catches everything itself and returns a 500 —
         // this is only a last-resort net in case something throws before
