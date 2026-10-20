@@ -40,15 +40,18 @@ const { runBilledChat, getDb, authenticate, errorResponse, AIError } = require('
 // answers in time with whatever WAS read, so the app can show a clear message
 // (or fall back to reading the PDF as page images, a couple of pages at a time).
 //
-// Netlify's synchronous Functions have a real 60-second execution ceiling
-// (platform-wide, not plan-dependent). 20000ms here was sized for an
-// inaccurate "10s free-plan cap" and was cutting off tesseract OCR / the
-// Gemini fallback mid-read for genuinely slow files (multi-page scanned
-// certificates, dense transcripts) well before the platform would ever
-// have killed the function — that showed up as extraction silently failing
-// after a long wait. Budget is now sized to the real ceiling with a safety
-// margin for cold starts and this function's own overhead.
-const EXTRACTION_BUDGET_MS = 50000;
+// This used to be sized for Netlify's documented 60s synchronous-function
+// ceiling (50000ms) — but that's the limit for a MODERN function. This file
+// is a classic/legacy-style `exports.handler` function (same shape as
+// extract-file.js), which runs behind AWS API Gateway's own hard
+// integration timeout — well short of 60s, and not configurable from here.
+// Live production logs on extract-file.js (identical architecture) showed
+// real calls coming back as 502/504 clustered tightly around 30-36
+// seconds, often with the Lambda itself still genuinely running when the
+// gateway gave up — meaning the documented 60s ceiling this budget was
+// aiming for was never the real one. Budget is now sized to stay well
+// clear of that actual ~26-30s ceiling instead.
+const EXTRACTION_BUDGET_MS = 24000;
 const MIN_TIME_TO_START_FILE_MS = 3000;
 
 // Resolves with the promise's result, or rejects after `ms` milliseconds.

@@ -69,14 +69,31 @@ const {
 // Same dev gate as cv-chat.js — only this account may use the CV feature for now.
 const CV_DEV_ALLOWED_USER_ID = '0985576139';
 
-// ── Time budget (milliseconds) — MUST fit inside Netlify's real 60s sync cap ──
-// TOTAL_BUDGET_MS is measured from the very start of the handler (before
-// auth), so DB/auth time is automatically taken out of what's left for the
-// Gemini call. Keep a safety margin below 60000 for cold starts, network
-// jitter, and the time this function itself needs to parse/serialize JSON.
-const TOTAL_BUDGET_MS  = 50000; // whole call, including auth — stay under Netlify's real 60s sync ceiling
-const FIRST_ATTEMPT_MS = 35000; // longest the first Gemini call may take — dense scans genuinely need this
-const MIN_RETRY_MS     = 5000;  // don't start a retry with less time than this
+// ── Time budget (milliseconds) ──────────────────────────────────────────
+// This used to be sized for Netlify's documented 60s synchronous-function
+// ceiling (TOTAL_BUDGET_MS=50000, FIRST_ATTEMPT_MS=35000) — but that's the
+// limit for a MODERN function. This file is a classic/legacy-style
+// `exports.handler` function proxied through AWS API Gateway in front of
+// Lambda, which has its OWN hard integration timeout well short of 60s —
+// and it's not configurable from here. Live production logs confirmed it
+// directly: real calls to this endpoint were coming back as 502/504
+// clustered tightly around 30-36 seconds, with has_function_invocation
+// often still true — meaning the Lambda itself was genuinely still running
+// when API Gateway gave up and returned an error to the client, abandoning
+// a still-live execution. That's the actual cause behind "one file wasn't
+// read" and "connection interrupted" surviving every earlier client-side
+// and 60s-budget-based fix: this function was simply being cut off by a
+// gateway in front of it that none of those fixes could see or control.
+// Staying well clear of that real ceiling (not the documented one) is the
+// only fix that works here. One real Gemini call is often all that fits —
+// the second-look and continuation passes below already check how much
+// time is left and skip themselves gracefully when there isn't enough, so
+// this degrades to "read once, let the client's own retry (a fresh
+// invocation, with its own full budget) try again" rather than silently
+// running past what the gateway will actually wait for.
+const TOTAL_BUDGET_MS  = 24000; // whole call, including auth — stay clear of the real ~26-30s gateway ceiling
+const FIRST_ATTEMPT_MS = 19000; // longest the first Gemini call may take, leaving real margin for auth + response overhead
+const MIN_RETRY_MS     = 4000;  // don't start a retry/second pass with less time than this
 const RETRY_PAUSE_MS   = 400;   // short — there usually isn't much time to spare
 
 const MAX_BASE64_CHARS = 4.5 * 1024 * 1024; // one file per call, so this stays well under the ~6 MB request limit

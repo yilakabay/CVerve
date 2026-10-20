@@ -190,7 +190,14 @@ async function callAI({ model, messages, maxTokens, temperature, json, tools, to
   if (!model) throw new Error('callAI requires a model id (use MODEL_IDS / FEATURE_MODELS).');
 
   const maxAttempts = attempts || 3;
-  const totalBudgetMs = timeoutMs || 25000;
+  // Default used only when a caller doesn't pass its own timeoutMs (e.g.
+  // extract-text.js's runBilledChat() calls). Several classic/legacy-style
+  // functions in this app (exports.handler, proxied through AWS API Gateway)
+  // turned out to have a real hard ceiling well short of Netlify's
+  // documented 60s — live logs showed 502/504s clustered around 30-36s, not
+  // 60s. 20000ms keeps this safely under that observed real ceiling even
+  // when a caller forgets to account for it with its own tighter timeoutMs.
+  const totalBudgetMs = timeoutMs || 20000;
   const started = Date.now();
   let lastErr;
 
