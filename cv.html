@@ -546,7 +546,33 @@
   // onPhase() the instant it arrives — that's what drives setThinkPhase()
   // live instead of on a timer. The stream's single "result" event carries
   // the exact statusCode/body cv-chat.mjs's handler always returned.
+  // Wraps fetchCvChatStreamOnce() with ONE automatic, silent retry — but
+  // ONLY for the specific "the stream closed without ever delivering a
+  // result event" case, never for a real error response (402/401/a normal
+  // failure), which already comes back as a proper result event and is
+  // handled elsewhere. Live server logs on real reports of this error
+  // confirmed the server had already finished cleanly (200, no error, a
+  // normal-length turn) every time — the connection dropped delivering the
+  // response to the client (a mobile network hiccup, likely worse for a
+  // longer polished reply in Amharic, which is heavier in UTF-8 bytes per
+  // character), not because the server was slow or broken. The user had no
+  // recourse but to tap Retry by hand, which does exactly this same thing —
+  // automating it here means a transient drop just looks like the reply
+  // taking slightly longer, instead of an error the person has to notice
+  // and act on themselves.
   async function fetchCvChatStream(payload, onPhase) {
+    const first = await fetchCvChatStreamOnce(payload, onPhase);
+    const droppedMidStream = first.status === 0 && !first.ok &&
+      first.data && /connection was interrupted/i.test(first.data.error || '');
+    if (!droppedMidStream) return first;
+    try {
+      return await fetchCvChatStreamOnce(payload, onPhase);
+    } catch (e) {
+      return first; // the retry itself failed outright — surface the original message
+    }
+  }
+
+  async function fetchCvChatStreamOnce(payload, onPhase) {
     const res = await fetch('/.netlify/functions/cv-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
