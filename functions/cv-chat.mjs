@@ -343,16 +343,32 @@ const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see H
 // is keeping every single round-trip well under that real ceiling, the same
 // lesson learned the hard way with extract-file.js's ~30s API Gateway
 // ceiling. 44000/50000/8500 were all still sized for Netlify's documented
-// (but not this user's actual, lower) limit. 20000ms means a turn that
-// needs more than one AI call back-to-back (draft + polish, or
-// re-finalizing the whole CV for a one-field correction) now reliably hands
-// back a "made progress, tap Continue" reply inside the real ~30s window
-// instead of reliably dying right at the edge of it.
-const HANDLER_DEADLINE_MS = 20000;
+// (but not this user's actual, lower) limit.
+//
+// 20000ms (with MIN_TIME_TO_START_CHAT_CALL_MS left at its old 3000ms) was
+// then found to be a DIFFERENT bug, not a fix: it let a new AI call start
+// with as little as 3000ms left, which made callAI()'s own timeoutMs
+// (timeLeftForCall - 500) as low as ~2500ms — nowhere near enough for a
+// real chat-model response (observed taking 15-20s normally, up to ~31s for
+// heavier turns). That call then reliably aborted/threw, and the throw
+// propagated past every needsContinue safeguard straight to the top-level
+// catch, which is what turned into the new user-visible error: "Something
+// went wrong while building your CV." The fast, clean failure replaced the
+// old slow, dropped-connection failure — it wasn't actually fixed.
+//
+// 27000ms keeps the overall handler safely under the real ~30s ceiling
+// while leaving enough runway (with the raised MIN_TIME_TO_START_CHAT_CALL_MS
+// below) for one real AI call to actually finish before the deadline forces
+// a graceful "tap Continue" instead of an abort.
+const HANDLER_DEADLINE_MS = 27000;
 // Don't even start an AI chat-loop call with less than this much time
-// left — a chat-loop call realistically needs at least this long to have a
-// chance of finishing instead of being cut off mid-stream.
-const MIN_TIME_TO_START_CHAT_CALL_MS = 3000;
+// left. This must be long enough for a real chat-model call to have a
+// realistic chance of completing (observed 15-20s typical), not just long
+// enough to begin — a call started with only a few seconds left is
+// guaranteed to be aborted by callAI()'s own timeout and throw, which is
+// exactly the bug this constant used to cause (see HANDLER_DEADLINE_MS
+// comment above).
+const MIN_TIME_TO_START_CHAT_CALL_MS = 16000;
 
 function timeLeft(startedAt) {
   return HANDLER_DEADLINE_MS - (Date.now() - startedAt);
@@ -1318,12 +1334,35 @@ async function runTurn(event, emitPhase, handlerStarted) {
       }
 
       emitPhase('thinking'); // real: about to call the chat model itself
-      const result = await callAI({
-        model: FEATURE_MODELS.CV_CHAT,
-        messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto',
-        timeoutMs: Math.max(3000, timeLeftForCall - 500),
-        attempts: 2
-      });
+      let result;
+      try {
+        result = await callAI({
+          model: FEATURE_MODELS.CV_CHAT,
+          messages, maxTokens: 2000, tools: toolsFor(template), toolChoice: 'auto',
+          timeoutMs: Math.max(3000, timeLeftForCall - 500),
+          attempts: 2
+        });
+      } catch (aiError) {
+        // A failed/aborted AI call here (timeout, gateway hiccup, etc.) used
+        // to propagate straight to the top-level catch below and come back
+        // as a flat "Something went wrong while building your CV" — a
+        // confusing dead end for something that's really just "ran out of
+        // time this round". Treat it the same as the wall-clock pre-check
+        // above: nothing was lost, let the user tap Continue to pick the
+        // turn back up instead of hitting a hard error.
+        console.error('cv-chat: AI call failed mid-turn, degrading to needsContinue:', aiError && aiError.message);
+        const tokenBalance = await chargeOnce();
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            success: true,
+            reply: "That took a bit long to process on this end — nothing was lost.",
+            needsContinue: true,
+            messages, finalPdfBase64, telegramDelivered, awaitingPhoto: computeAwaitingPhoto(messages),
+            tokensUsed: usedCost, tokenBalance, unreadFiles
+          })
+        };
+      }
       usedCost       += result.cost;
       usedPrompt     += (result.usage && result.usage.prompt_tokens)     || 0;
       usedCompletion += (result.usage && result.usage.completion_tokens) || 0;
