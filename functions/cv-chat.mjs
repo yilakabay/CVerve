@@ -324,23 +324,31 @@ const MAX_TOOL_ITERATIONS = 6; // safety cap on the internal tool loop — see H
 // asking the user to continue — instead of letting the platform kill it
 // mid-request.
 //
-// cv-chat.mjs runs as a Netlify Functions 2.0 streaming function (see the
-// `export default` wrapper + sseEncode at the bottom of this file), which
-// has a 60s execution ceiling — not the old classic-function 10s free-plan
-// limit this comment used to describe. 8500ms was sized for that old 10s
-// ceiling and was cutting off real AI calls (especially slower models like
-// deepseek-v4-pro on a turn with an attached document) well before they
-// could finish, surfacing as AbortError in the logs. 50000ms was meant to
-// leave ~10s of margin inside the real 60s ceiling for JSON parsing,
-// response serialization, and runtime jitter — but that margin was being
-// quietly eaten from the other end too: a cold start (module imports,
-// MongoDB driver init) happens before this file's code even runs, and on a
-// multi-file turn reading the request body (now counted — see
-// handlerStarted above) can itself take real time. 44000ms gives real
-// headroom on both ends, at the cost of handing back a "didn't finish this
-// step, please continue" reply slightly earlier on a genuinely slow turn —
-// far better than the platform silently killing the connection mid-stream.
-const HANDLER_DEADLINE_MS = 44000;
+// cv-chat.mjs runs as a Netlify Functions 2.0 streaming function, which has
+// a documented 60s execution ceiling, and a server-side heartbeat (see
+// HEARTBEAT_INTERVAL_MS near the bottom of this file) that writes a byte
+// every 8s specifically so no reverse proxy/NAT ever sees the connection go
+// idle. That protects against an IDLE timeout. It does nothing for a
+// DURATION cap — some mobile carrier networks (confirmed here: Ethio
+// Telecom) terminate a single HTTP connection once it's been open a certain
+// total length of time, heartbeats or no heartbeats, no matter how much
+// real traffic is flowing on it. Live evidence: on a real device, two
+// consecutive turns in a row — not one — both completed on the server with
+// a clean 200 in ~31 seconds, and BOTH still failed to deliver their reply
+// to the client. That is not a random drop; every single connection that
+// stayed open around 31 seconds died, which means ~30s is this user's real,
+// hard network ceiling — not Netlify's 60s, and not something a longer
+// client-side retry timeout or a bigger retry count can out-wait, since the
+// retry attempt hits the exact same wall. The only fix that survives this
+// is keeping every single round-trip well under that real ceiling, the same
+// lesson learned the hard way with extract-file.js's ~30s API Gateway
+// ceiling. 44000/50000/8500 were all still sized for Netlify's documented
+// (but not this user's actual, lower) limit. 20000ms means a turn that
+// needs more than one AI call back-to-back (draft + polish, or
+// re-finalizing the whole CV for a one-field correction) now reliably hands
+// back a "made progress, tap Continue" reply inside the real ~30s window
+// instead of reliably dying right at the edge of it.
+const HANDLER_DEADLINE_MS = 20000;
 // Don't even start an AI chat-loop call with less than this much time
 // left — a chat-loop call realistically needs at least this long to have a
 // chance of finishing instead of being cut off mid-stream.

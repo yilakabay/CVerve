@@ -546,30 +546,40 @@
   // onPhase() the instant it arrives — that's what drives setThinkPhase()
   // live instead of on a timer. The stream's single "result" event carries
   // the exact statusCode/body cv-chat.mjs's handler always returned.
-  // Wraps fetchCvChatStreamOnce() with ONE automatic, silent retry — but
-  // ONLY for the specific "the stream closed without ever delivering a
-  // result event" case, never for a real error response (402/401/a normal
+  // Wraps fetchCvChatStreamOnce() with automatic, silent retries — but ONLY
+  // for the specific "the stream closed without ever delivering a result
+  // event" case, never for a real error response (402/401/a normal
   // failure), which already comes back as a proper result event and is
-  // handled elsewhere. Live server logs on real reports of this error
-  // confirmed the server had already finished cleanly (200, no error, a
-  // normal-length turn) every time — the connection dropped delivering the
-  // response to the client (a mobile network hiccup, likely worse for a
-  // longer polished reply in Amharic, which is heavier in UTF-8 bytes per
-  // character), not because the server was slow or broken. The user had no
-  // recourse but to tap Retry by hand, which does exactly this same thing —
-  // automating it here means a transient drop just looks like the reply
-  // taking slightly longer, instead of an error the person has to notice
-  // and act on themselves.
+  // handled elsewhere. Live server logs confirmed the server had already
+  // finished cleanly (200, no error, a normal-length turn, ~31s) every
+  // single time this was reported — the connection dropped delivering the
+  // response to the client, not because the server was slow or broken.
+  // CV_CHAT_MAX_ATTEMPTS used to be 2 (one retry). Live evidence then showed
+  // TWO back-to-back attempts for the same turn BOTH complete on the server
+  // in ~31s and BOTH still fail to deliver — every connection held open
+  // around 31 seconds died, pointing to a real, roughly-30s hard ceiling on
+  // this network (confirmed: Ethio Telecom), not a random one-off drop. The
+  // real fix for that is keeping each server round-trip well under that
+  // ceiling (see cv-chat.mjs's HANDLER_DEADLINE_MS) — but a third local
+  // attempt costs nothing extra when a turn does legitimately finish fast
+  // and still happens to drop once, so it stays as a second line of
+  // defense. The user had no recourse but to tap Retry by hand before this,
+  // which does exactly this same thing — automating it means a transient
+  // drop just looks like the reply taking slightly longer.
+  const CV_CHAT_MAX_ATTEMPTS = 3;
   async function fetchCvChatStream(payload, onPhase) {
-    const first = await fetchCvChatStreamOnce(payload, onPhase);
-    const droppedMidStream = first.status === 0 && !first.ok &&
-      first.data && /connection was interrupted/i.test(first.data.error || '');
-    if (!droppedMidStream) return first;
-    try {
-      return await fetchCvChatStreamOnce(payload, onPhase);
-    } catch (e) {
-      return first; // the retry itself failed outright — surface the original message
+    let last = await fetchCvChatStreamOnce(payload, onPhase);
+    for (let attempt = 1; attempt < CV_CHAT_MAX_ATTEMPTS; attempt++) {
+      const droppedMidStream = last.status === 0 && !last.ok &&
+        last.data && /connection was interrupted/i.test(last.data.error || '');
+      if (!droppedMidStream) return last;
+      try {
+        last = await fetchCvChatStreamOnce(payload, onPhase);
+      } catch (e) {
+        return last; // the retry itself failed outright — surface the last real message
+      }
     }
+    return last;
   }
 
   async function fetchCvChatStreamOnce(payload, onPhase) {
