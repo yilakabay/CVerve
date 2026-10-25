@@ -34,7 +34,13 @@
 // admin-verify.js does, tied to the same notification id that's shown to
 // the user (so Tip/Refund can find it).
 
-const { callDeepSeek, parseJsonLoose } = require('./lib/ai-billing');
+// NOTE: this used to import a `callDeepSeek` helper that never existed
+// anywhere in ai-billing.js (only `callAI` is exported). That made every
+// call to extractSmsFields() below throw a TypeError immediately, which was
+// silently caught in the handler — so EVERY incoming SMS, no matter how
+// clean, was stamped 'unreadable' and nothing ever auto-verified. Fixed by
+// calling the real callAI() with the DeepSeek Flash model directly.
+const { callAI, parseJsonLoose, MODEL_IDS } = require('./lib/ai-billing');
 const { computeVerifyOutcome, creditTokens } = require('./lib/packs');
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -94,7 +100,8 @@ Use null for any field you cannot find.
 SMS:
 ${smsText}`;
 
-    const result = await callDeepSeek({
+    const result = await callAI({
+        model: MODEL_IDS.DEEPSEEK_FLASH,
         messages: [
             { role: 'system', content: 'You extract fields from bank SMS messages. You reply with valid JSON only.' },
             { role: 'user',   content: prompt }
