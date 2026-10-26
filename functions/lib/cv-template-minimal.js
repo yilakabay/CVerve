@@ -188,15 +188,22 @@ function layout(doc, content, { draw, stretchPerGap = 0, tightLeading = false } 
   metaLine(edu0.extra || '', col2, META_TOP + 41, { color: BODY_GRY });
 
   metaLabel('Languages', col3, META_TOP);
-  (content.languages || []).slice(0, 2).forEach((l, i) => {
+  // No hardcoded cap — a CV can genuinely list 3+ languages, and
+  // metaRowsMax below already exists to size the row from whichever
+  // column (contact/education/languages) ends up tallest, so there's no
+  // need to silently drop real languages the user entered just to keep
+  // this column at 2 rows.
+  const langRows = (content.languages || []);
+  langRows.forEach((l, i) => {
     metaLine(`${l.name} — ${l.level}`, col3, META_TOP + 15 + i * 13, { color: BODY_GRY });
   });
 
   // The contact column can now be 1 row taller than the other two
-  // (LinkedIn as a 4th row) — META_BOTTOM is sized from the TALLEST
-  // column instead of a fixed constant that assumed exactly 3 contact
-  // rows, so the hairline below never cuts through a 4th row.
-  const metaRowsMax = Math.max(contactRows.length, 3);
+  // (LinkedIn as a 4th row), and the languages column can now be taller
+  // too (3+ languages) — META_BOTTOM is sized from whichever column is
+  // actually tallest instead of a fixed constant, so the hairline below
+  // never cuts through a later row.
+  const metaRowsMax = Math.max(contactRows.length, langRows.length, 3);
   const META_BOTTOM = META_TOP + 15 + metaRowsMax * 13 + 6;
   if (draw) {
     doc.strokeColor(HAIRLINE).lineWidth(0.75)

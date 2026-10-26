@@ -188,7 +188,13 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
 
   const langHeadingTop = skillsEnd + SECTION_GAP;
   sidebarHeading('LANGUAGES', langHeadingTop);
-  const langList = (content.languages || []).slice(0, 2);
+  // No hardcoded cap — a CV genuinely can list 3+ languages (common for
+  // multilingual candidates), and this template's fit-escalation ladder
+  // (stretchPerGap / compactSkills / tightLeading, see top-of-file note)
+  // already exists to absorb exactly this kind of extra content. Slicing
+  // to 2 here was silently dropping real languages the user entered,
+  // regardless of whether the page actually had room for them.
+  const langList = (content.languages || []);
   langList.forEach((l, i) => {
     sidebarText(`${l.name}     (${l.level})`, langHeadingTop + 26.0 + i * 13.6, { font: 'Helvetica', size: 10 });
   });
