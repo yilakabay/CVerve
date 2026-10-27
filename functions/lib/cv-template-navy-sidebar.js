@@ -153,38 +153,51 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
   track('education', eduLinesUsed, eduList.length > 0);
 
   const SECTION_GAP = 16.6 + stretchPerGap;
-  const skillsHeadingTop = eduEnd + SECTION_GAP;
-  sidebarHeading('SKILLS', skillsHeadingTop);
 
-  const textW = SIDEBAR_TEXT_W - BULLET_TEXT_DX;
-  let skillsEnd;
-  let skillLines = 0;
-  if (compactSkills) {
-    const skillsResult = flowItems(doc, content.skills || [], SIDEBAR_MARGIN + BULLET_TEXT_DX, skillsHeadingTop + 28.8, textW, {
-      font: 'Helvetica', size: 10, color: WHITE,
-      gapX: 10, gapY: 12.5,
-      bulletColor: BULLET_BLUE, bulletSize: 3.2, bulletGap: 6,
-      draw
-    });
-    skillsEnd = skillsResult.y - 4.5;
-    skillLines = skillsResult.lines;
-  } else {
-    let cursor = skillsHeadingTop + 28.8;
-    (content.skills || []).forEach(skill => {
-      const lines = wrapLines(doc, skill, 'Helvetica', 10, textW);
-      if (draw) {
-        doc.fillColor(BULLET_BLUE).circle(SIDEBAR_MARGIN + BULLET_DOT_DX, cursor + 10 * 0.72, 1.6).fill();
-        doc.font('Helvetica').fontSize(10).fillColor(WHITE);
-        lines.forEach(ln => { doc.text(ln, SIDEBAR_MARGIN + BULLET_TEXT_DX, cursor, { lineBreak: false }); cursor += 12.0; });
-      } else {
-        cursor += lines.length * 12.0;
-      }
-      cursor += 4.5;
-      skillLines += lines.length;
-    });
-    skillsEnd = cursor - 4.5;
+  // content.skillsPlacement: "main" moves Skills into the content column
+  // instead of the sidebar (see the block right after PROFILE below) — a
+  // real per-CV layout choice, not a template-wide default, for when a
+  // user wants their columns more evenly balanced. Default ('sidebar' or
+  // unset) keeps the original behavior exactly as before. This must be a
+  // genuine move (skip rendering it here entirely) rather than ALSO
+  // drawing a same-titled block in the main column while leaving this one
+  // in place — doing both produces a duplicate "SKILLS" heading, with no
+  // way for the user to tell the renderer to remove the original.
+  const skillsInMain = content.skillsPlacement === 'main';
+  let skillsEnd = eduEnd;
+  if (!skillsInMain) {
+    const skillsHeadingTop = eduEnd + SECTION_GAP;
+    sidebarHeading('SKILLS', skillsHeadingTop);
+
+    const textW = SIDEBAR_TEXT_W - BULLET_TEXT_DX;
+    let skillLines = 0;
+    if (compactSkills) {
+      const skillsResult = flowItems(doc, content.skills || [], SIDEBAR_MARGIN + BULLET_TEXT_DX, skillsHeadingTop + 28.8, textW, {
+        font: 'Helvetica', size: 10, color: WHITE,
+        gapX: 10, gapY: 12.5,
+        bulletColor: BULLET_BLUE, bulletSize: 3.2, bulletGap: 6,
+        draw
+      });
+      skillsEnd = skillsResult.y - 4.5;
+      skillLines = skillsResult.lines;
+    } else {
+      let cursor = skillsHeadingTop + 28.8;
+      (content.skills || []).forEach(skill => {
+        const lines = wrapLines(doc, skill, 'Helvetica', 10, textW);
+        if (draw) {
+          doc.fillColor(BULLET_BLUE).circle(SIDEBAR_MARGIN + BULLET_DOT_DX, cursor + 10 * 0.72, 1.6).fill();
+          doc.font('Helvetica').fontSize(10).fillColor(WHITE);
+          lines.forEach(ln => { doc.text(ln, SIDEBAR_MARGIN + BULLET_TEXT_DX, cursor, { lineBreak: false }); cursor += 12.0; });
+        } else {
+          cursor += lines.length * 12.0;
+        }
+        cursor += 4.5;
+        skillLines += lines.length;
+      });
+      skillsEnd = cursor - 4.5;
+    }
+    track('skills', skillLines, (content.skills || []).length > 0);
   }
-  track('skills', skillLines, (content.skills || []).length > 0);
 
   const langHeadingTop = skillsEnd + SECTION_GAP;
   sidebarHeading('LANGUAGES', langHeadingTop);
@@ -309,6 +322,19 @@ function layout(doc, content, { draw, stretchPerGap = 0, compactSkills = false, 
     track('profile', r1.lines, true);
     y = r1.y;
   } else track('profile', 0, false);
+
+  // Skills rendered here (main column, right after Profile) only when
+  // content.skillsPlacement === 'main' — see the comment above the
+  // sidebar's skills block for why this is the ONLY place Skills is drawn
+  // in that case (never both places at once).
+  if (skillsInMain && content.skills && content.skills.length) {
+    y = contentHeading('SKILLS', y + GAP_SECTION);
+    const rSkills = contentBullets(content.skills, y, { indent: 14 });
+    track('skills', rSkills.lines, true);
+    y = rSkills.y;
+  } else if (skillsInMain) {
+    track('skills', 0, false);
+  }
 
   if (content.experience && content.experience.length) {
     y = contentHeading('EXPERIENCE', y + GAP_SECTION);
