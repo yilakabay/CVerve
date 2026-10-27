@@ -17,9 +17,15 @@
 //    so we never spend real money on a user who can't pay anything.
 // 3. We call the model via the B.AI gateway. Its reply contains a `usage`
 //    object with the REAL number of input/output tokens used.
-// 4. We convert that usage into CT using THAT MODEL's own input/output
-//    rates (see MODEL_IDS below), and FLOOR the result (13569.34 -> 13569,
-//    never rounded).
+// 4. CT = exactly the tokens B.AI itself billed us for that call (its
+//    usage.total_tokens, or prompt_tokens + completion_tokens if that's
+//    missing) — 1 CT = 1 B.AI token, the same across every model. This
+//    used to run through a per-model CT-rate table (MODEL_RATES, with a
+//    different input/output multiplier for each model), which meant the
+//    "cost" shown to a user had no direct relationship to what B.AI
+//    actually charged this app and had to be kept in sync by hand every
+//    time a model's real pricing changed. Removed entirely — see
+//    costFromUsage() below.
 // 5. If the user's balance does not fully cover that real cost, we DO NOT
 //    hand them the answer and we DO NOT charge them — we throw an
 //    INSUFFICIENT_TOKENS error so the app shows the Top Up prompt. The
@@ -54,9 +60,12 @@ const MODEL_IDS = {
   CLAUDE_SONNET:  'claude-sonnet-5.5'
 };
 
-// CT per 1000 tokens, input/output, per model. Taken straight from the
-// pricing table given on 2026-10-14. Update here only — everything else
-// (cost calc, deduction) adapts automatically.
+// NOTE: no longer used by costFromUsage() — CT billing now charges exactly
+// B.AI's own token count for every model, with no per-model multiplier
+// (see costFromUsage's comment below for why). Left here, unused, only in
+// case a future cost-estimate/analytics feature wants each model's real
+// B.AI price for comparison; nothing in the billing path reads this table
+// anymore.
 const MODEL_RATES = {
   [MODEL_IDS.DEEPSEEK_FLASH]: { inputPer1000: 1,    outputPer1000: 4    },
   [MODEL_IDS.GEMINI_FLASH]:   { inputPer1000: 1.67, outputPer1000: 10   },
@@ -151,21 +160,22 @@ function assertCanDeliver(balance, cost) {
   }
 }
 
-// ── CT cost of one AI response, using that model's own rates ──────────────
+// ── CT cost of one AI response — exactly what B.AI itself billed us ───────
+// 1 CT = 1 B.AI token. No per-model rate, no multiplier: whatever B.AI's
+// own usage object says this call cost in tokens is exactly what gets
+// deducted, the same formula for every model. `model` is still accepted
+// (and still required by callers) purely so call sites don't all need
+// changing, and because it's useful context in logs/errors — it no longer
+// affects the number returned.
 function costFromUsage(model, usage) {
   if (!usage) return 0;
-  const rates = MODEL_RATES[model];
-  if (!rates) {
-    console.error(`No CT rate configured for model "${model}" — charging 0. Fix MODEL_RATES.`);
-    return 0;
-  }
+  // total_tokens is B.AI's own combined figure when present; fall back to
+  // summing prompt+completion for any response shape that omits it.
+  const total = Number(usage.total_tokens);
+  if (Number.isFinite(total)) return Math.max(0, Math.floor(total));
   const promptTokens     = Number(usage.prompt_tokens)     || 0;
   const completionTokens = Number(usage.completion_tokens) || 0;
-  const rawCost =
-    (promptTokens     / 1000) * rates.inputPer1000 +
-    (completionTokens / 1000) * rates.outputPer1000;
-  // Never charge a fraction of a CT — always round DOWN.
-  return Math.floor(rawCost);
+  return Math.floor(promptTokens + completionTokens);
 }
 
 // ── Call the B.AI gateway (OpenAI-compatible) with safe retries ───────────

@@ -855,12 +855,16 @@
 
   // CT packs (display copy — the server's real prices are in functions/lib/packs.js).
   const ADMIN_PACKS = {
-    ind_500k: { label: '500,000 CT',    price: 65   },
-    ind_1m:   { label: '1,000,000 CT',  price: 125  },
-    ind_2m:   { label: '2,000,000 CT',  price: 240  },
-    agy_5m:   { label: '5,000,000 CT',  price: 580  },
-    agy_10m:  { label: '10,000,000 CT', price: 1100 },
-    basic:    { label: '500,000 CT',    price: 65   },   // old pending payments made before the switch
+    ind_250k: { label: '250,000 CT',    price: 99   },
+    ind_500k: { label: '500,000 CT',    price: 195  },
+    ind_1m:   { label: '1,000,000 CT',  price: 380  },
+    agy_2m:   { label: '2,000,000 CT',  price: 779  },
+    agy_5m:   { label: '5,000,000 CT',  price: 1899 },
+    // Old pending payments made before the switch to tokens, and before
+    // the 2026-10-27 price update — kept at their ORIGINAL prices so old
+    // records still show what was actually charged at the time, not
+    // today's price.
+    basic:    { label: '500,000 CT',    price: 65   },
     pro:      { label: '1,000,000 CT',  price: 125  }
   };
   const packLabelOf = (id) => (ADMIN_PACKS[id] ? ADMIN_PACKS[id].label : String(id || '—'));

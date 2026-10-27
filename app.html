@@ -511,11 +511,11 @@
            DISPLAY list. The server's real prices live in functions/lib/packs.js
            — if you ever change a price, change it in BOTH places. */
         const TOPUP_PACKS = [
-            { id: 'ind_500k', tier: 'individual', tokens:   500000, price:   65, label: '500,000 CT',    recommended: false },
-            { id: 'ind_1m',   tier: 'individual', tokens:  1000000, price:  125, label: '1,000,000 CT',  recommended: true  },
-            { id: 'ind_2m',   tier: 'individual', tokens:  2000000, price:  240, label: '2,000,000 CT',  recommended: false },
-            { id: 'agy_5m',   tier: 'agency',     tokens:  5000000, price:  580, label: '5,000,000 CT',  recommended: false },
-            { id: 'agy_10m',  tier: 'agency',     tokens: 10000000, price: 1100, label: '10,000,000 CT', recommended: true  }
+            { id: 'ind_250k', tier: 'individual', tokens:  250000, price:   99, label: '250,000 CT',    recommended: false },
+            { id: 'ind_500k', tier: 'individual', tokens:  500000, price:  195, label: '500,000 CT',    recommended: true  },
+            { id: 'ind_1m',   tier: 'individual', tokens: 1000000, price:  380, label: '1,000,000 CT',  recommended: false },
+            { id: 'agy_2m',   tier: 'agency',     tokens: 2000000, price:  779, label: '2,000,000 CT',  recommended: true  },
+            { id: 'agy_5m',   tier: 'agency',     tokens: 5000000, price: 1899, label: '5,000,000 CT',  recommended: false }
         ];
         function fmtCT(n) { return Math.round(Number(n) || 0).toLocaleString('en-US'); }
         // Name of a purchased pack (used in notifications) — e.g. '1,000,000 CT'.

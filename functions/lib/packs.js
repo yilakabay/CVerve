@@ -6,15 +6,20 @@
 // pack, you change it in THIS file only (plus the matching display list in
 // app.html's TOPUP_PACKS, which is what users see).
 //
-// 1 CT = 1 real DeepSeek token (prompt tokens + answer tokens added together).
-// See lib/ai-billing.js for how tokens are counted and deducted.
-
+// 1 CT = 1 real B.AI token (whatever B.AI itself billed this app for a
+// call — see lib/ai-billing.js's costFromUsage, which now charges exactly
+// that figure with no per-model multiplier). See lib/ai-billing.js for how
+// tokens are counted and deducted.
+//
+// Pricing set 2026-10-27 (ETB):
+//   Individual: 250,000 CT = 99, 500,000 CT = 195, 1,000,000 CT = 380
+//   Agency:    2,000,000 CT = 779, 5,000,000 CT = 1899
 const PACKS = {
-  ind_500k: { id: 'ind_500k', tier: 'individual', tokens:   500000, price:   65, label: '500,000 CT',    recommended: false },
-  ind_1m:   { id: 'ind_1m',   tier: 'individual', tokens:  1000000, price:  125, label: '1,000,000 CT',  recommended: true  },
-  ind_2m:   { id: 'ind_2m',   tier: 'individual', tokens:  2000000, price:  240, label: '2,000,000 CT',  recommended: false },
-  agy_5m:   { id: 'agy_5m',   tier: 'agency',     tokens:  5000000, price:  580, label: '5,000,000 CT',  recommended: false },
-  agy_10m:  { id: 'agy_10m',  tier: 'agency',     tokens: 10000000, price: 1100, label: '10,000,000 CT', recommended: true  }
+  ind_250k: { id: 'ind_250k', tier: 'individual', tokens:  250000, price:   99, label: '250,000 CT',    recommended: false },
+  ind_500k: { id: 'ind_500k', tier: 'individual', tokens:  500000, price:  195, label: '500,000 CT',    recommended: true  },
+  ind_1m:   { id: 'ind_1m',   tier: 'individual', tokens: 1000000, price:  380, label: '1,000,000 CT',  recommended: false },
+  agy_2m:   { id: 'agy_2m',   tier: 'agency',     tokens: 2000000, price:  779, label: '2,000,000 CT',  recommended: true  },
+  agy_5m:   { id: 'agy_5m',   tier: 'agency',     tokens: 5000000, price: 1899, label: '5,000,000 CT',  recommended: false }
 };
 
 // Pending payments made just before the switch to tokens still carry the old
