@@ -179,23 +179,63 @@ exports.handler = async (event, context) => {
 
     // Ask the model, then charge the real tokens it used. Retries on temporary
     // gateway failures happen inside runBilledChat and are never charged.
-    const { text, tokensUsed, tokenBalance } = await runBilledChat({
+    //
+    // ── FIX: letter sometimes cut off mid-sentence ────────────────────────
+    // A user reported a delivered letter that just stopped mid-word, no
+    // period, nothing after — e.g. "...through their transactions by"
+    // and nothing more. That is finish_reason:'length': the model hit the
+    // 900-token cap before it finished, and this code only ever read
+    // `text`, never `finishReason` (which runBilledChat/callAI already
+    // compute and return — see the extract-file.js/extract-text.js
+    // truncation fix this same pattern came from), so a genuinely
+    // incomplete letter was silently delivered as if it were done.
+    // Fixed two ways: (1) raised the cap so a normal 3-paragraph letter
+    // has real headroom instead of running right up against it, and
+    // (2) if it still gets cut off, ask the model to continue from
+    // exactly where it stopped (up to 2 extra rounds) instead of handing
+    // the user a truncated letter either way.
+    const messages = [
+      { role: 'system', content: 'You are a seasoned, empathetic ghostwriter who writes short, genuine, human-sounding job application letters. You follow the formatting rules you are given exactly and reply with the letter only — no preface, no commentary, no markdown.' },
+      { role: 'user',   content: prompt }
+    ];
+
+    let result = await runBilledChat({
       userId, sessionToken,
       feature: 'LETTER_GENERATION',
       preAuth: { db, user },
-      messages: [
-        { role: 'system', content: 'You are a seasoned, empathetic ghostwriter who writes short, genuine, human-sounding job application letters. You follow the formatting rules you are given exactly and reply with the letter only — no preface, no commentary, no markdown.' },
-        { role: 'user',   content: prompt }
-      ],
-      maxTokens: 900,
+      messages,
+      maxTokens: 1400,
       temperature: 1.1
     });
 
-    const letterText = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/,'').trim();
+    let fullText = result.text;
+    let totalTokensUsed = result.tokensUsed;
+    let tokenBalance = result.tokenBalance;
+
+    const MAX_CONTINUATIONS = 2;
+    for (let round = 0; round < MAX_CONTINUATIONS && result.finishReason === 'length'; round++) {
+      console.log(`Letter generation truncated (finish_reason:length), requesting continuation ${round + 1}/${MAX_CONTINUATIONS} for ${userId}`);
+      messages.push({ role: 'assistant', content: result.text });
+      messages.push({ role: 'user', content: 'Your reply was cut off before the letter was finished. Continue writing EXACTLY where you left off — do not repeat anything already written, do not restart or re-greet, just pick up mid-sentence/mid-word if needed and finish the letter per the original instructions.' });
+
+      result = await runBilledChat({
+        userId, sessionToken,
+        feature: 'LETTER_GENERATION',
+        preAuth: { db, user },
+        messages,
+        maxTokens: 1400,
+        temperature: 1.1
+      });
+      fullText += result.text;
+      totalTokensUsed += result.tokensUsed;
+      tokenBalance = result.tokenBalance;
+    }
+
+    const letterText = fullText.replace(/^```[a-z]*\n?/i, '').replace(/```$/,'').trim();
     if (!letterText) throw new AIError(500, 'We are unable to generate your letter right now. Please try again in a moment.');
 
-    console.log(`Letter generated for ${userId}: ${tokensUsed} CT charged`);
-    return { statusCode: 200, body: JSON.stringify({ letterText, tokensUsed, tokenBalance }) };
+    console.log(`Letter generated for ${userId}: ${totalTokensUsed} CT charged`);
+    return { statusCode: 200, body: JSON.stringify({ letterText, tokensUsed: totalTokensUsed, tokenBalance }) };
 
   } catch (error) {
     if (error instanceof AIError) return errorResponse(error);
