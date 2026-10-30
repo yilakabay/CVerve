@@ -1317,7 +1317,11 @@
       <div id="jp-apptype-detail-${idx}" class="mt-2">
         ${isPhysical
           ? `<textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="2" placeholder="Physical address to apply in person">${escapeHtml(p.physicalAddress || '')}</textarea>`
-          : `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL" value="${escapeAttr(p.applicationUrl || '')}">`
+          : (p.applicationUrlNeedsReview
+              ? `<div class="mb-1 text-[11px] font-semibold text-amber-700">⚠️ The source page protects its email from scraping — we couldn't read it. Please type the real email below.</div>
+                 <input type="text" class="jp-url w-full px-2 py-1.5 rounded-lg border border-amber-400 bg-amber-50 text-xs" placeholder="Enter the application email address" value="">`
+              : `<input type="text" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL or email address" value="${escapeAttr(p.applicationUrl || '')}">`
+            )
         }
       </div>
     `;
@@ -1342,7 +1346,7 @@
       btn.dataset.type = 'online';
       btn.textContent = '🔗 Online — tap to switch';
       btn.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700';
-      detailWrap.innerHTML = `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL">`;
+      detailWrap.innerHTML = `<input type="text" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL or email address">`;
       selectWrap.classList.remove('hidden');
     }
     updateBulkUrlSelectAllVisibility();

@@ -74,6 +74,50 @@ function htmlToText(html) {
     .trim();
 }
 
+// ── Cloudflare "Email Address Protection" decoding ────────────────────────
+// Sites behind Cloudflare often replace a real mailto link with
+// <a href="/cdn-cgi/l/email-protection#HEX" class="__cf_email__" data-cfemail="HEX">[email&#160;protected]</a>
+// and decode it client-side with a tiny JS snippet Cloudflare injects. Our
+// scraper does a plain HTTP GET with no JS execution, so without this step
+// the real address is lost and only the literal fallback text
+// "[email protected]" survives tag-stripping — which is exactly what the
+// admin was seeing and what the AI was passing straight through as if it
+// were a real value. Cloudflare's encoding is a simple, well-documented
+// single-byte XOR (first hex byte is the key), so we can recover the real
+// address ourselves instead of asking the admin to re-type it by hand.
+function decodeCfEmail(hex) {
+  const key = parseInt(hex.substr(0, 2), 16);
+  let email = '';
+  for (let i = 2; i < hex.length; i += 2) {
+    email += String.fromCharCode(parseInt(hex.substr(i, 2), 16) ^ key);
+  }
+  return email;
+}
+
+function decodeCloudflareEmails(html) {
+  // Collect every data-cfemail="HEX" value in document order, decode each.
+  const decoded = [];
+  html.replace(/data-cfemail="([a-f0-9]+)"/gi, (match, hex) => {
+    try { decoded.push(decodeCfEmail(hex)); } catch { /* ignore malformed hex */ }
+    return match;
+  });
+  if (!decoded.length) return html;
+  // The visible fallback text Cloudflare renders for each protected address
+  // is literally "[email protected]" (sometimes with &#160;/&nbsp; as the
+  // space). Swap each occurrence, in the same order, for its decoded email —
+  // correct for the overwhelmingly common case of one protected address per
+  // posting, and still an improvement (first address recovered) if there
+  // happen to be more than one.
+  let i = 0;
+  return html.replace(/\[email(?:&#160;|&nbsp;|\s)*protected\]/gi, () => decoded[i++] || '[email protected]');
+}
+
+// Matches the literal Cloudflare fallback text if it somehow survives (e.g.
+// a non-Cloudflare obfuscator using the same wording, or a decode we
+// couldn't perform) so we never let it reach the admin looking like a real
+// extracted value.
+const CF_EMAIL_PLACEHOLDER_RE = /\[email(?:&#160;|&nbsp;|\s)*protected\]/gi;
+
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
@@ -121,7 +165,7 @@ exports.handler = async (event, context) => {
     if (jdUrl && (!jdText || jdText.trim().length < 20)) {
       try {
         const rawHtml = await fetchUrl(jdUrl);
-        rawText = htmlToText(rawHtml);
+        rawText = htmlToText(decodeCloudflareEmails(rawHtml));
       } catch (fetchErr) {
         return {
           statusCode: 400,
@@ -232,13 +276,34 @@ exports.handler = async (event, context) => {
     }
     if (lastError) throw lastError;
 
-    // Safety defaults in case the AI omits the newer application-method fields
-    structured.positions = structured.positions.map(p => ({
-      ...p,
-      applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
-      applicationUrl:   p.applicationUrl || '',
-      physicalAddress:  p.physicalAddress || ''
-    }));
+    // Safety defaults in case the AI omits the newer application-method fields,
+    // plus a sanitize pass: if the source page used Cloudflare's email
+    // protection and our decode above couldn't recover it (different
+    // obfuscator, malformed hex, etc.), the literal placeholder text
+    // "[email protected]" can still show up in applicationUrl or the
+    // description fields. Never let that reach the admin as if it were a
+    // real value — blank applicationUrl and raise applicationUrlNeedsReview
+    // so admin.html can prompt for a manually-typed email instead, and strip
+    // the placeholder out of the prose fields so end users never see it.
+    structured.positions = structured.positions.map(p => {
+      let applicationUrl = p.applicationUrl || '';
+      let needsReview = false;
+      CF_EMAIL_PLACEHOLDER_RE.lastIndex = 0; // shared /g regex: reset before each .test() to avoid lastIndex leaking across positions
+      if (CF_EMAIL_PLACEHOLDER_RE.test(applicationUrl)) {
+        applicationUrl = '';
+        needsReview = true;
+      }
+      const stripPlaceholder = (text) => (text || '').replace(CF_EMAIL_PLACEHOLDER_RE, '(email protected on source site — see application instructions)');
+      return {
+        ...p,
+        applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
+        applicationUrl,
+        applicationUrlNeedsReview: needsReview,
+        physicalAddress:  p.physicalAddress || '',
+        fullDescription:  stripPlaceholder(p.fullDescription),
+        shortDescription: stripPlaceholder(p.shortDescription)
+      };
+    });
 
     return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
 

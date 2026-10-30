@@ -2650,6 +2650,20 @@
         // ── Apply flow — online (external link) vs physical (in-person) ────────────
         const APPLY_DONT_SHOW_KEY = 'cv_hideApplyOnlineDialog';
 
+        // applicationUrl may be a real link OR a plain email address (the
+        // admin types a bare email when a posting asks to apply by email).
+        // window.open() on a bare "name@company.com" doesn't open mail —
+        // it tries to navigate to it as if it were a page, which fails
+        // silently. Detect the email case and build a mailto: link instead.
+        function resolveApplyTarget(raw) {
+            const value = (raw || '').trim();
+            if (!value) return '';
+            if (/^mailto:/i.test(value)) return value;
+            if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'mailto:' + value;
+            if (/^https?:\/\//i.test(value)) return value;
+            return 'https://' + value;
+        }
+
         function openApplyFlow() {
             if (!currentJobDetail) return;
 
@@ -2666,7 +2680,7 @@
             }
 
             if (localStorage.getItem(APPLY_DONT_SHOW_KEY) === '1') {
-                window.open(currentJobDetail.applicationUrl, '_blank', 'noopener');
+                window.open(resolveApplyTarget(currentJobDetail.applicationUrl), '_blank', 'noopener');
                 return;
             }
 
@@ -2684,7 +2698,7 @@
             }
             closeApplyOnlineModal();
             if (currentJobDetail && currentJobDetail.applicationUrl) {
-                window.open(currentJobDetail.applicationUrl, '_blank', 'noopener');
+                window.open(resolveApplyTarget(currentJobDetail.applicationUrl), '_blank', 'noopener');
             }
         }
 
