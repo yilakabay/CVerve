@@ -95,6 +95,25 @@ exports.handler = async (event, context) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'Missing B.AI API key' }) };
   }
 
+  // Wall-clock anchor for the WHOLE handler, not just one AI call. This is a
+  // classic exports.handler-style function proxied through the same
+  // AWS-API-Gateway path that extract-file.js/extract-text.js discovered has
+  // a real, undocumented hard ceiling around 26-30s — well short of
+  // Netlify's documented 60s. The old code gave EACH of up to 2 retry passes
+  // its own fresh 24000ms callAI budget, so a genuinely slow posting (a
+  // large multi-position one, pushing the full 8000-token JSON output) could
+  // legitimately run pass 1 for ~24s, fail, then start pass 2 for another
+  // ~24s — total wall time up to ~48s, guaranteed to blow past that real
+  // ceiling and get killed mid-response with no clean error at all, which is
+  // what actually produced "AI refinement failed" with no useful detail.
+  // Fixed by budgeting the WHOLE handler against one deadline: pass 2 only
+  // runs if there's real time left, and gets whatever time remains (never a
+  // fresh full budget), so the total never approaches the real ceiling.
+  const handlerStarted = Date.now();
+  const HANDLER_DEADLINE_MS = 20000;
+  const MIN_TIME_FOR_RETRY_MS = 6000; // a second AI pass needs a real chance to finish, not a token gesture
+  function timeLeft() { return HANDLER_DEADLINE_MS - (Date.now() - handlerStarted); }
+
   try {
     // ── Resolve raw text ───────────────────────────────────────────────────
     let rawText = jdText || '';
@@ -160,9 +179,18 @@ exports.handler = async (event, context) => {
       - Return raw JSON only — no backticks, no explanation text before or after.
     `;
 
-    // Up to 2 passes if the answer comes back unusable (not charged to anyone).
+    // Up to 2 passes if the answer comes back unusable (not charged to anyone)
+    // — but pass 2 only runs if there's genuinely enough of the handler's
+    // own deadline left for it to have a real chance of finishing. See the
+    // HANDLER_DEADLINE_MS comment above for why this is no longer "2 fresh
+    // 24000ms attempts" the way it used to be.
     let structured, lastError;
     for (let pass = 1; pass <= 2; pass++) {
+      const remaining = timeLeft();
+      if (pass > 1 && remaining < MIN_TIME_FOR_RETRY_MS) {
+        console.error(`refine-job-posting: skipping retry pass ${pass} — only ${remaining}ms left of the handler's own deadline.`);
+        break;
+      }
       try {
         const result = await callAI({
           model: MODEL_IDS.GEMINI_FLASH,
@@ -173,16 +201,25 @@ exports.handler = async (event, context) => {
           maxTokens: 8000,
           temperature: 0.1,
           json: true,
-          timeoutMs: 24000,
-          attempts: 2
+          timeoutMs: Math.max(3000, remaining - 500),
+          attempts: 1 // the per-call internal retry loop is redundant with — and used to combine badly with — this outer pass loop; one real attempt per pass, budgeted off the real remaining time
         });
 
         let parsed;
         try { parsed = parseJsonLoose(result.text); }
-        catch (parseErr) { throw new Error('AI returned an unexpected format. Please try again.'); }
+        catch (parseErr) { throw Object.assign(new Error('AI returned an unexpected format. Please try again.'), { userFacing: true }); }
 
         if (!parsed || !parsed.company || !Array.isArray(parsed.positions) || parsed.positions.length === 0) {
-          throw new Error('AI response was missing required fields. Please try again.');
+          throw Object.assign(new Error('AI response was missing required fields. Please try again.'), { userFacing: true });
+        }
+        if (result.finishReason === 'length') {
+          // Genuinely too big for one response at this token cap — asking
+          // again won't help (it'll hit the same cap), so say so plainly
+          // instead of quietly handing back a truncated/malformed posting.
+          throw Object.assign(
+            new Error('This posting has too much content to structure in one pass (it may list many positions). Please split it up — paste one position at a time, or a shorter excerpt.'),
+            { retryable: false, userFacing: true }
+          );
         }
         structured = parsed;
         lastError = null;
@@ -207,13 +244,22 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('refine-job-posting error:', error);
-    let errorMessage = 'We are unable to refine this job posting right now. ';
-    if (error.name === 'AbortError' || (error.message && /timeout|timed out/i.test(error.message))) {
-      errorMessage += 'The AI took too long. Please try again, or paste a shorter posting.';
+    let errorMessage;
+    if (error.userFacing) {
+      // One of the specific, deliberately-written messages above (bad
+      // JSON shape, missing fields, too-long-for-one-pass) — these were
+      // being thrown away and replaced with a generic "try again in a
+      // moment" below, which is exactly why the admin only ever saw an
+      // unhelpful failure with no indication of what actually went wrong
+      // or what to do about it. Forward these as-is; they're already safe,
+      // written-for-humans text, not a raw provider error.
+      errorMessage = error.message;
+    } else if (error.name === 'AbortError' || (error.message && /timeout|timed out/i.test(error.message))) {
+      errorMessage = 'We are unable to refine this job posting right now. The AI took too long. Please try again, or paste a shorter posting.';
     } else {
       // Never forward the raw provider error to the client — see the same
       // reasoning documented in generate-letter.js / smart-finder.js.
-      errorMessage += 'Please try again in a moment.';
+      errorMessage = 'We are unable to refine this job posting right now. Please try again in a moment.';
     }
     return { statusCode: 500, body: JSON.stringify({ error: errorMessage }) };
   }
