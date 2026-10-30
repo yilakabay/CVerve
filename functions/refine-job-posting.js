@@ -153,8 +153,17 @@ exports.handler = async (event, context) => {
   // Fixed by budgeting the WHOLE handler against one deadline: pass 2 only
   // runs if there's real time left, and gets whatever time remains (never a
   // fresh full budget), so the total never approaches the real ceiling.
+  // 2026-10-30: observed in production logs that a single structuring pass
+  // can legitimately need the AI ~19-20s to finish on a large/complex
+  // posting, which was eating the entire old 20000ms budget and aborting
+  // right as the response was about to land (request logged at 20.97s
+  // total, function at 20.36s, ending in exactly this timeout). Raised to
+  // 24000ms — still with a real margin below the ~26-30s hard ceiling for
+  // Lambda overhead + JSON serialization + response — to give genuinely
+  // slow (not broken) postings a real chance to finish instead of being
+  // cut off right at the finish line.
   const handlerStarted = Date.now();
-  const HANDLER_DEADLINE_MS = 20000;
+  const HANDLER_DEADLINE_MS = 24000;
   const MIN_TIME_FOR_RETRY_MS = 6000; // a second AI pass needs a real chance to finish, not a token gesture
   function timeLeft() { return HANDLER_DEADLINE_MS - (Date.now() - handlerStarted); }
 
