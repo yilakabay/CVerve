@@ -367,10 +367,32 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
   return { text: result.text, parsed, tokensUsed: result.cost, tokenBalance, finishReason: result.finishReason };
 }
 
-// Strip ``` fences some models add, then parse JSON.
+// Strip ``` fences some models add, then parse JSON. Even with
+// response_format:{type:'json_object'} requested, not every model behind the
+// B.AI gateway reliably returns PURE JSON with nothing else — some add a
+// short preamble ("Here is the result:") or trailing commentary around the
+// object/array, which a plain JSON.parse rejects outright even though the
+// JSON itself is perfectly valid. That shows up to callers (smart-finder,
+// refine-job-posting, extraction, etc.) as "AI returned an unexpected
+// format" and, since it isn't an AIError, surfaces to the user as a bare
+// generic failure message with no indication anything was actually fine
+// except the wrapping text. Fall back to extracting the first balanced
+// {...} or [...] in the text and parsing just that, before giving up.
 function parseJsonLoose(text) {
   const cleaned = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (firstErr) {
+    const firstBrace   = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    const starts = [firstBrace, firstBracket].filter(i => i !== -1);
+    if (starts.length === 0) throw firstErr;
+    const start = Math.min(...starts);
+    const closeChar = cleaned[start] === '{' ? '}' : ']';
+    const end = cleaned.lastIndexOf(closeChar);
+    if (end <= start) throw firstErr;
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
 }
 
 module.exports = {
