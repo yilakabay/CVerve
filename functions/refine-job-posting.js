@@ -187,7 +187,17 @@ exports.handler = async (event, context) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Job posting text is required and must contain sufficient content.' }) };
     }
 
-    const MAX_TEXT_LENGTH = 50000;
+    // 2026-10-31: the real lever on how long the AI call takes isn't maxTokens
+    // (that's a cap on output, not a speed control — the model only runs as
+    // long as the content actually needs) — it's how much source text and how
+    // much generated detail we're asking for per call. A 50000-char input
+    // (scraped pages often carry a LOT of boilerplate: nav, footer, unrelated
+    // postings) was routinely pushing single calls past the real ~20s ceiling
+    // that had just been raised to 24s. Tightened to 20000 chars, which is
+    // still generous for any single posting (or a small handful), to keep
+    // calls comfortably inside the time budget instead of riding the edge of
+    // it every time.
+    const MAX_TEXT_LENGTH = 20000;
     const truncated = rawText.length > MAX_TEXT_LENGTH
       ? rawText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : rawText;
@@ -251,7 +261,13 @@ exports.handler = async (event, context) => {
             { role: 'system', content: 'You turn raw job postings into clean structured JSON. You reply with valid JSON only.' },
             { role: 'user',   content: prompt }
           ],
-          maxTokens: 8000,
+          // Lowered from 8000: this isn't a speed control on its own (the
+          // model only runs as long as the content needs), but a lower cap
+          // means a genuinely oversized multi-position posting hits the
+          // length limit — and the already-handled "please split this up"
+          // message — well before it can eat the whole time budget, instead
+          // of generating for 20+ seconds before we even notice it's too big.
+          maxTokens: 4000,
           temperature: 0.1,
           json: true,
           timeoutMs: Math.max(3000, remaining - 500),
