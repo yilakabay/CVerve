@@ -2636,8 +2636,8 @@
 
             currentJobDetail = {
                 company: job.company, title: pos.title, jobId, sourceUrl: job.sourceUrl, fullDescription: pos.fullDescription,
-                applicationType: pos.applicationType || 'online',
                 applicationUrl: pos.applicationUrl || '',
+                applicationEmail: pos.applicationEmail || '',
                 physicalAddress: pos.physicalAddress || ''
             };
             document.getElementById('jobDetailModal').classList.remove('hidden');
@@ -2647,56 +2647,72 @@
             document.getElementById('jobDetailModal').classList.add('hidden');
         }
 
-        // ── Apply flow — online (external link) vs physical (in-person) ────────────
-        const APPLY_DONT_SHOW_KEY = 'cv_hideApplyOnlineDialog';
+        // ── Apply flow — a posting can offer more than one way to apply at once
+        // (in person, by email, via a link), so this shows every method the
+        // admin actually filled in for this position, rather than picking one.
+        function closeApplyMethodsModal() {
+            document.getElementById('applyMethodsModal').classList.add('hidden');
+        }
 
         function openApplyFlow() {
             if (!currentJobDetail) return;
 
-            if (currentJobDetail.applicationType === 'physical') {
-                document.getElementById('applyPhysicalAddress').textContent = currentJobDetail.physicalAddress || 'Address not specified — check the full description for details.';
-                document.getElementById('applyPhysicalModal').classList.remove('hidden');
+            const methods = [];
+            if (currentJobDetail.applicationEmail) {
+                methods.push({
+                    label: '✉️ Apply by Email',
+                    sub: currentJobDetail.applicationEmail,
+                    actionLabel: 'Open Email',
+                    action: () => window.open('mailto:' + currentJobDetail.applicationEmail, '_blank', 'noopener')
+                });
+            }
+            if (currentJobDetail.applicationUrl) {
+                methods.push({
+                    label: '🔗 Apply Online',
+                    sub: currentJobDetail.applicationUrl,
+                    actionLabel: 'Open Link',
+                    action: () => window.open(currentJobDetail.applicationUrl, '_blank', 'noopener')
+                });
+            }
+            if (currentJobDetail.physicalAddress) {
+                methods.push({
+                    label: '📍 Apply In Person',
+                    sub: currentJobDetail.physicalAddress,
+                    actionLabel: null // just an address to read, nothing to open
+                });
+            }
+
+            if (methods.length === 0) {
+                showMessage('error', 'This job doesn\'t have application details yet. Check the full description for how to apply.');
                 return;
             }
 
-            // Online application
-            if (!currentJobDetail.applicationUrl) {
-                showMessage('error', 'This job doesn\'t have an application link yet. Check the full description for how to apply.');
-                return;
-            }
+            const list = document.getElementById('applyMethodsList');
+            list.innerHTML = '';
+            methods.forEach(m => {
+                const row = document.createElement('div');
+                row.className = 'border border-gray-200 rounded-xl p-3 dark:border-gray-700';
+                row.innerHTML = `
+                    <p class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-0.5">${m.label}</p>
+                    <p class="text-xs text-gray-500 whitespace-pre-line mb-2 dark:text-gray-400">${escapeHtmlJob(m.sub)}</p>
+                `;
+                if (m.action) {
+                    const btn = document.createElement('button');
+                    btn.className = 'w-full bg-gray-800 text-white py-2 rounded-full text-xs font-semibold hover:bg-gray-900';
+                    btn.textContent = m.actionLabel;
+                    btn.onclick = m.action;
+                    row.appendChild(btn);
+                }
+                list.appendChild(row);
+            });
 
-            if (localStorage.getItem(APPLY_DONT_SHOW_KEY) === '1') {
-                window.open(currentJobDetail.applicationUrl, '_blank', 'noopener');
-                return;
-            }
-
-            document.getElementById('applyDontShowAgain').checked = false;
-            document.getElementById('applyOnlineModal').classList.remove('hidden');
+            document.getElementById('applyMethodsModal').classList.remove('hidden');
         }
 
-        function closeApplyOnlineModal() {
-            document.getElementById('applyOnlineModal').classList.add('hidden');
-        }
-
-        function confirmApplyOnline() {
-            if (document.getElementById('applyDontShowAgain').checked) {
-                localStorage.setItem(APPLY_DONT_SHOW_KEY, '1');
-            }
-            closeApplyOnlineModal();
-            if (currentJobDetail && currentJobDetail.applicationUrl) {
-                window.open(currentJobDetail.applicationUrl, '_blank', 'noopener');
-            }
-        }
-
-        function closeApplyPhysicalModal() {
-            document.getElementById('applyPhysicalModal').classList.add('hidden');
-        }
-
-        // Both apply dialogs' "Generate Letter" button routes into the same
+        // The apply dialog's "Generate Letter" button routes into the same
         // stored-info + date-of-application flow already used from the Detail view.
         function generateLetterFromApplyDialog() {
-            closeApplyOnlineModal();
-            closeApplyPhysicalModal();
+            closeApplyMethodsModal();
             closeJobDetailModal();
             openJobLetterModal();
         }
@@ -6797,38 +6813,15 @@
     </div>
 </div>
 
-<!-- Apply — Online confirmation modal -->
-<div id="applyOnlineModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9990] px-4" onclick="if(event.target===this) closeApplyOnlineModal()">
+<!-- Apply — shows every application method this posting offers (in person / email / online link) -->
+<div id="applyMethodsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9990] px-4" onclick="if(event.target===this) closeApplyMethodsModal()">
     <div class="bg-white rounded-2xl max-w-sm w-full p-5 dark:bg-gray-900">
         <div class="flex items-start justify-between mb-2">
-            <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">You're about to leave CVcase</h3>
-            <button onclick="closeApplyOnlineModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none dark:text-gray-500">&times;</button>
+            <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">How to apply</h3>
+            <button onclick="closeApplyMethodsModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none dark:text-gray-500">&times;</button>
         </div>
-        <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">You're going to the job's application site. We recommend generating your application letter first — it's important for almost all applications, and takes one click.</p>
-        <button onclick="generateLetterFromApplyDialog()" class="w-full bg-indigo-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors mb-2">Generate Letter</button>
-        <div class="flex gap-2">
-            <button onclick="closeApplyOnlineModal()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Back</button>
-            <button onclick="confirmApplyOnline()" class="flex-1 py-2.5 rounded-full text-sm font-semibold bg-gray-800 text-white hover:bg-gray-900">Apply</button>
-        </div>
-        <label class="flex items-center gap-2 mt-4 text-xs text-gray-500 cursor-pointer dark:text-gray-400">
-            <input type="checkbox" id="applyDontShowAgain" class="rounded border-gray-300 dark:border-gray-600">
-            Don't show this again
-        </label>
-    </div>
-</div>
-
-<!-- Apply — Physical (in-person) modal -->
-<div id="applyPhysicalModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9990] px-4" onclick="if(event.target===this) closeApplyPhysicalModal()">
-    <div class="bg-white rounded-2xl max-w-sm w-full p-5 dark:bg-gray-900">
-        <div class="flex items-start justify-between mb-2">
-            <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">Apply in person</h3>
-            <button onclick="closeApplyPhysicalModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none dark:text-gray-500">&times;</button>
-        </div>
-        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 dark:text-gray-400">Address</p>
-        <p class="text-sm text-gray-700 whitespace-pre-line mb-4 dark:text-gray-200" id="applyPhysicalAddress"></p>
-        <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4">
-            <p class="text-xs text-indigo-700">💡 Generate your application letter now, in one click, before you head there.</p>
-        </div>
+        <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">We recommend generating your application letter first — it's important for almost all applications, and takes one click.</p>
+        <div id="applyMethodsList" class="space-y-2 mb-4"></div>
         <button onclick="generateLetterFromApplyDialog()" class="w-full bg-indigo-500 text-white py-2.5 rounded-full text-sm font-semibold hover:bg-indigo-600 transition-colors">Generate Letter</button>
     </div>
 </div>

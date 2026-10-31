@@ -485,13 +485,13 @@
           </div>
 
           <div id="jpBulkUrlBar" class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 hidden">
-            <label class="text-xs font-semibold text-indigo-700 mb-1 block">Application Link URL (for online positions)</label>
+            <label class="text-xs font-semibold text-indigo-700 mb-1 block">Application Link URL (bulk-fill the link field)</label>
             <div class="flex gap-2 mb-2">
               <input type="url" id="jpBulkUrl" placeholder="https://company.com/careers/apply" class="flex-1 px-3 py-2 rounded-lg border border-indigo-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
               <button onclick="applyBulkUrl()" class="bg-indigo-500 text-white text-xs font-bold px-4 rounded-lg hover:bg-indigo-600 transition-colors flex-shrink-0">Apply to checked</button>
             </div>
             <label class="flex items-center gap-2 text-xs text-indigo-600 cursor-pointer">
-              <input type="checkbox" id="jpSelectAllOnline" onchange="toggleSelectAllOnline(this.checked)"> Select all online positions
+              <input type="checkbox" id="jpSelectAllOnline" onchange="toggleSelectAllOnline(this.checked)"> Select all positions
             </label>
             <p class="text-[0.7rem] text-indigo-400 mt-1">Tip: enter a link, check the positions it applies to, then click "Apply to checked". Checked boxes clear afterward so you can enter a different link for the rest.</p>
           </div>
@@ -1278,18 +1278,16 @@
     updateBulkUrlSelectAllVisibility();
   }
 
-  // Shows the "Select all" row only when at least one position is currently online
+  // The bulk-link bar is useful any time there's at least one position to apply a link to.
   function updateBulkUrlSelectAllVisibility() {
-    const anyOnline = jpStructured.positions.some(p => p.applicationType !== 'physical');
     const bar = document.getElementById('jpBulkUrlBar');
-    if (bar) bar.classList.toggle('hidden', !anyOnline);
+    if (bar) bar.classList.toggle('hidden', jpStructured.positions.length === 0);
   }
 
   function buildPositionCard(p, idx) {
     const card = document.createElement('div');
     card.className = 'border border-gray-200 rounded-xl p-3 bg-white relative';
     card.dataset.idx = idx;
-    const isPhysical = p.applicationType === 'physical';
     card.innerHTML = `
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs font-bold text-emerald-600">Position ${idx + 1}</span>
@@ -1305,47 +1303,28 @@
       <textarea class="jp-short w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Short description (feed card teaser)">${escapeHtml(p.shortDescription)}</textarea>
       <textarea class="jp-full w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="4" placeholder="Full description (shown behind Detail button)">${escapeHtml(p.fullDescription)}</textarea>
 
-      <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-        <button type="button" onclick="togglePositionAppType(${idx})" data-type="${isPhysical ? 'physical' : 'online'}" id="jp-apptype-btn-${idx}"
-          class="text-xs font-semibold px-2.5 py-1 rounded-full ${isPhysical ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}">
-          ${isPhysical ? '📍 Physical' : '🔗 Online'} — tap to switch
-        </button>
-        <label id="jp-select-wrap-${idx}" class="flex items-center gap-1.5 text-xs text-gray-500 ${isPhysical ? 'hidden' : ''}">
-          <input type="checkbox" class="jp-online-select" data-idx="${idx}"> Select for link
-        </label>
-      </div>
-      <div id="jp-apptype-detail-${idx}" class="mt-2">
-        ${isPhysical
-          ? `<textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="2" placeholder="Physical address to apply in person">${escapeHtml(p.physicalAddress || '')}</textarea>`
-          : `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL" value="${escapeAttr(p.applicationUrl || '')}">`
+      <div class="mt-2 pt-2 border-t border-gray-200">
+        <div class="text-[11px] font-semibold text-gray-500 mb-1.5">How applicants can apply — fill in whichever ways this posting actually offers; leave the rest blank</div>
+
+        <label class="block text-[11px] text-gray-500 mb-0.5">📍 In person</label>
+        <textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" rows="2" placeholder="Physical address to apply in person (leave blank if not offered)">${escapeHtml(p.physicalAddress || '')}</textarea>
+
+        <label class="block text-[11px] text-gray-500 mb-0.5">✉️ Email</label>
+        ${p.emailNeedsReview
+          ? `<div class="mb-1 text-[11px] font-semibold text-amber-700">⚠️ The source page protects its email from scraping — we couldn't read it. Please type the real email in below.</div>
+             <input type="text" class="jp-email w-full px-2 py-1.5 rounded-lg border border-amber-400 bg-amber-50 text-xs mb-2" placeholder="Enter the application email address" value="">`
+          : `<input type="text" class="jp-email w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs mb-2" placeholder="Application email address (leave blank if not offered)" value="${escapeAttr(p.applicationEmail || '')}">`
         }
+
+        <label class="block text-[11px] text-gray-500 mb-0.5">🔗 Online link</label>
+        <input type="text" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link / portal URL (leave blank if not offered)" value="${escapeAttr(p.applicationUrl || '')}">
+
+        <label class="flex items-center gap-1.5 text-xs text-gray-500 mt-2">
+          <input type="checkbox" class="jp-online-select" data-idx="${idx}"> Select for bulk link
+        </label>
       </div>
     `;
     return card;
-  }
-
-  function togglePositionAppType(idx) {
-    const btn = document.getElementById('jp-apptype-btn-' + idx);
-    const detailWrap = document.getElementById('jp-apptype-detail-' + idx);
-    const selectWrap = document.getElementById('jp-select-wrap-' + idx);
-    const goingPhysical = btn.dataset.type !== 'physical'; // toggling FROM online TO physical
-
-    if (goingPhysical) {
-      btn.dataset.type = 'physical';
-      btn.textContent = '📍 Physical — tap to switch';
-      btn.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700';
-      detailWrap.innerHTML = `<textarea class="jp-address w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" rows="2" placeholder="Physical address to apply in person"></textarea>`;
-      selectWrap.classList.add('hidden');
-      const cb = selectWrap.querySelector('.jp-online-select');
-      if (cb) cb.checked = false;
-    } else {
-      btn.dataset.type = 'online';
-      btn.textContent = '🔗 Online — tap to switch';
-      btn.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700';
-      detailWrap.innerHTML = `<input type="url" class="jp-url w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs" placeholder="Application link URL">`;
-      selectWrap.classList.remove('hidden');
-    }
-    updateBulkUrlSelectAllVisibility();
   }
 
   function toggleSelectAllOnline(checked) {
@@ -1367,8 +1346,8 @@
     if (checked.length === 0) { showToast('Check at least one position first.', 'error'); return; }
 
     checked.forEach(cb => {
-      const idx = cb.dataset.idx;
-      const posUrlInput = document.querySelector(`#jp-apptype-detail-${idx} .jp-url`);
+      const card = cb.closest('[data-idx]');
+      const posUrlInput = card ? card.querySelector('.jp-url') : null;
       if (posUrlInput) posUrlInput.value = url;
       cb.checked = false;
     });
@@ -1606,7 +1585,7 @@
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
 
   function addPositionCard() {
-    const blank = { title: '', qualification: '', experience: '', salary: 'Not specified', expireDate: 'Not specified', shortDescription: '', fullDescription: '', applicationType: 'online', applicationUrl: '', physicalAddress: '' };
+    const blank = { title: '', qualification: '', experience: '', salary: 'Not specified', expireDate: 'Not specified', shortDescription: '', fullDescription: '', applicationUrl: '', applicationEmail: '', physicalAddress: '' };
     jpStructured.positions.push(blank);
     document.getElementById('jpPositionsList').appendChild(buildPositionCard(blank, jpStructured.positions.length - 1));
     updateBulkUrlSelectAllVisibility();
@@ -1619,11 +1598,10 @@
 
   function collectPositionsFromForm() {
     const cards = document.querySelectorAll('#jpPositionsList > div');
-    return Array.from(cards).map((card, idx) => {
-      const btn = document.getElementById('jp-apptype-btn-' + idx);
-      const applicationType = (btn && btn.dataset.type === 'physical') ? 'physical' : 'online';
-      const urlInput  = card.querySelector('.jp-url');
-      const addrInput = card.querySelector('.jp-address');
+    return Array.from(cards).map((card) => {
+      const urlInput   = card.querySelector('.jp-url');
+      const emailInput = card.querySelector('.jp-email');
+      const addrInput  = card.querySelector('.jp-address');
       return {
         title:            card.querySelector('.jp-title').value.trim(),
         qualification:    card.querySelector('.jp-qualification').value.trim(),
@@ -1632,9 +1610,9 @@
         expireDate:       card.querySelector('.jp-expire').value.trim() || 'Not specified',
         shortDescription: card.querySelector('.jp-short').value.trim(),
         fullDescription:  card.querySelector('.jp-full').value.trim(),
-        applicationType,
-        applicationUrl:   urlInput  ? urlInput.value.trim()  : '',
-        physicalAddress:  addrInput ? addrInput.value.trim() : ''
+        physicalAddress:  addrInput  ? addrInput.value.trim()  : '',
+        applicationEmail: emailInput ? emailInput.value.trim() : '',
+        applicationUrl:   urlInput   ? urlInput.value.trim()   : ''
       };
     });
   }

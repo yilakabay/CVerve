@@ -75,6 +75,10 @@ function verifyToken(token) {
 }
 
 function sanitizePosition(p) {
+  // A posting can offer more than one way to apply at once (in person,
+  // by email, via a link) — each is stored independently; whichever are
+  // non-empty are the methods shown to applicants. applicationType is no
+  // longer a meaningful single choice, so it's no longer stored.
   return {
     title:            (p.title || '').toString().trim(),
     qualification:    (p.qualification || '').toString().trim(),
@@ -83,9 +87,9 @@ function sanitizePosition(p) {
     expireDate:       (p.expireDate || 'Not specified').toString().trim(),
     shortDescription: (p.shortDescription || '').toString().trim(),
     fullDescription:  (p.fullDescription || '').toString().trim(),
-    applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
-    applicationUrl:   (p.applicationUrl || '').toString().trim(),
-    physicalAddress:  (p.physicalAddress || '').toString().trim()
+    physicalAddress:  (p.physicalAddress  || '').toString().trim(),
+    applicationEmail: (p.applicationEmail || '').toString().trim(),
+    applicationUrl:   (p.applicationUrl   || '').toString().trim()
   };
 }
 

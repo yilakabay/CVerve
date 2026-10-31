@@ -161,9 +161,10 @@ exports.handler = async (event, context) => {
             "expireDate": "Application deadline if stated, in YYYY-MM-DD format if possible, otherwise \\"Not specified\\"",
             "shortDescription": "1-2 sentence teaser summarizing the role, shown on a job feed card",
             "fullDescription": "The complete detail for this position — responsibilities, requirements, benefits, how to apply, everything relevant from the source, well formatted with line breaks between sections. Do not include information about OTHER positions here.",
-            "applicationType": "\\"online\\" or \\"physical\\" — see rules below",
-            "applicationUrl": "If an application link/URL/email is explicitly given in the source for THIS position, extract it exactly as written. Otherwise empty string.",
-            "physicalAddress": "Only if applicationType is \\"physical\\": the office/location address stated for submitting the application in person. Otherwise empty string."
+            "physicalAddress": "If the posting allows submitting the application in person, the office/location address stated for THIS position. Otherwise empty string.",
+            "applicationEmail": "If the posting allows applying by email, the email address stated for THIS position, extracted exactly as written. If the source page's email is hidden by spam/scraper protection (shown as placeholder text like \\"[email protected]\\" instead of a real address), leave this empty — never output that placeholder text. Otherwise empty string.",
+            "emailProtected": "true (boolean, not string) ONLY if this position is meant to be applied to by email but the real address could not be read because the source hid/obfuscated it (e.g. shows literal placeholder text instead of a real address). false in every other case, including when no email method is offered at all.",
+            "applicationUrl": "If the posting allows applying via a link or online portal (not an email address), that URL for THIS position, extracted exactly as written. Otherwise empty string."
           }
         ]
       }
@@ -174,8 +175,8 @@ exports.handler = async (event, context) => {
       - Do not invent facts. If a field isn't stated in the source, use "Not specified".
       - Keep "shortDescription" genuinely short (max ~30 words) — it's a preview, not the full posting.
       - "fullDescription" should be thorough and self-contained for that specific position only.
-      - "applicationType": use "physical" ONLY when the posting explicitly requires submitting the application in person, by hand delivery, or by visiting a physical office/location to apply. Use "online" for everything else, including applying by email, an online portal/link, or when the method isn't stated at all — online is the default assumption.
-      - "applicationUrl": only extract a value if the source text literally contains a link or email address meant for applying to THIS position. Never guess or construct a URL that isn't explicitly present — leave it as an empty string if unsure. The admin will fill this in manually afterward if it's missing.
+      - A posting can offer MORE THAN ONE way to apply at once (e.g. both in person and by email, or both email and an online link). Fill in "physicalAddress", "applicationEmail" and "applicationUrl" independently — each one on its own, based only on what that specific method's instructions say. Leave any of them empty if that method isn't offered. Do not pick just one.
+      - Never guess or construct a value that isn't explicitly present in the source — leave a field empty string if unsure. The admin will fill in anything missing manually afterward.
       - Return raw JSON only — no backticks, no explanation text before or after.
     `;
 
@@ -232,13 +233,31 @@ exports.handler = async (event, context) => {
     }
     if (lastError) throw lastError;
 
-    // Safety defaults in case the AI omits the newer application-method fields
-    structured.positions = structured.positions.map(p => ({
-      ...p,
-      applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
-      applicationUrl:   p.applicationUrl || '',
-      physicalAddress:  p.physicalAddress || ''
-    }));
+    // Safety defaults, plus a cheap sanitize pass: a page that hides its
+    // email behind spam/scraper protection (e.g. Cloudflare's "Email
+    // Address Protection") only leaves behind placeholder text like
+    // "[email protected]" where the real address should be — if that literal
+    // text slips through into applicationEmail, never show it to the admin
+    // as if it were a real value. Blank it and flag it instead, so
+    // admin.html can prompt for the real address to be typed in by hand.
+    // This is a plain string check on the AI's own output — it adds no
+    // extra network/HTML work, so it carries none of the latency risk the
+    // earlier full-page-decoding attempt did.
+    const EMAIL_PLACEHOLDER_RE = /\[email(?:&#160;|&nbsp;|\s)*protected\]/i;
+    structured.positions = structured.positions.map(p => {
+      let applicationEmail = (p.applicationEmail || '').toString().trim();
+      // Trust the AI's own emailProtected flag, but also catch the literal
+      // placeholder text directly in case it slipped into the field anyway.
+      let emailNeedsReview = p.emailProtected === true || EMAIL_PLACEHOLDER_RE.test(applicationEmail);
+      if (EMAIL_PLACEHOLDER_RE.test(applicationEmail)) applicationEmail = '';
+      return {
+        ...p,
+        physicalAddress:  (p.physicalAddress || '').toString().trim(),
+        applicationEmail,
+        emailNeedsReview,
+        applicationUrl:   (p.applicationUrl || '').toString().trim()
+      };
+    });
 
     return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
 
