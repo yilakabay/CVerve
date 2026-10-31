@@ -74,50 +74,6 @@ function htmlToText(html) {
     .trim();
 }
 
-// ── Cloudflare "Email Address Protection" decoding ────────────────────────
-// Sites behind Cloudflare often replace a real mailto link with
-// <a href="/cdn-cgi/l/email-protection#HEX" class="__cf_email__" data-cfemail="HEX">[email&#160;protected]</a>
-// and decode it client-side with a tiny JS snippet Cloudflare injects. Our
-// scraper does a plain HTTP GET with no JS execution, so without this step
-// the real address is lost and only the literal fallback text
-// "[email protected]" survives tag-stripping — which is exactly what the
-// admin was seeing and what the AI was passing straight through as if it
-// were a real value. Cloudflare's encoding is a simple, well-documented
-// single-byte XOR (first hex byte is the key), so we can recover the real
-// address ourselves instead of asking the admin to re-type it by hand.
-function decodeCfEmail(hex) {
-  const key = parseInt(hex.substr(0, 2), 16);
-  let email = '';
-  for (let i = 2; i < hex.length; i += 2) {
-    email += String.fromCharCode(parseInt(hex.substr(i, 2), 16) ^ key);
-  }
-  return email;
-}
-
-function decodeCloudflareEmails(html) {
-  // Collect every data-cfemail="HEX" value in document order, decode each.
-  const decoded = [];
-  html.replace(/data-cfemail="([a-f0-9]+)"/gi, (match, hex) => {
-    try { decoded.push(decodeCfEmail(hex)); } catch { /* ignore malformed hex */ }
-    return match;
-  });
-  if (!decoded.length) return html;
-  // The visible fallback text Cloudflare renders for each protected address
-  // is literally "[email protected]" (sometimes with &#160;/&nbsp; as the
-  // space). Swap each occurrence, in the same order, for its decoded email —
-  // correct for the overwhelmingly common case of one protected address per
-  // posting, and still an improvement (first address recovered) if there
-  // happen to be more than one.
-  let i = 0;
-  return html.replace(/\[email(?:&#160;|&nbsp;|\s)*protected\]/gi, () => decoded[i++] || '[email protected]');
-}
-
-// Matches the literal Cloudflare fallback text if it somehow survives (e.g.
-// a non-Cloudflare obfuscator using the same wording, or a decode we
-// couldn't perform) so we never let it reach the admin looking like a real
-// extracted value.
-const CF_EMAIL_PLACEHOLDER_RE = /\[email(?:&#160;|&nbsp;|\s)*protected\]/gi;
-
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
@@ -153,17 +109,8 @@ exports.handler = async (event, context) => {
   // Fixed by budgeting the WHOLE handler against one deadline: pass 2 only
   // runs if there's real time left, and gets whatever time remains (never a
   // fresh full budget), so the total never approaches the real ceiling.
-  // 2026-10-30: observed in production logs that a single structuring pass
-  // can legitimately need the AI ~19-20s to finish on a large/complex
-  // posting, which was eating the entire old 20000ms budget and aborting
-  // right as the response was about to land (request logged at 20.97s
-  // total, function at 20.36s, ending in exactly this timeout). Raised to
-  // 24000ms — still with a real margin below the ~26-30s hard ceiling for
-  // Lambda overhead + JSON serialization + response — to give genuinely
-  // slow (not broken) postings a real chance to finish instead of being
-  // cut off right at the finish line.
   const handlerStarted = Date.now();
-  const HANDLER_DEADLINE_MS = 24000;
+  const HANDLER_DEADLINE_MS = 20000;
   const MIN_TIME_FOR_RETRY_MS = 6000; // a second AI pass needs a real chance to finish, not a token gesture
   function timeLeft() { return HANDLER_DEADLINE_MS - (Date.now() - handlerStarted); }
 
@@ -174,7 +121,7 @@ exports.handler = async (event, context) => {
     if (jdUrl && (!jdText || jdText.trim().length < 20)) {
       try {
         const rawHtml = await fetchUrl(jdUrl);
-        rawText = htmlToText(decodeCloudflareEmails(rawHtml));
+        rawText = htmlToText(rawHtml);
       } catch (fetchErr) {
         return {
           statusCode: 400,
@@ -187,17 +134,7 @@ exports.handler = async (event, context) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Job posting text is required and must contain sufficient content.' }) };
     }
 
-    // 2026-10-31: the real lever on how long the AI call takes isn't maxTokens
-    // (that's a cap on output, not a speed control — the model only runs as
-    // long as the content actually needs) — it's how much source text and how
-    // much generated detail we're asking for per call. A 50000-char input
-    // (scraped pages often carry a LOT of boilerplate: nav, footer, unrelated
-    // postings) was routinely pushing single calls past the real ~20s ceiling
-    // that had just been raised to 24s. Tightened to 20000 chars, which is
-    // still generous for any single posting (or a small handful), to keep
-    // calls comfortably inside the time budget instead of riding the edge of
-    // it every time.
-    const MAX_TEXT_LENGTH = 20000;
+    const MAX_TEXT_LENGTH = 50000;
     const truncated = rawText.length > MAX_TEXT_LENGTH
       ? rawText.substring(0, MAX_TEXT_LENGTH) + '... [truncated]'
       : rawText;
@@ -261,13 +198,7 @@ exports.handler = async (event, context) => {
             { role: 'system', content: 'You turn raw job postings into clean structured JSON. You reply with valid JSON only.' },
             { role: 'user',   content: prompt }
           ],
-          // Lowered from 8000: this isn't a speed control on its own (the
-          // model only runs as long as the content needs), but a lower cap
-          // means a genuinely oversized multi-position posting hits the
-          // length limit — and the already-handled "please split this up"
-          // message — well before it can eat the whole time budget, instead
-          // of generating for 20+ seconds before we even notice it's too big.
-          maxTokens: 4000,
+          maxTokens: 8000,
           temperature: 0.1,
           json: true,
           timeoutMs: Math.max(3000, remaining - 500),
@@ -301,34 +232,13 @@ exports.handler = async (event, context) => {
     }
     if (lastError) throw lastError;
 
-    // Safety defaults in case the AI omits the newer application-method fields,
-    // plus a sanitize pass: if the source page used Cloudflare's email
-    // protection and our decode above couldn't recover it (different
-    // obfuscator, malformed hex, etc.), the literal placeholder text
-    // "[email protected]" can still show up in applicationUrl or the
-    // description fields. Never let that reach the admin as if it were a
-    // real value — blank applicationUrl and raise applicationUrlNeedsReview
-    // so admin.html can prompt for a manually-typed email instead, and strip
-    // the placeholder out of the prose fields so end users never see it.
-    structured.positions = structured.positions.map(p => {
-      let applicationUrl = p.applicationUrl || '';
-      let needsReview = false;
-      CF_EMAIL_PLACEHOLDER_RE.lastIndex = 0; // shared /g regex: reset before each .test() to avoid lastIndex leaking across positions
-      if (CF_EMAIL_PLACEHOLDER_RE.test(applicationUrl)) {
-        applicationUrl = '';
-        needsReview = true;
-      }
-      const stripPlaceholder = (text) => (text || '').replace(CF_EMAIL_PLACEHOLDER_RE, '(email protected on source site — see application instructions)');
-      return {
-        ...p,
-        applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
-        applicationUrl,
-        applicationUrlNeedsReview: needsReview,
-        physicalAddress:  p.physicalAddress || '',
-        fullDescription:  stripPlaceholder(p.fullDescription),
-        shortDescription: stripPlaceholder(p.shortDescription)
-      };
-    });
+    // Safety defaults in case the AI omits the newer application-method fields
+    structured.positions = structured.positions.map(p => ({
+      ...p,
+      applicationType:  (p.applicationType === 'physical') ? 'physical' : 'online',
+      applicationUrl:   p.applicationUrl || '',
+      physicalAddress:  p.physicalAddress || ''
+    }));
 
     return { statusCode: 200, body: JSON.stringify({ success: true, ...structured }) };
 
