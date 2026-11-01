@@ -6241,7 +6241,7 @@
 
         function showPendingPaymentNotice() {
             // Hide all payment method panels
-            ['payMethodChoice','payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => {
+            ['payMethodChoice','payMethodTelebirr','payMethodCBE'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
             });
@@ -6258,14 +6258,14 @@
             paymentPopupVisible = false;
             localStorage.removeItem('cv_popupOpen');
             document.getElementById('payMethodChoice').classList.remove('hidden');
-            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr','payPendingNotice'].forEach(id => {
+            ['payMethodTelebirr','payMethodCBE','payPendingNotice'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
             });
         }
         let _pendingPaymentMethod = null;
         // Per-method "don't show again" flags (in-memory; reset on page refresh)
-        const _disclaimerShown = { telebirr: false, cbe: false, cbebirr: false };
+        const _disclaimerShown = { telebirr: false, cbe: false };
 
         function selectPaymentMethod(method) {
             const skipKey = 'cverve_disclaimer_skip_' + method;
@@ -6280,7 +6280,7 @@
 
         function showPaymentMethodChoice() {
             document.getElementById('payMethodChoice').classList.remove('hidden');
-            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr','payPendingNotice'].forEach(id => {
+            ['payMethodTelebirr','payMethodCBE','payPendingNotice'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
             });
@@ -6288,27 +6288,26 @@
 
         function _applyPaymentMethod(method) {
             document.getElementById('payMethodChoice').classList.add('hidden');
-            ['payMethodTelebirr','payMethodCBE','payMethodCBEBirr'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            ['payMethodTelebirr','payMethodCBE'].forEach(id => document.getElementById(id).classList.add('hidden'));
             const _pk = TOPUP_PACKS.find(p => p.id === _pendingPlanChoice);
             const planLbl = _pk ? `${_pk.label} — send ${_pk.price} ETB` : '—';
-            if (method === 'telebirr') document.getElementById('payMethodTelebirr').classList.remove('hidden');
+            if (method === 'telebirr') {
+                document.getElementById('payMethodTelebirr').classList.remove('hidden');
+                document.getElementById('telebirrPlanChoiceLabel').textContent = planLbl;
+                resetScreenshotState('telebirr');
+            }
             else if (method === 'cbe') {
                 document.getElementById('payMethodCBE').classList.remove('hidden');
                 document.getElementById('cbePlanChoiceLabel').textContent = planLbl;
                 resetScreenshotState('cbe');
             }
-            else if (method === 'cbebirr') {
-                document.getElementById('payMethodCBEBirr').classList.remove('hidden');
-                document.getElementById('cbebirrPlanChoiceLabel').textContent = planLbl;
-                resetScreenshotState('cbebirr');
-            }
         }
 
-        // ── Payment screenshot upload & extraction (CBE / CBEBirr) ──────────────
+        // ── Payment screenshot upload & extraction (CBE / Telebirr) ──────────────
         // Matching downstream is by sender name + amount only — no transaction ID
         // fallback anywhere. A transaction ID is read from the screenshot only
         // when present, purely to block resubmitting the exact same payment.
-        let _screenshotState = { cbe: null, cbebirr: null };
+        let _screenshotState = { cbe: null, telebirr: null };
 
         function resetScreenshotState(method) {
             _screenshotState[method] = null;
@@ -6397,11 +6396,10 @@
 
         function showPaymentDisclaimer(method) {
             const msgs = {
-                cbe: 'You must send from your CBE account to our CBE account only. Cross-bank transfers (from other banks, Telebirr, or CBEBirr) are not accepted. We are not responsible for payments made incorrectly.',
-                telebirr: 'Telebirr top-ups are only accepted from Telebirr to Telebirr. Cross-platform payments (from CBE, CBEBirr, or other banks) are not accepted. We are not responsible for payments made incorrectly.',
-                cbebirr: 'CBEBirr top-ups are only accepted from CBEBirr to CBEBirr. Cross-platform payments (from Telebirr, CBE, or other banks) are not accepted. We are not responsible for payments made incorrectly.'
+                cbe: 'You must send from your CBE account to our CBE account only. Cross-bank transfers (from other banks or Telebirr) are not accepted. We are not responsible for payments made incorrectly.',
+                telebirr: 'Telebirr top-ups are only accepted from Telebirr to Telebirr. Cross-platform payments (from CBE or other banks) are not accepted. We are not responsible for payments made incorrectly.'
             };
-            const titles = { cbe: 'Bank Transfer (CBE)', telebirr: 'Telebirr', cbebirr: 'CBEBirr' };
+            const titles = { cbe: 'Bank Transfer (CBE)', telebirr: 'Telebirr' };
             document.getElementById('disclaimerTitle').textContent = 'Payment Notice — ' + (titles[method] || method);
             document.getElementById('disclaimerMsg').textContent = msgs[method] || '';
             document.getElementById('disclaimerCheck1').checked = false;
@@ -7054,11 +7052,31 @@
             <p class="text-sm text-gray-500 mb-1 dark:text-gray-400">Select a payment method:</p>
             <button onclick="selectPaymentMethod('telebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-purple-300 rounded-xl px-4 py-3 transition-colors dark:bg-gray-800 dark:border-gray-700"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-sm">T</div><span class="font-semibold text-gray-700 dark:text-gray-200">Telebirr</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
             <button onclick="selectPaymentMethod('cbe')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl px-4 py-3 transition-colors dark:bg-gray-800 dark:border-gray-700"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">B</div><span class="font-semibold text-gray-700 dark:text-gray-200">Bank Transfer (CBE)</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
-            <button onclick="selectPaymentMethod('cbebirr')" class="w-full flex items-center justify-between bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl px-4 py-3 transition-colors dark:bg-gray-800 dark:border-gray-700"><div class="flex items-center space-x-3"><div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-sm">C</div><span class="font-semibold text-gray-700 dark:text-gray-200">CBEBirr</span></div><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
         </div>
         <div id="payMethodTelebirr" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4 dark:text-gray-400 dark:hover:text-gray-200"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
-            <div class="flex flex-col items-center py-8 text-center"><div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3 class="text-xl font-bold text-gray-700 mb-2 dark:text-gray-200">Coming Soon</h3><p class="text-sm text-gray-500 dark:text-gray-400">Telebirr payments will be available shortly.</p></div>
+            <p class="text-xs text-gray-400 mb-2 dark:text-gray-500">Paying for: <span class="font-bold text-gray-600 dark:text-gray-300" id="telebirrPlanChoiceLabel">—</span></p>
+            <div class="bg-purple-50 rounded-xl p-4 mb-4 text-sm text-purple-900 space-y-2"><p class="font-semibold text-purple-700 mb-1">Telebirr Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-purple-100 text-purple-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div></div>
+            <p class="text-xs text-gray-500 mb-3 dark:text-gray-400">After sending, upload a screenshot of your payment confirmation. We'll read the amount and sender name automatically.</p>
+
+            <div id="telebirrShotUploadBox">
+                <label class="w-full flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl py-6 px-4 cursor-pointer hover:border-purple-400 hover:bg-purple-50/50 transition-colors dark:border-gray-600">
+                    <svg class="w-7 h-7 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                    <span class="text-sm font-medium text-gray-600 dark:text-gray-300">Tap to upload payment screenshot</span>
+                    <input type="file" accept="image/*" class="hidden" onchange="handleScreenshotUpload('telebirr', event)">
+                </label>
+            </div>
+
+            <div id="telebirrShotStatus" class="hidden text-sm text-gray-500 flex items-center gap-2 py-3 dark:text-gray-400"></div>
+
+            <div id="telebirrShotPreview" class="hidden bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-3 text-sm">
+                <p class="font-semibold text-emerald-700 mb-2 flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Detected from your screenshot</p>
+                <div class="flex justify-between text-emerald-900 mb-1"><span class="text-emerald-600">Amount</span><span class="font-semibold" id="telebirrShotAmount">—</span></div>
+                <div class="flex justify-between text-emerald-900"><span class="text-emerald-600">Sender Name</span><span class="font-semibold" id="telebirrShotName">—</span></div>
+                <button onclick="resetScreenshotState('telebirr')" class="text-xs text-emerald-600 hover:underline mt-2">Choose a different screenshot</button>
+            </div>
+
+            <button id="telebirrSubmitBtn" onclick="submitPayment('telebirr')" disabled class="w-full bg-gray-300 text-white py-2 px-4 rounded-full font-semibold shadow-md cursor-not-allowed transition-colors">Submit Payment</button>
         </div>
         <div id="payMethodCBE" class="hidden">
             <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4 dark:text-gray-400 dark:hover:text-gray-200"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
@@ -7084,31 +7102,6 @@
             </div>
 
             <button id="cbeSubmitBtn" onclick="submitPayment('cbe')" disabled class="w-full bg-gray-300 text-white py-2 px-4 rounded-full font-semibold shadow-md cursor-not-allowed transition-colors">Submit Payment</button>
-        </div>
-        <div id="payMethodCBEBirr" class="hidden">
-            <button onclick="showPaymentMethodChoice()" class="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4 dark:text-gray-400 dark:hover:text-gray-200"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back</button>
-            <p class="text-xs text-gray-400 mb-2 dark:text-gray-500">Paying for: <span class="font-bold text-gray-600 dark:text-gray-300" id="cbebirrPlanChoiceLabel">—</span></p>
-            <div class="bg-emerald-50 rounded-xl p-4 mb-4 text-sm text-emerald-900 space-y-2"><p class="font-semibold text-emerald-700 mb-1">CBEBirr Transfer Details</p><div class="flex items-center justify-between"><span><span class="font-medium">Phone:</span> 0985576139</span><button onclick="copyText('0985576139','Phone number')" class="ml-2 p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button></div></div>
-            <p class="text-xs text-gray-500 mb-3 dark:text-gray-400">After sending, upload a screenshot of your payment confirmation. We'll read the amount and sender name automatically.</p>
-
-            <div id="cbebirrShotUploadBox">
-                <label class="w-full flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl py-6 px-4 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors dark:border-gray-600">
-                    <svg class="w-7 h-7 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                    <span class="text-sm font-medium text-gray-600 dark:text-gray-300">Tap to upload payment screenshot</span>
-                    <input type="file" accept="image/*" class="hidden" onchange="handleScreenshotUpload('cbebirr', event)">
-                </label>
-            </div>
-
-            <div id="cbebirrShotStatus" class="hidden text-sm text-gray-500 flex items-center gap-2 py-3 dark:text-gray-400"></div>
-
-            <div id="cbebirrShotPreview" class="hidden bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-3 text-sm">
-                <p class="font-semibold text-emerald-700 mb-2 flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Detected from your screenshot</p>
-                <div class="flex justify-between text-emerald-900 mb-1"><span class="text-emerald-600">Amount</span><span class="font-semibold" id="cbebirrShotAmount">—</span></div>
-                <div class="flex justify-between text-emerald-900"><span class="text-emerald-600">Sender Name</span><span class="font-semibold" id="cbebirrShotName">—</span></div>
-                <button onclick="resetScreenshotState('cbebirr')" class="text-xs text-emerald-600 hover:underline mt-2">Choose a different screenshot</button>
-            </div>
-
-            <button id="cbebirrSubmitBtn" onclick="submitPayment('cbebirr')" disabled class="w-full bg-gray-300 text-white py-2 px-4 rounded-full font-semibold shadow-md cursor-not-allowed transition-colors">Submit Payment</button>
         </div>
         <!-- Pending payment notice — shown instead of payment methods when user has a pending payment -->
         <div id="payPendingNotice" class="hidden">
