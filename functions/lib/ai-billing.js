@@ -113,16 +113,39 @@ class AIError extends Error {
   }
 }
 
+// Turns any plain (non-AIError) failure into a short, SAFE reference code —
+// never the raw provider error text — appended to the generic user-facing
+// message. This app's Netlify observability has repeatedly returned empty
+// log arrays for every function invocation regardless of what was actually
+// console.error'd (confirmed repeatedly across many debugging sessions), so
+// "check the logs" is a dead end here — the only way to see what's actually
+// failing inside a 500 is for the failure itself to surface a code the user
+// can read back to us. Codes are coarse/generic by design (HTTP status,
+// network error code, or which stage failed) — never account numbers, keys,
+// URLs, or provider-specific text.
+function classifyError(err) {
+  if (!err) return 'UNKNOWN';
+  if (err.name === 'AbortError') return 'TIMEOUT';
+  if (typeof err.status === 'number') return `GATEWAY_HTTP_${err.status}`;
+  if (err.cause && err.cause.code) return `NETWORK_${err.cause.code}`;
+  if (/unexpected format|missing required fields/i.test(err.message || '')) return 'BAD_AI_RESPONSE';
+  if (/empty response/i.test(err.message || '')) return 'EMPTY_AI_RESPONSE';
+  if (/BAI_API_KEY/i.test(err.message || '')) return 'NO_API_KEY';
+  return `ERR_${(err.name || 'Error').toUpperCase()}`;
+}
+
 // Turns any thrown error into a Netlify response. Provider/internal error
-// text is only ever logged, never sent to the browser.
+// text is only ever logged, never sent to the browser — only the coarse
+// reference code from classifyError() above is.
 function errorResponse(err, fallbackMessage) {
   if (err instanceof AIError) {
     return { statusCode: err.status, body: JSON.stringify({ error: err.publicMessage, ...err.extra }) };
   }
   console.error('AI function error:', err);
+  const base = fallbackMessage || 'We are unable to complete your request right now. Please try again in a moment.';
   return {
     statusCode: 500,
-    body: JSON.stringify({ error: fallbackMessage || 'We are unable to complete your request right now. Please try again in a moment.' })
+    body: JSON.stringify({ error: `${base} (ref: ${classifyError(err)})` })
   };
 }
 
@@ -250,6 +273,7 @@ async function callAI({ model, messages, maxTokens, temperature, json, tools, to
       if (!res.ok) {
         const msg = (data && data.error && data.error.message) || `B.AI gateway HTTP ${res.status}`;
         const err = new Error(msg);
+        err.status = res.status; // used by classifyError() for the safe (ref: ...) code — never the raw msg
         err.retryable = [429, 500, 502, 503, 504].includes(res.status);
         throw err;
       }

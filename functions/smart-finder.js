@@ -35,7 +35,7 @@ exports.handler = async (event, context) => {
 
   if (!process.env.BAI_API_KEY) {
     console.error('smart-finder: Missing BAI_API_KEY');
-    return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment.' }) };
+    return { statusCode: 500, body: JSON.stringify({ error: 'We are unable to complete your request right now. Please try again in a moment. (ref: NO_API_KEY)' }) };
   }
 
   if (!cvText || cvText.trim().length < 20) {
