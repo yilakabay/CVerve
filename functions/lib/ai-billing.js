@@ -86,6 +86,16 @@ const FEATURE_MODELS = {
   GENERIC_EXTRACTION:  MODEL_IDS.GEMINI_FLASH    // payment screenshots, CV uploads, any other doc extraction
 };
 
+// If a feature's primary model/provider is down, runBilledChat's 2nd pass
+// uses this model instead of hammering the same (possibly outage-affected)
+// one twice. Added 2026-10-31 after Smart Finder failed on every single
+// attempt for several minutes straight (DeepSeek has had repeated
+// provider-side outages this month) — a same-provider retry can't help
+// during a real outage, so the 2nd attempt switches provider instead.
+const FEATURE_FALLBACK_MODELS = {
+  SMART_FINDER: MODEL_IDS.GEMINI_FLASH
+};
+
 // ── Mongo (shared by every AI function that requires this file) ───────────
 const mongo = new MongoClient(process.env.MONGODB_URI, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 async function getDb() {
@@ -327,6 +337,7 @@ async function deductTokens(db, userId, amount, meta) {
 async function runBilledChat({ userId, sessionToken, feature, messages, maxTokens, temperature, json, validate, free, preAuth }) {
   const model = FEATURE_MODELS[feature];
   if (!model) throw new Error(`Unknown feature "${feature}" — add it to FEATURE_MODELS.`);
+  const fallbackModel = FEATURE_FALLBACK_MODELS[feature];
 
   const db   = preAuth ? preAuth.db   : await getDb();
   const user = preAuth ? preAuth.user : await authenticate(db, userId, sessionToken);
@@ -334,16 +345,20 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
   // Balance must be above 0 to even attempt the call — unless this is a free feature.
   const balance = free ? Infinity : assertCanStart(user);
 
-  let result, parsed, lastErr;
+  let result, parsed, lastErr, modelUsed;
   for (let pass = 1; pass <= 2; pass++) {
+    // On the 2nd pass, switch to the feature's fallback model (if it has
+    // one) instead of retrying the same model again — a same-provider
+    // retry can't help when the failure is that provider's own outage.
+    modelUsed = (pass > 1 && fallbackModel) ? fallbackModel : model;
     try {
-      result = await callAI({ model, messages, maxTokens, temperature, json });
+      result = await callAI({ model: modelUsed, messages, maxTokens, temperature, json });
       parsed = validate ? validate(result.text) : result.text;
       lastErr = null;
       break;
     } catch (err) {
       lastErr = err;
-      console.error(`${feature}: attempt pass ${pass} unusable/failed:`, err.message);
+      console.error(`${feature}: attempt pass ${pass} (${modelUsed}) unusable/failed:`, err.message);
       if (err.retryable === false) break;
     }
   }
@@ -359,7 +374,7 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
 
   const tokenBalance = await deductTokens(db, userId, result.cost, {
     feature,
-    model,
+    model: modelUsed, // the model that actually produced this answer, which may be the fallback
     promptTokens:     result.usage && result.usage.prompt_tokens,
     completionTokens: result.usage && result.usage.completion_tokens
   });
