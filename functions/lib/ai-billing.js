@@ -86,14 +86,19 @@ const FEATURE_MODELS = {
   GENERIC_EXTRACTION:  MODEL_IDS.GEMINI_FLASH    // payment screenshots, CV uploads, any other doc extraction
 };
 
-// If a feature's primary model/provider is down, runBilledChat's 2nd pass
-// uses this model instead of hammering the same (possibly outage-affected)
-// one twice. Added 2026-10-31 after Smart Finder failed on every single
-// attempt for several minutes straight (DeepSeek has had repeated
-// provider-side outages this month) — a same-provider retry can't help
-// during a real outage, so the 2nd attempt switches provider instead.
+// If a feature's primary model/provider fails (outage, or the gateway no
+// longer recognizes that exact model id — confirmed root cause for Smart
+// Finder on 2026-11-01), runBilledChat's 2nd pass uses this model instead
+// of hammering the same, possibly broken, one twice. Needs an actual
+// working fallback-pass code path to matter — see runBilledChat's comment
+// on why the original 2026-10-31 version of this never fired. FIT_CHECK
+// added 2026-11-01 for the same reason Smart Finder has one: DEEPSEEK_PRO
+// is a single point of failure otherwise, and a fallback is cheap insurance
+// even though FIT_CHECK's actual reported failure that day (BAD_AI_RESPONSE
+// on some jobs) traced to maxTokens truncation, not the model itself.
 const FEATURE_FALLBACK_MODELS = {
-  SMART_FINDER: MODEL_IDS.GEMINI_FLASH
+  SMART_FINDER: MODEL_IDS.GEMINI_FLASH,
+  FIT_CHECK:    MODEL_IDS.GEMINI_FLASH
 };
 
 // ── Mongo (shared by every AI function that requires this file) ───────────

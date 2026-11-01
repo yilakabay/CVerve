@@ -136,7 +136,14 @@ exports.handler = async (event, context) => {
         { role: 'system', content: 'You are a fair, practical career advisor. You reply with valid JSON only.' },
         { role: 'user',   content: prompt }
       ],
-      maxTokens: 400,
+      // Was 400 — too tight: verdict + a ~25-word reason + an optional tip,
+      // wrapped as JSON (some models add extra whitespace/structure under
+      // json_object mode), can run past that and get cut off mid-sentence,
+      // which comes back as broken JSON and fails validation — reported as
+      // "(ref: BAD_AI_RESPONSE)" on some jobs (longer/more nuanced postings
+      // push the reason+tip text closer to the old cap, so it wasn't every
+      // job). Same root cause class as Smart Finder's maxTokens issue.
+      maxTokens: 800,
       temperature: 0.2,
       json: true,
       validate
