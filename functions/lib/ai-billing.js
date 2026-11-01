@@ -371,10 +371,15 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
 
   let result, parsed, lastErr, modelUsed;
   for (let pass = 1; pass <= 2; pass++) {
-    // On the 2nd pass, switch to the feature's fallback model (if it has
-    // one) instead of retrying the same model again — a same-provider
-    // retry can't help when the failure is that provider's own outage.
-    modelUsed = (pass > 1 && fallbackModel) ? fallbackModel : model;
+    // Pass 2 only makes sense when there's an actual fallback model to
+    // switch to — otherwise it would just be hitting the exact same model
+    // with the exact same request again, which callAI's own internal
+    // attempts/retry loop already covers for transient failures, and which
+    // is pointless for a hard failure (bad/unknown model id, a 4xx the
+    // gateway will return every time) that a bare repeat can't fix. So:
+    // no fallback configured → stop after pass 1, whatever the failure was.
+    if (pass > 1 && !fallbackModel) break;
+    modelUsed = (pass > 1) ? fallbackModel : model;
     try {
       result = await callAI({ model: modelUsed, messages, maxTokens, temperature, json });
       parsed = validate ? validate(result.text) : result.text;
@@ -383,7 +388,18 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
     } catch (err) {
       lastErr = err;
       console.error(`${feature}: attempt pass ${pass} (${modelUsed}) unusable/failed:`, err.message);
-      if (err.retryable === false) break;
+      // IMPORTANT: no "if (err.retryable === false) break" here. That used
+      // to short-circuit straight past the fallback pass below — exactly
+      // backwards, since err.retryable describes whether retrying the SAME
+      // model/request is worth it, which says nothing about whether a
+      // genuinely different model (the fallback) would succeed. This was
+      // the actual reason the DeepSeek→Gemini fallback added for Smart
+      // Finder never fired: DeepSeek's calls were failing with a
+      // non-retryable error (404 — the gateway no longer recognizes
+      // "DeepSeek-V4.1-Flash"), which broke the loop before pass 2 — the
+      // Gemini fallback — ever ran. Letting the loop continue into pass 2
+      // is exactly what the "if (pass > 1 && !fallbackModel) break" check
+      // above already handles correctly for the no-fallback case.
     }
   }
   if (lastErr) throw lastErr;
