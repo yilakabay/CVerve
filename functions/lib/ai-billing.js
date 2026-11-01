@@ -382,6 +382,50 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
   return { text: result.text, parsed, tokensUsed: result.cost, tokenBalance, finishReason: result.finishReason };
 }
 
+// Salvage usable JSON out of a response that got cut off mid-generation
+// (the model hit max_tokens before finishing, so the text just stops —
+// often mid-string or mid-array-element). Scans once, tracking bracket
+// nesting and string state, and remembers the position right after the
+// last FULLY-CLOSED value (a '}'/']' close, or a top-level comma between
+// complete elements) along with what was still open at that point. If the
+// text turns out to be genuinely incomplete, it's cut back to that last
+// safe point and whatever containers were still open are closed off, so a
+// response that got most of the way through its answer isn't thrown away
+// entirely just because the tail got cut. Returns null (never throws) if
+// nothing usable can be salvaged.
+function repairTruncatedJson(text) {
+  const stack = [];
+  let inString = false, escape = false;
+  let lastSafeIndex = -1, lastSafeStack = null;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{' || ch === '[') { stack.push(ch); continue; }
+    if (ch === '}' || ch === ']') {
+      stack.pop();
+      lastSafeIndex = i + 1;
+      lastSafeStack = stack.slice();
+      continue;
+    }
+    if (ch === ',' && stack.length > 0) {
+      lastSafeIndex = i; // cut BEFORE the comma — JSON can't end on a dangling one
+      lastSafeStack = stack.slice();
+    }
+  }
+
+  if (!lastSafeStack || lastSafeStack.length === 0) return null;
+  const closers = lastSafeStack.slice().reverse().map(c => (c === '{' ? '}' : ']')).join('');
+  try { return JSON.parse(text.slice(0, lastSafeIndex) + closers); }
+  catch (e) { return null; }
+}
+
 // Strip ``` fences some models add, then parse JSON. Even with
 // response_format:{type:'json_object'} requested, not every model behind the
 // B.AI gateway reliably returns PURE JSON with nothing else — some add a
@@ -393,6 +437,12 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
 // generic failure message with no indication anything was actually fine
 // except the wrapping text. Fall back to extracting the first balanced
 // {...} or [...] in the text and parsing just that, before giving up.
+//
+// A separate, further failure mode: the JSON wasn't just wrapped in junk —
+// it's genuinely incomplete because the model hit max_tokens mid-answer
+// (finish_reason:'length'). A plain substring extraction can't fix that
+// (there's no balanced close to find), so as a last resort before giving up,
+// try to salvage the complete leading portion via repairTruncatedJson().
 function parseJsonLoose(text) {
   const cleaned = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
@@ -405,8 +455,13 @@ function parseJsonLoose(text) {
     const start = Math.min(...starts);
     const closeChar = cleaned[start] === '{' ? '}' : ']';
     const end = cleaned.lastIndexOf(closeChar);
-    if (end <= start) throw firstErr;
-    return JSON.parse(cleaned.slice(start, end + 1));
+    if (end > start) {
+      try { return JSON.parse(cleaned.slice(start, end + 1)); }
+      catch (secondErr) { /* fall through to truncation repair below */ }
+    }
+    const repaired = repairTruncatedJson(cleaned.slice(start));
+    if (repaired !== null) return repaired;
+    throw firstErr;
   }
 }
 

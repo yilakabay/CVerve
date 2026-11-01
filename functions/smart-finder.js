@@ -104,7 +104,14 @@ exports.handler = async (event, context) => {
         { role: 'system', content: 'You are a careful job-matching assistant. You reply with valid JSON only.' },
         { role: 'user',   content: prompt }
       ],
-      maxTokens: 1500,
+      // Was 1500 — a batch of 10 jobs, each with a scored reason sentence, can
+      // genuinely need more than that once JSON structure/whitespace overhead
+      // is counted, and a response cut off mid-array by max_tokens comes back
+      // as syntactically broken JSON that fails validation no matter which
+      // model answered (this, not a provider outage, is what was actually
+      // causing "please try again" on every attempt — see repairTruncatedJson
+      // in ai-billing.js for the matching parser-side hardening).
+      maxTokens: 3000,
       temperature: 0.2,
       json: true,
       validate
