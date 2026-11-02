@@ -2667,11 +2667,18 @@
                 });
             }
             if (currentJobDetail.applicationUrl) {
+                // Defense-in-depth for jobs posted before this normalization existed
+                // server-side: a schemeless URL like "www.ethiojobs.net" is a RELATIVE
+                // path to the browser, so window.open() on it silently resolves inside
+                // our own app (e.g. https://cverve.netlify.app/www.ethiojobs.net, 404)
+                // instead of leaving to the real external site. Always ensure a scheme.
+                const rawUrl = currentJobDetail.applicationUrl;
+                const safeUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawUrl) ? rawUrl : ('https://' + rawUrl);
                 methods.push({
                     label: '🔗 Apply Online',
-                    sub: currentJobDetail.applicationUrl,
+                    sub: rawUrl,
                     actionLabel: 'Open Link',
-                    action: () => window.open(currentJobDetail.applicationUrl, '_blank', 'noopener')
+                    action: () => window.open(safeUrl, '_blank', 'noopener')
                 });
             }
             if (currentJobDetail.physicalAddress) {

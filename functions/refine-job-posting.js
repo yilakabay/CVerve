@@ -24,18 +24,21 @@ const crypto = require('crypto');
 const https  = require('https');
 const http   = require('http');
 
-// True when `url` is just a bare domain (e.g. "www.ethiojobs.net" or
-// "https://ethiojobs.net/") with no job-specific path or query string — i.e.
-// almost certainly not a working deep link to any particular posting.
-function isBareDomainUrl(url) {
-  if (!url) return false;
-  const stripped = url.trim()
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // strip scheme (http://, https://, etc)
-    .replace(/^www\./i, '');
-  const slashIdx = stripped.indexOf('/');
-  const pathPart = slashIdx === -1 ? '' : stripped.slice(slashIdx);
-  const hasQuery = stripped.includes('?');
-  return (pathPart === '' || pathPart === '/') && !hasQuery;
+// A posting's "apply online" URL often arrives without a scheme, e.g.
+// "www.ethiojobs.net" (some only ever give the bare domain, not a
+// job-specific page — admin can still edit in a deeper link once they find
+// one, but the domain itself is a useful fallback so applicants can go
+// search the site). window.open()/location on a schemeless string like
+// "www.ethiojobs.net" is treated as a RELATIVE path by the browser, not an
+// external URL — so it was silently resolving to
+// https://cverve.netlify.app/www.ethiojobs.net (our own site, 404) instead
+// of https://www.ethiojobs.net. Always prefix with https:// when no scheme
+// is present so "Open Link" actually leaves our app and lands on the real
+// site.
+function normalizeApplicationUrl(url) {
+  const trimmed = (url || '').toString().trim();
+  if (!trimmed) return '';
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 function verifyToken(token) {
@@ -265,15 +268,7 @@ exports.handler = async (event, context) => {
       let emailNeedsReview = p.emailProtected === true || EMAIL_PLACEHOLDER_RE.test(applicationEmail);
       if (EMAIL_PLACEHOLDER_RE.test(applicationEmail)) applicationEmail = '';
 
-      // Some postings just say "apply at www.example.com" with no actual
-      // job-specific page — "extracted exactly as written" (per the prompt
-      // above) then stores a bare domain as applicationUrl, which renders an
-      // "Apply Online" button that 404s on the site's homepage (e.g.
-      // ethiojobs.net). A bare domain is never a working deep link, so drop
-      // it rather than show a dead button; other apply methods (email/
-      // physical address) for the same posting, if any, are unaffected.
-      let applicationUrl = (p.applicationUrl || '').toString().trim();
-      if (isBareDomainUrl(applicationUrl)) applicationUrl = '';
+      const applicationUrl = normalizeApplicationUrl(p.applicationUrl);
 
       return {
         ...p,

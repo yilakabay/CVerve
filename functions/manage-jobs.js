@@ -74,19 +74,18 @@ function verifyToken(token) {
   } catch { return false; }
 }
 
-// True when `url` is just a bare domain (e.g. "www.ethiojobs.net" or
-// "https://ethiojobs.net/") with no job-specific path or query string —
-// i.e. almost certainly not a working deep link to any particular posting.
-// Kept in sync with the same check in refine-job-posting.js.
-function isBareDomainUrl(url) {
-  if (!url) return false;
-  const stripped = url.trim()
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // strip scheme (http://, https://, etc)
-    .replace(/^www\./i, '');
-  const slashIdx = stripped.indexOf('/');
-  const pathPart = slashIdx === -1 ? '' : stripped.slice(slashIdx);
-  const hasQuery = stripped.includes('?');
-  return (pathPart === '' || pathPart === '/') && !hasQuery;
+// A schemeless URL like "www.ethiojobs.net" (common when a posting only
+// gives a bare domain, or an admin types one in without "https://") is
+// treated by the browser as a RELATIVE path, not an external site — so
+// window.open()/location on it silently resolves to
+// https://cverve.netlify.app/www.ethiojobs.net (our own site, 404) instead
+// of https://www.ethiojobs.net. Always prefix with https:// when no scheme
+// is present so "Open Link" actually leaves our app. Kept in sync with the
+// same helper in refine-job-posting.js.
+function normalizeApplicationUrl(url) {
+  const trimmed = (url || '').toString().trim();
+  if (!trimmed) return '';
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 function sanitizePosition(p) {
@@ -94,12 +93,7 @@ function sanitizePosition(p) {
   // by email, via a link) — each is stored independently; whichever are
   // non-empty are the methods shown to applicants. applicationType is no
   // longer a meaningful single choice, so it's no longer stored.
-  let applicationUrl = (p.applicationUrl || '').toString().trim();
-  // A bare domain (no path/query) is never a working deep link to a specific
-  // posting — it just 404s or dumps the user on the site's homepage. Drop it
-  // so the app doesn't render a dead "Apply Online" button; other apply
-  // methods for the same posting, if any, are unaffected.
-  if (isBareDomainUrl(applicationUrl)) applicationUrl = '';
+  const applicationUrl = normalizeApplicationUrl(p.applicationUrl);
   return {
     title:            (p.title || '').toString().trim(),
     qualification:    (p.qualification || '').toString().trim(),
