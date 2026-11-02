@@ -2005,31 +2005,7 @@
 
             const visible = validEntries.slice(0, savedJobsRenderLimit);
 
-            let html = visible.map(({ job, pos, posIdx }) => `
-                <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
-                    <div class="flex items-start justify-between gap-2 mb-1">
-                        <div class="flex items-start gap-2.5 min-w-0 flex-1">
-                            ${jobLogoHtml(job)}
-                            <div class="min-w-0">
-                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${escapeHtmlJob(job.company)}</p>
-                                <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">${escapeHtmlJob(pos.title)}</h3>
-                            </div>
-                        </div>
-                        ${saveJobButtonHtml(job._id, posIdx)}
-                    </div>
-                    <p class="text-sm text-gray-500 mb-3 dark:text-gray-400">${escapeHtmlJob(pos.shortDescription)}</p>
-                    <div class="flex items-center justify-between gap-2">
-                        <div class="flex gap-2 flex-wrap">
-                            <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
-                            <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
-                        </div>
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
-                            ${fitButtonHtml(job._id, posIdx)}
-                            <button onclick="openJobDetail('${job._id}', ${posIdx})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
-                        </div>
-                    </div>
-                    ${fitReasonHtml(job._id, posIdx)}
-                </div>`).join('');
+            let html = renderGroupedPositionCards(visible, {});
 
             if (validEntries.length > visible.length) {
                 html += `
@@ -2095,6 +2071,92 @@
             if (words.length === 0) return escaped;
             const re = new RegExp('(' + words.join('|') + ')', 'gi');
             return escaped.replace(re, '<mark style="background:#fed7aa;color:#9a3412;padding:0 2px;border-radius:3px;">$1</mark>');
+        }
+
+        // Shared card builder for All Jobs, Smart Finder, and Saved Jobs.
+        //
+        // A single MongoDB job document can hold several open positions for
+        // the SAME company — previously each renderer emitted one full card
+        // PER POSITION, repeating the company logo/name on every one. Here the
+        // logo/name are instead shown ONCE per company, with each of that
+        // company's positions listed as a compact row underneath (a "master"
+        // card holding all its own positions as minis).
+        //
+        // `entries` is a flat array of { job, pos, posIdx, score?, reasonText? }
+        // — the SAME flat, position-level shape every caller already built for
+        // pagination/search/filtering (allJobsRenderLimit, smartFinderRenderLimit,
+        // etc. all count/slice POSITIONS, not companies, and that is left
+        // completely unchanged here). This function only changes how that
+        // already-sliced "visible" array is turned into HTML: it groups
+        // consecutive-by-company entries into one outer card each, in the
+        // same order they first appear, so "Load more" revealing a few more
+        // flat entries just adds more mini-rows to the right group (or starts
+        // a new group) on the next re-render — nothing about what gets
+        // fetched, counted, searched, filtered, saved, or opened changes.
+        //
+        // score/reasonText are Smart Finder-only (match % badge + AI reason);
+        // omitted entirely for All Jobs / Saved Jobs, which show the normal
+        // short description instead.
+        function renderGroupedPositionCards(entries, opts) {
+            opts = opts || {};
+            const term = opts.term || '';
+
+            const groups = [];
+            const groupByJobId = new Map();
+            entries.forEach(entry => {
+                const jobId = entry.job._id;
+                let group = groupByJobId.get(jobId);
+                if (!group) {
+                    group = { job: entry.job, items: [] };
+                    groupByJobId.set(jobId, group);
+                    groups.push(group);
+                }
+                group.items.push(entry);
+            });
+
+            return groups.map(({ job, items }) => {
+                const positionsHtml = items.map(({ pos, posIdx, score, reasonText }, i) => {
+                    const scoreHtml = (typeof score === 'number')
+                        ? `<span class="${score >= 80 ? 'bg-emerald-50 text-emerald-700' : score >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'} text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">${score}% match</span>`
+                        : '';
+                    return `
+                        <div class="${i > 0 ? 'border-t border-gray-100 dark:border-gray-800 pt-3 mt-3' : ''}">
+                            <div class="flex items-start justify-between gap-2 mb-1">
+                                <h3 class="text-base font-bold text-gray-800 dark:text-gray-100 min-w-0">${highlightTerms(pos.title, term)}</h3>
+                                <div class="flex items-center gap-2 flex-shrink-0">
+                                    ${scoreHtml}
+                                    ${saveJobButtonHtml(job._id, posIdx)}
+                                </div>
+                            </div>
+                            ${reasonText != null
+                                ? `<p class="text-sm text-gray-500 mb-2 italic dark:text-gray-400">"${highlightTerms(reasonText, term)}"</p>`
+                                : `<p class="text-sm text-gray-500 mb-3 dark:text-gray-400">${highlightTerms(pos.shortDescription, term)}</p>`}
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex gap-2 flex-wrap">
+                                    <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
+                                    <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
+                                </div>
+                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                    ${fitButtonHtml(job._id, posIdx)}
+                                    <button onclick="openJobDetail('${job._id}', ${posIdx})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
+                                </div>
+                            </div>
+                            ${fitReasonHtml(job._id, posIdx)}
+                        </div>`;
+                }).join('');
+
+                return `
+                    <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
+                        <div class="flex items-start gap-2.5 min-w-0 mb-1">
+                            ${jobLogoHtml(job)}
+                            <div class="min-w-0">
+                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${highlightTerms(job.company, term)}</p>
+                                ${items.length > 1 ? `<p class="text-[0.7rem] text-gray-400 dark:text-gray-500">${items.length} open positions</p>` : ''}
+                            </div>
+                        </div>
+                        ${positionsHtml}
+                    </div>`;
+            }).join('');
         }
 
         // Loose "match any keyword" search, like Upwork's job search
@@ -2547,31 +2609,7 @@
 
             const visible = matched.slice(0, allJobsRenderLimit);
 
-            let html = visible.map(({ job, pos, posIdx }) => `
-                    <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
-                        <div class="flex items-start justify-between gap-2 mb-1">
-                            <div class="flex items-start gap-2.5 min-w-0 flex-1">
-                                ${jobLogoHtml(job)}
-                                <div class="min-w-0">
-                                    <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${highlightTerms(job.company, term)}</p>
-                                    <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">${highlightTerms(pos.title, term)}</h3>
-                                </div>
-                            </div>
-                            ${saveJobButtonHtml(job._id, posIdx)}
-                        </div>
-                        <p class="text-sm text-gray-500 mb-3 dark:text-gray-400">${highlightTerms(pos.shortDescription, term)}</p>
-                        <div class="flex items-center justify-between gap-2">
-                            <div class="flex gap-2 flex-wrap">
-                                <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
-                                <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
-                            </div>
-                            <div class="flex items-center gap-1.5 flex-shrink-0">
-                                ${fitButtonHtml(job._id, posIdx)}
-                                <button onclick="openJobDetail('${job._id}', ${posIdx})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
-                            </div>
-                        </div>
-                        ${fitReasonHtml(job._id, posIdx)}
-                    </div>`).join('');
+            let html = renderGroupedPositionCards(visible, { term });
 
             // Show the button whenever there's a KNOWN next card locally, OR the
             // server might still have more that just hasn't been checked yet.
@@ -3374,37 +3412,13 @@
 
             const visible = matched.slice(0, smartFinderRenderLimit);
 
-            let html = visible.map(({ m, job, pos }) => {
-                const scoreColor = m.matchScore >= 80 ? 'bg-emerald-50 text-emerald-700' : m.matchScore >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600';
-                return `
-                <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
-                    <div class="flex items-start justify-between gap-2 mb-1">
-                        <div class="flex items-start gap-2.5 min-w-0 flex-1">
-                            ${jobLogoHtml(job)}
-                            <div class="min-w-0">
-                                <p class="text-xs font-bold text-indigo-500 uppercase tracking-wide truncate">${highlightTerms(job.company, term)}</p>
-                                <h3 class="text-base font-bold text-gray-800 dark:text-gray-100">${highlightTerms(pos.title, term)}</h3>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
-                            <span class="${scoreColor} text-xs font-bold px-2.5 py-1 rounded-full">${m.matchScore}% match</span>
-                            ${saveJobButtonHtml(job._id, m.positionIndex)}
-                        </div>
-                    </div>
-                    <p class="text-sm text-gray-500 mb-2 italic dark:text-gray-400">"${highlightTerms(m.reason, term)}"</p>
-                    <div class="flex items-center justify-between gap-2">
-                        <div class="flex gap-2 flex-wrap">
-                            <span class="bg-emerald-50 text-emerald-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">${escapeHtmlJob(pos.salary)}</span>
-                            <span class="bg-amber-50 text-amber-700 text-[0.7rem] font-semibold px-2.5 py-1 rounded-full">Due ${escapeHtmlJob(pos.expireDate)}</span>
-                        </div>
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
-                            ${fitButtonHtml(job._id, m.positionIndex)}
-                            <button onclick="openJobDetail('${job._id}', ${m.positionIndex})" class="bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-indigo-600 transition-colors flex-shrink-0">Detail</button>
-                        </div>
-                    </div>
-                    ${fitReasonHtml(job._id, m.positionIndex)}
-                </div>`;
-            }).join('');
+            const groupEntries = visible.map(({ m, job, pos }) => ({
+                job, pos,
+                posIdx: m.positionIndex,
+                score: m.matchScore,
+                reasonText: m.reason
+            }));
+            let html = renderGroupedPositionCards(groupEntries, { term });
 
             if (matched.length > visible.length) {
                 html += `
