@@ -126,8 +126,19 @@ exports.handler = async (event, context) => {
   // Fixed by budgeting the WHOLE handler against one deadline: pass 2 only
   // runs if there's real time left, and gets whatever time remains (never a
   // fresh full budget), so the total never approaches the real ceiling.
+  //
+  // Was 20000ms — too conservative. This handler does nothing but ONE AI
+  // call (no vision reads, no multi-step tool loop), unlike cv-chat.mjs,
+  // which does far more work per turn and still safely runs its own
+  // HANDLER_DEADLINE_MS at 27000ms against this SAME real ~26-30s ceiling.
+  // A posting with several positions, each needing a full, thorough
+  // "fullDescription", genuinely needs more than 20s to generate up to
+  // 8000 tokens of structured JSON — that, not a stuck/hung request, is
+  // what was actually producing "The AI took too long" on real postings.
+  // Matched to cv-chat.mjs's battle-tested value so this gets the same
+  // safe margin other functions already rely on.
   const handlerStarted = Date.now();
-  const HANDLER_DEADLINE_MS = 20000;
+  const HANDLER_DEADLINE_MS = 27000;
   const MIN_TIME_FOR_RETRY_MS = 6000; // a second AI pass needs a real chance to finish, not a token gesture
   function timeLeft() { return HANDLER_DEADLINE_MS - (Date.now() - handlerStarted); }
 
