@@ -74,11 +74,32 @@ function verifyToken(token) {
   } catch { return false; }
 }
 
+// True when `url` is just a bare domain (e.g. "www.ethiojobs.net" or
+// "https://ethiojobs.net/") with no job-specific path or query string —
+// i.e. almost certainly not a working deep link to any particular posting.
+// Kept in sync with the same check in refine-job-posting.js.
+function isBareDomainUrl(url) {
+  if (!url) return false;
+  const stripped = url.trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // strip scheme (http://, https://, etc)
+    .replace(/^www\./i, '');
+  const slashIdx = stripped.indexOf('/');
+  const pathPart = slashIdx === -1 ? '' : stripped.slice(slashIdx);
+  const hasQuery = stripped.includes('?');
+  return (pathPart === '' || pathPart === '/') && !hasQuery;
+}
+
 function sanitizePosition(p) {
   // A posting can offer more than one way to apply at once (in person,
   // by email, via a link) — each is stored independently; whichever are
   // non-empty are the methods shown to applicants. applicationType is no
   // longer a meaningful single choice, so it's no longer stored.
+  let applicationUrl = (p.applicationUrl || '').toString().trim();
+  // A bare domain (no path/query) is never a working deep link to a specific
+  // posting — it just 404s or dumps the user on the site's homepage. Drop it
+  // so the app doesn't render a dead "Apply Online" button; other apply
+  // methods for the same posting, if any, are unaffected.
+  if (isBareDomainUrl(applicationUrl)) applicationUrl = '';
   return {
     title:            (p.title || '').toString().trim(),
     qualification:    (p.qualification || '').toString().trim(),
@@ -89,7 +110,7 @@ function sanitizePosition(p) {
     fullDescription:  (p.fullDescription || '').toString().trim(),
     physicalAddress:  (p.physicalAddress  || '').toString().trim(),
     applicationEmail: (p.applicationEmail || '').toString().trim(),
-    applicationUrl:   (p.applicationUrl   || '').toString().trim()
+    applicationUrl
   };
 }
 

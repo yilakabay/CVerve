@@ -24,6 +24,20 @@ const crypto = require('crypto');
 const https  = require('https');
 const http   = require('http');
 
+// True when `url` is just a bare domain (e.g. "www.ethiojobs.net" or
+// "https://ethiojobs.net/") with no job-specific path or query string — i.e.
+// almost certainly not a working deep link to any particular posting.
+function isBareDomainUrl(url) {
+  if (!url) return false;
+  const stripped = url.trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // strip scheme (http://, https://, etc)
+    .replace(/^www\./i, '');
+  const slashIdx = stripped.indexOf('/');
+  const pathPart = slashIdx === -1 ? '' : stripped.slice(slashIdx);
+  const hasQuery = stripped.includes('?');
+  return (pathPart === '' || pathPart === '/') && !hasQuery;
+}
+
 function verifyToken(token) {
   if (!token) return false;
   const parts = token.split('.');
@@ -250,12 +264,23 @@ exports.handler = async (event, context) => {
       // placeholder text directly in case it slipped into the field anyway.
       let emailNeedsReview = p.emailProtected === true || EMAIL_PLACEHOLDER_RE.test(applicationEmail);
       if (EMAIL_PLACEHOLDER_RE.test(applicationEmail)) applicationEmail = '';
+
+      // Some postings just say "apply at www.example.com" with no actual
+      // job-specific page — "extracted exactly as written" (per the prompt
+      // above) then stores a bare domain as applicationUrl, which renders an
+      // "Apply Online" button that 404s on the site's homepage (e.g.
+      // ethiojobs.net). A bare domain is never a working deep link, so drop
+      // it rather than show a dead button; other apply methods (email/
+      // physical address) for the same posting, if any, are unaffected.
+      let applicationUrl = (p.applicationUrl || '').toString().trim();
+      if (isBareDomainUrl(applicationUrl)) applicationUrl = '';
+
       return {
         ...p,
         physicalAddress:  (p.physicalAddress || '').toString().trim(),
         applicationEmail,
         emailNeedsReview,
-        applicationUrl:   (p.applicationUrl || '').toString().trim()
+        applicationUrl
       };
     });
 
