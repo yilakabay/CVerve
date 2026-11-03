@@ -87,32 +87,63 @@ function nameSimilarity(a, b) {
 const NAME_MATCH_THRESHOLD = 0.5; // at least half the shorter name's tokens must match
 
 // ── DeepSeek extraction — amount + sender name only, no transaction ID ──────
+//
+// Every incoming SMS was landing in the admin's SMS Detections tab marked
+// "Unreadable" — even perfectly clean, standard-format CBE messages like
+// "Dear X You have received ETB 99.00 from account ...(Y)... Thanks for
+// Banking with CBE." That status is set purely by whether extraction
+// returned BOTH a numeric amount and a sender name (see the handler below);
+// when it throws or returns null for either, every SMS is "unreadable"
+// regardless of how readable the text actually is.
+//
+// Root cause: maxTokens was 100 — far tighter than the identical
+// truncation-prone DeepSeek Flash model needed elsewhere in this app
+// (Smart Finder needed 3000, up from 1500, for the exact same reason: see
+// ai-billing.js/smart-finder.js). A cut-off response here comes back as
+// invalid JSON, parseJsonLoose() throws, and the caller's try/catch swallows
+// it and falls back to { amount: null, senderName: null } — i.e.
+// "unreadable" on every single message, not just hard-to-parse ones, which
+// matches exactly what was reported. Raised to 300, consistent with how the
+// other two were fixed, and a second real attempt is now allowed (attempts
+// alone doesn't help a content/parse failure — only a network/5xx retry —
+// so this also retries the WHOLE extraction once if parsing fails, same
+// shape as the pass-loop pattern used elsewhere in this app).
 async function extractSmsFields(smsText) {
     const prompt = `You are a payment SMS parser for Ethiopian banks/wallets (CBE, CBE Birr, Telebirr).
-Extract the following from this SMS:
-- amount: the money transferred in ETB (Birr), as a plain number.
-- senderName: the full name of the person who sent/transferred the money, if the SMS mentions it.
 
-Reply ONLY with valid JSON, no explanation, no markdown.
+Extract the following from this SMS:
+- amount: the money transferred in ETB (Birr), as a plain number only — no currency symbol, no commas, no words.
+- senderName: the full name of the person who SENT/transferred the money TO this account (not the account holder receiving it). On CBE messages this is usually the name shown in parentheses after "from account ...", e.g. in "...from account 1*******3216 (Kibur Yirga Teshager) to your account..." the senderName is "Kibur Yirga Teshager", NOT the "Dear <name>" greeting at the start (that is the account holder receiving the money, not the sender).
+
+Reply ONLY with valid JSON, no explanation, no markdown, no extra text before or after.
 Format: {"amount": 500, "senderName": "Abebe Kebede"}
 Use null for any field you cannot find.
 
 SMS:
 ${smsText}`;
 
-    const result = await callAI({
-        model: MODEL_IDS.DEEPSEEK_FLASH,
-        messages: [
-            { role: 'system', content: 'You extract fields from bank SMS messages. You reply with valid JSON only.' },
-            { role: 'user',   content: prompt }
-        ],
-        maxTokens: 100,
-        temperature: 0,
-        json: true,
-        timeoutMs: 15000,
-        attempts: 2
-    });
-    return parseJsonLoose(result.text);
+    let lastErr;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            const result = await callAI({
+                model: MODEL_IDS.DEEPSEEK_FLASH,
+                messages: [
+                    { role: 'system', content: 'You extract fields from bank SMS messages. You reply with valid JSON only.' },
+                    { role: 'user',   content: prompt }
+                ],
+                maxTokens: 300,
+                temperature: 0,
+                json: true,
+                timeoutMs: 15000,
+                attempts: 2
+            });
+            return parseJsonLoose(result.text);
+        } catch (err) {
+            lastErr = err;
+            console.error(`extractSmsFields: attempt ${attempt} failed:`, err.message);
+        }
+    }
+    throw lastErr;
 }
 
 // ── Write notification to user document ──────────────────────────────────────
@@ -299,7 +330,16 @@ exports.handler = async (event, context) => {
             console.error('SMS extraction failed:', err.message);
         }
 
-        const normalizedAmount = extracted.amount != null ? Number(extracted.amount) : null;
+        // Defense in depth: strip anything but digits/./- before Number()
+        // in case the model still returns something like "ETB 99.00" or
+        // "99,00" despite the prompt's "plain number only" instruction —
+        // Number("ETB 99.00") is NaN, and NaN is falsy, which would have
+        // silently produced the exact same "unreadable" result this whole
+        // fix is for, just from a different direction (bad format rather
+        // than a truncated/missing response).
+        const rawAmount = extracted.amount != null ? String(extracted.amount).replace(/[^\d.\-]/g, '') : '';
+        const parsedAmount = rawAmount ? Number(rawAmount) : NaN;
+        const normalizedAmount = Number.isFinite(parsedAmount) ? parsedAmount : null;
         const normalizedName   = extracted.senderName ? String(extracted.senderName).trim() : null;
 
         // Store SMS detection record
