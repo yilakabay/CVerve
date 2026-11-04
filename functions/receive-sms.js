@@ -122,7 +122,18 @@ Use null for any field you cannot find.
 SMS:
 ${smsText}`;
 
+    // Netlify's own log capture for this app has been confirmed completely
+    // unusable in earlier debugging sessions (get-request-logs always
+    // returns an empty "logs" array no matter what's console.error'd), so a
+    // raised maxTokens budget that STILL produced "Unreadable" on a clean,
+    // ordinary SMS (reported after the fix above shipped) can't be diagnosed
+    // from server logs at all. Every attempt below now carries its raw B.AI
+    // response text (or the thrown error) back up via a `rawText`/`debug`
+    // property on whatever it returns/throws, so the caller can write it
+    // straight into the sms_detections MongoDB record — which the admin
+    // panel already renders — instead of a log line nobody can read.
     let lastErr;
+    let lastRawText = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
             const result = await callAI({
@@ -137,12 +148,15 @@ ${smsText}`;
                 timeoutMs: 15000,
                 attempts: 2
             });
-            return parseJsonLoose(result.text);
+            lastRawText = result.text;
+            const parsed = parseJsonLoose(result.text);
+            return { parsed, rawText: result.text, finishReason: result.finishReason };
         } catch (err) {
             lastErr = err;
             console.error(`extractSmsFields: attempt ${attempt} failed:`, err.message);
         }
     }
+    lastErr.rawText = lastRawText; // whatever text (if any) the last attempt actually got back, for debugging
     throw lastErr;
 }
 
@@ -322,12 +336,23 @@ exports.handler = async (event, context) => {
             );
         } catch (_) {}
 
-        // Extract with DeepSeek
+        // Extract with DeepSeek — also capture raw debug info (see the long
+        // comment above extractSmsFields): console.error alone is provably
+        // invisible for this app, so whatever happened gets written onto the
+        // record itself instead, where the admin SMS Detections panel can
+        // actually show it.
         let extracted = { amount: null, senderName: null };
+        let debugInfo = null;
         try {
-            extracted = await extractSmsFields(smsBody);
+            const { parsed, rawText, finishReason } = await extractSmsFields(smsBody);
+            extracted = parsed || {};
+            debugInfo = { rawText: (rawText || '').slice(0, 500), finishReason: finishReason || null };
         } catch (err) {
             console.error('SMS extraction failed:', err.message);
+            debugInfo = {
+                error:   (err.message || 'unknown error').slice(0, 300),
+                rawText: (err.rawText || '').slice(0, 500)
+            };
         }
 
         // Defense in depth: strip anything but digits/./- before Number()
@@ -350,7 +375,8 @@ exports.handler = async (event, context) => {
             createdAt:  new Date(),
             amount:     normalizedAmount,
             senderName: normalizedName,
-            status:     (normalizedAmount && normalizedName) ? 'extracted' : 'unreadable'
+            status:     (normalizedAmount && normalizedName) ? 'extracted' : 'unreadable',
+            debugInfo  // only meaningful (and only shown by the admin UI) when status is 'unreadable'
         });
 
         if (!normalizedAmount || !normalizedName) {
