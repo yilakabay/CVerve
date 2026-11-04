@@ -132,12 +132,25 @@ ${smsText}`;
     // property on whatever it returns/throws, so the caller can write it
     // straight into the sms_detections MongoDB record — which the admin
     // panel already renders — instead of a log line nobody can read.
+    // Models to try, in order. Previously this hammered MODEL_IDS.DEEPSEEK_FLASH
+    // ('DeepSeek-V4.1-Flash') twice — but that model ID has been deprecated/
+    // removed by the B.AI gateway (confirmed 2026-11-04 via the new debugInfo
+    // surface: "Error: The model 'DeepSeek-V4.1-Flash' does not exist"), so
+    // every single call failed immediately with an empty raw response,
+    // regardless of maxTokens or prompt wording — which is why the earlier
+    // maxTokens/prompt fix did not resolve the user's report of a still-
+    // "Unreadable" brand-new SMS. GEMINI_FLASH is swapped in as primary (it's
+    // the proven-reliable model used for LETTER_EXTRACTION/CV_EXTRACTION/
+    // GENERIC_EXTRACTION elsewhere, and as Smart Finder's/Fit Check's working
+    // fallback), with DEEPSEEK_PRO as a genuinely different second attempt
+    // instead of retrying the same (now-working) model twice.
+    const modelsToTry = [MODEL_IDS.GEMINI_FLASH, MODEL_IDS.DEEPSEEK_PRO];
     let lastErr;
     let lastRawText = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= modelsToTry.length; attempt++) {
         try {
             const result = await callAI({
-                model: MODEL_IDS.DEEPSEEK_FLASH,
+                model: modelsToTry[attempt - 1],
                 messages: [
                     { role: 'system', content: 'You extract fields from bank SMS messages. You reply with valid JSON only.' },
                     { role: 'user',   content: prompt }
@@ -153,7 +166,7 @@ ${smsText}`;
             return { parsed, rawText: result.text, finishReason: result.finishReason };
         } catch (err) {
             lastErr = err;
-            console.error(`extractSmsFields: attempt ${attempt} failed:`, err.message);
+            console.error(`extractSmsFields: attempt ${attempt} (model ${modelsToTry[attempt - 1]}) failed:`, err.message);
         }
     }
     lastErr.rawText = lastRawText; // whatever text (if any) the last attempt actually got back, for debugging

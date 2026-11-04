@@ -81,7 +81,7 @@ const FEATURE_MODELS = {
   CV_CHAT:             MODEL_IDS.DEEPSEEK_PRO,   // CV Builder: chat interface / data structuring
   CV_EXTRACTION:       MODEL_IDS.GEMINI_FLASH,   // CV Builder: certificates/education doc extraction
   CV_POLISH:           MODEL_IDS.CLAUDE_SONNET,  // CV Builder: final human polish
-  SMART_FINDER:        MODEL_IDS.DEEPSEEK_FLASH, // Smart Finder
+  SMART_FINDER:        MODEL_IDS.GEMINI_FLASH,   // Smart Finder — DEEPSEEK_FLASH ('DeepSeek-V4.1-Flash') was deprecated/removed by the B.AI gateway (confirmed 2026-11-04: "The model 'DeepSeek-V4.1-Flash' does not exist"); was only "working" because the pass-2 fallback below silently rescued every call
   FIT_CHECK:           MODEL_IDS.DEEPSEEK_PRO,   // Fit Check
   GENERIC_EXTRACTION:  MODEL_IDS.GEMINI_FLASH    // payment screenshots, CV uploads, any other doc extraction
 };
@@ -97,7 +97,7 @@ const FEATURE_MODELS = {
 // even though FIT_CHECK's actual reported failure that day (BAD_AI_RESPONSE
 // on some jobs) traced to maxTokens truncation, not the model itself.
 const FEATURE_FALLBACK_MODELS = {
-  SMART_FINDER: MODEL_IDS.GEMINI_FLASH,
+  SMART_FINDER: MODEL_IDS.DEEPSEEK_PRO,
   FIT_CHECK:    MODEL_IDS.GEMINI_FLASH
 };
 
