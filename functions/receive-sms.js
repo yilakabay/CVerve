@@ -305,6 +305,63 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
     return { status: scored.length > 1 ? 'ambiguous' : 'waiting' };
 }
 
+// ── Reverse match: a pending payment was just submitted — check whether a
+// bank SMS already arrived for it earlier and is sitting unmatched ─────────
+// ROOT CAUSE (found 2026-11-04): tryAutoVerify() above only runs at the
+// moment an SMS arrives, matching it against pending_payments that ALREADY
+// exist at that instant. But the Android app forwards the bank SMS the
+// moment it lands on the phone, which is routinely BEFORE the user has
+// finished filling in and submitting the payment-claim form on the site —
+// confirmed from a real case where the SMS's own "Waiting for matching
+// payment" admin card is timestamped 19:44:44 and the matching pending
+// payment the user submitted is timestamped three minutes later, 19:47:39.
+// At 19:44 there was nothing to match against, so the SMS was correctly
+// left 'waiting' — but once the pending payment showed up afterward,
+// nothing ever re-checked that already-stored SMS against it, so it sat in
+// "Waiting for matching payment" (and the payment sat in Pending) forever,
+// even though the SMS had since become perfectly readable. This closes that
+// gap from the other direction: call right after a pending payment is
+// inserted, so a same-amount/same-name SMS that arrived earlier gets picked
+// up immediately instead of only an admin noticing and resolving it by hand.
+async function tryMatchExistingSms(db, pending) {
+    const smsCol = db.collection('sms_detections');
+
+    const candidates = await smsCol.find({
+        status: { $in: ['waiting', 'ambiguous'] },
+        amount: pending.claimedAmount
+    }).toArray();
+
+    const scored = candidates
+        .map(s => ({ s, score: nameSimilarity(pending.claimedSenderName, s.senderName) }))
+        .filter(x => x.score >= NAME_MATCH_THRESHOLD)
+        .sort((a, b) => b.score - a.score);
+
+    // Same single-clear-winner rule as tryAutoVerify — never guess between
+    // two similarly-named unmatched SMS for the same amount.
+    if (!(scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score))) {
+        return { status: 'no_match' };
+    }
+
+    const sms = scored[0].s;
+    const result = await verifyPendingPayment(db, pending);
+
+    if (result.status === 'insufficient') {
+        await smsCol.updateOne(
+            { _id: sms._id },
+            { $set: { status: 'insufficient_for_chosen_plan', matchedUserId: pending.userId, resolvedAt: new Date() } }
+        );
+        return { status: 'insufficient_for_chosen_plan' };
+    }
+
+    await smsCol.updateOne(
+        { _id: sms._id },
+        { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
+    );
+    return result;
+}
+
+module.exports.tryMatchExistingSms = tryMatchExistingSms;
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 exports.handler = async (event, context) => {
     context.callbackWaitsForEmptyEventLoop = false;

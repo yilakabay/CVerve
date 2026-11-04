@@ -37,6 +37,7 @@ const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 const { resolvePack, formatCT } = require('./lib/packs');
+const { tryMatchExistingSms } = require('./receive-sms');
 
 async function writeNotification(db, userId, notification) {
   try {
@@ -156,15 +157,48 @@ exports.handler = async (event, context) => {
       transactionId:     trimmedTransactionId
     });
 
-    // ── Immediate acknowledgement notification, from "System" ──────────────────
-    await writeNotification(db, userId, {
-      type:       'payment_received',
-      pendingId:  insertResult.insertedId.toString(),
-      amount:     parsedAmount,
-      chosenPlan: chosenPack.id
-    });
+    // ── Catch the SMS-arrived-before-the-form case ──────────────────────────
+    // The Android app forwards the bank SMS the instant it lands on the
+    // phone, which can be (and in a confirmed real case, was) several
+    // minutes BEFORE the user finishes filling in and submitting this form.
+    // receive-sms.js's own auto-match only looks at pending_payments that
+    // exist at the moment the SMS arrives, so an SMS that arrived early has
+    // nothing to match yet and is left "waiting" — and until now, nothing
+    // ever re-checked it once the matching pending payment showed up here.
+    // This closes that gap from the payment side: if an already-logged,
+    // still-unmatched SMS fits this payment (same amount, same sender name),
+    // verify immediately instead of leaving both stuck until an admin
+    // notices and resolves it by hand.
+    let matchResult = { status: 'no_match' };
+    try {
+      matchResult = await tryMatchExistingSms(db, {
+        _id:               insertResult.insertedId,
+        userId,
+        claimedAmount:     parsedAmount,
+        claimedSenderName: trimmedSenderName,
+        chosenPlan:        chosenPack.id,
+        paymentMethod:     paymentMethod || 'unknown',
+        transactionId:     trimmedTransactionId,
+        submittedAt:       new Date()
+      });
+    } catch (e) {
+      console.error('tryMatchExistingSms error:', e.message);
+    }
 
-    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}, chosenPack=${chosenPack.id} (${formatCT(chosenPack.tokens)})`);
+    // Only send the generic "received, awaiting verification" notification
+    // when it WASN'T just auto-verified above — verifyPendingPayment() (via
+    // tryMatchExistingSms) already sends its own "plan_activated" notification,
+    // and the pending_payments row it matched no longer exists to reference.
+    if (matchResult.status !== 'verified') {
+      await writeNotification(db, userId, {
+        type:       'payment_received',
+        pendingId:  insertResult.insertedId.toString(),
+        amount:     parsedAmount,
+        chosenPlan: chosenPack.id
+      });
+    }
+
+    console.log(`Payment pending: user=${userId}, amount=${parsedAmount}, sender=${trimmedSenderName}, chosenPack=${chosenPack.id} (${formatCT(chosenPack.tokens)}), smsMatch=${matchResult.status}`);
 
     return {
       statusCode: 200,
