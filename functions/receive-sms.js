@@ -71,6 +71,23 @@ function isBankSender(sender) {
     return ALLOWED_SENDERS.some(s => lower.includes(s));
 }
 
+// Classifies which payment method (matching pending_payments.paymentMethod,
+// which is always 'cbe' or 'telebirr' — see app.html's two payment-method
+// screens) an incoming SMS's sender belongs to. Used so matching never pairs
+// an SMS from one channel with a pending payment submitted under the other
+// — e.g. the CBE short code '8397' should never get matched against a
+// Telebirr pending payment just because the amount+name happened to line
+// up. Returns null for a sender that doesn't map cleanly (matching then
+// falls back to the existing amount/name/transactionId logic unfiltered,
+// same as before this existed, rather than refusing to match at all).
+function classifySmsPaymentMethod(sender) {
+    if (!sender) return null;
+    const lower = sender.toLowerCase();
+    if (lower.includes('127') || lower.includes('telebirr') || lower.includes('7978') || lower.includes('9999')) return 'telebirr';
+    if (lower.includes('cbe') || lower.includes('8397') || lower.includes('7809')) return 'cbe';
+    return null;
+}
+
 // ── Name matching ──────────────────────────────────────────────────────────────
 // Names on SMS vs. a user's screenshot are rarely byte-identical (different
 // casing, middle names, extra spaces), so match on token overlap rather than
@@ -294,7 +311,7 @@ async function resolveAutoVerifyMatch(db, pending, smsCol, smsDocId) {
 // for every payment method. Never rejects. If the matched pending payment's
 // amount doesn't cover its chosen plan, it's simply left pending (status
 // stays 'pending' in pending_payments) for an admin to resolve.
-async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId, transactionId) {
+async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId, transactionId, paymentMethod) {
     const pendingCol = db.collection('pending_payments');
     const smsCol     = db.collection('sms_detections');
 
@@ -328,6 +345,13 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId, transact
     }).toArray();
 
     const scored = candidates
+        // Channel guard: don't let a CBE SMS match a Telebirr pending
+        // payment (or vice versa) just because amount+name happen to line
+        // up — only applied when BOTH sides' channel is actually known, so
+        // it never blocks a match that would have worked before this
+        // existed (classifySmsPaymentMethod can return null for an
+        // unrecognized sender string).
+        .filter(c => !paymentMethod || !c.paymentMethod || c.paymentMethod === paymentMethod)
         .map(c => ({ c, score: nameSimilarity(senderName, c.claimedSenderName) }))
         .filter(x => x.score >= NAME_MATCH_THRESHOLD)
         // Highest score first; a tie (e.g. the SAME person paying the SAME
@@ -430,6 +454,9 @@ async function tryMatchExistingSms(db, pending) {
     }).toArray();
 
     const scored = candidates
+        // Same channel guard as tryAutoVerify — only filters when both
+        // sides' channel is actually known.
+        .filter(s => !pending.paymentMethod || !s.paymentMethod || s.paymentMethod === pending.paymentMethod)
         .map(s => ({ s, score: nameSimilarity(pending.claimedSenderName, s.senderName) }))
         .filter(x => x.score >= NAME_MATCH_THRESHOLD)
         .sort((a, b) => b.score - a.score || new Date(a.s.createdAt) - new Date(b.s.createdAt));
@@ -523,11 +550,13 @@ exports.handler = async (event, context) => {
         // matches the payer's own receipt — so a message is readable with
         // EITHER a name OR a transaction number, not name alone.
         const normalizedTxnId  = extracted.transactionId ? String(extracted.transactionId).trim().toLowerCase() : null;
+        const smsPaymentMethod = classifySmsPaymentMethod(sender);
 
         // Store SMS detection record
         const insertResult = await col.insertOne({
             smsBody,
             sender:        sender || 'unknown',
+            paymentMethod: smsPaymentMethod, // 'cbe' | 'telebirr' | null — see classifySmsPaymentMethod
             receivedAt:    receivedAt ? new Date(receivedAt) : new Date(),
             createdAt:     new Date(),
             amount:        normalizedAmount,
@@ -547,7 +576,7 @@ exports.handler = async (event, context) => {
             };
         }
 
-        const result = await tryAutoVerify(db, normalizedAmount, normalizedName, smsBody, insertResult.insertedId, normalizedTxnId);
+        const result = await tryAutoVerify(db, normalizedAmount, normalizedName, smsBody, insertResult.insertedId, normalizedTxnId, smsPaymentMethod);
 
         return { statusCode: 200, body: JSON.stringify(result) };
 
