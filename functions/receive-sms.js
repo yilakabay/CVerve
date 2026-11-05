@@ -49,21 +49,20 @@ const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Allowed bank senders ──────────────────────────────────────────────────────
-// Telebirr's actual SMS sender ID on the admin's phone is the short code
-// "127" — NOT the text "Telebirr" (confirmed 2026-11-05). The 'telebirr'
-// string entry below only ever matched if the sender field literally
-// contained that word, which it doesn't for the real messages; every
-// Telebirr SMS was silently hitting the isBankSender() check below, getting
-// { status: 'ignored', reason: 'Not a bank sender' }, and never even being
-// stored in sms_detections — so Telebirr payments had no debug trail at all
-// to see, unlike CBE's confirmed "unreadable" one. Adding '127' fixes that
-// at the source; 'telebirr', '7978', '9999' are left in case some devices/
-// carriers do show a text or different short code instead.
-const ALLOWED_SENDERS = [
-    'cbe', '8397', 'cbeethi',
-    'cbebirr', 'cbe birr', '7809',
-    'telebirr', '7978', '9999', '127'
-];
+// Narrowed 2026-11-05 per the admin's own confirmation: this app only ever
+// accepts two payment channels (CBE and Telebirr — see app.html's two
+// payment-method screens), and on-device the real transaction senders are
+// exactly "CBE" and the short code "127". Telebirr's other SMS senders
+// ('telebirr', '7978', '9999') are NOT transaction notifications — they're
+// used for official announcements, OTPs/passwords, and other non-payment
+// messages — so accepting them here was letting irrelevant SMS reach the
+// AI extractor and clutter sms_detections with noise that could never
+// actually match a payment. Likewise CBE Birr's separate senders
+// ('cbebirr', '7809') were never a real channel this app accepts payments
+// through (app.html has no CBE Birr payment screen, only 'cbe'), so they're
+// dropped too. Kept narrow and exact on purpose — this list should mirror
+// exactly the channels pending_payments.paymentMethod can ever be.
+const ALLOWED_SENDERS = ['cbe', '127'];
 
 function isBankSender(sender) {
     if (!sender) return false;
@@ -83,8 +82,8 @@ function isBankSender(sender) {
 function classifySmsPaymentMethod(sender) {
     if (!sender) return null;
     const lower = sender.toLowerCase();
-    if (lower.includes('127') || lower.includes('telebirr') || lower.includes('7978') || lower.includes('9999')) return 'telebirr';
-    if (lower.includes('cbe') || lower.includes('8397') || lower.includes('7809')) return 'cbe';
+    if (lower.includes('127')) return 'telebirr';
+    if (lower.includes('cbe')) return 'cbe';
     return null;
 }
 
