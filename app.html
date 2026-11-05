@@ -6403,7 +6403,26 @@
 
                 statusEl.classList.add('hidden');
                 document.getElementById(method + 'ShotAmount').textContent = data.amount + ' ETB';
-                document.getElementById(method + 'ShotName').textContent   = data.senderName;
+                // Telebirr's own transaction-history receipt never shows a sender
+                // name (only "Transaction To: <receiver>" + a transaction number),
+                // so senderName can legitimately be null here — show the
+                // transaction number instead of the sender-name row in that case.
+                const nameRow = document.getElementById(method + 'ShotNameRow');
+                const nameEl  = document.getElementById(method + 'ShotName');
+                const txnRow  = document.getElementById(method + 'ShotTxnRow');
+                const txnEl   = document.getElementById(method + 'ShotTxn');
+                if (data.senderName) {
+                    if (nameEl) nameEl.textContent = data.senderName;
+                    if (nameRow) nameRow.classList.remove('hidden');
+                } else if (nameRow) {
+                    nameRow.classList.add('hidden');
+                }
+                if (data.transactionId && txnRow && txnEl) {
+                    txnEl.textContent = data.transactionId;
+                    txnRow.classList.remove('hidden');
+                } else if (txnRow) {
+                    txnRow.classList.add('hidden');
+                }
                 previewEl.classList.remove('hidden');
 
                 const submitBtn = document.getElementById(method + 'SubmitBtn');
@@ -6463,7 +6482,9 @@
         function copyText(text, label) { navigator.clipboard.writeText(text).then(() => showMessage('success', `${label} copied!`)).catch(() => showMessage('error', 'Failed to copy')); }
         async function submitPayment(method) {
             const extracted = _screenshotState[method];
-            if (!extracted || !extracted.amount || !extracted.senderName) {
+            // senderName OR transactionId is enough — Telebirr receipts
+            // legitimately have no sender name at all (see handleScreenshotUpload).
+            if (!extracted || !extracted.amount || (!extracted.senderName && !extracted.transactionId)) {
                 showMessage('error', 'Please upload your payment screenshot first.');
                 return;
             }
@@ -7096,7 +7117,8 @@
             <div id="telebirrShotPreview" class="hidden bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-3 text-sm">
                 <p class="font-semibold text-emerald-700 mb-2 flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Detected from your screenshot</p>
                 <div class="flex justify-between text-emerald-900 mb-1"><span class="text-emerald-600">Amount</span><span class="font-semibold" id="telebirrShotAmount">—</span></div>
-                <div class="flex justify-between text-emerald-900"><span class="text-emerald-600">Sender Name</span><span class="font-semibold" id="telebirrShotName">—</span></div>
+                <div class="flex justify-between text-emerald-900 mb-1" id="telebirrShotNameRow"><span class="text-emerald-600">Sender Name</span><span class="font-semibold" id="telebirrShotName">—</span></div>
+                <div class="flex justify-between text-emerald-900 hidden" id="telebirrShotTxnRow"><span class="text-emerald-600">Transaction No.</span><span class="font-semibold" id="telebirrShotTxn">—</span></div>
                 <button onclick="resetScreenshotState('telebirr')" class="text-xs text-emerald-600 hover:underline mt-2">Choose a different screenshot</button>
             </div>
 

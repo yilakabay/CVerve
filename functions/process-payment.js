@@ -108,15 +108,22 @@ exports.handler = async (event, context) => {
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
       return { statusCode: 400, body: JSON.stringify({ error: 'A valid amount is required.' }) };
     }
-    const trimmedSenderName = senderName ? String(senderName).trim() : '';
-    if (!trimmedSenderName) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Sender name is required.' }) };
+    const trimmedSenderName   = senderName ? String(senderName).trim() : '';
+    const trimmedTransactionId = transactionId ? String(transactionId).trim().toLowerCase() : null;
+    // Telebirr's own transaction-confirmation screen (the payer's own history
+    // view) never shows a sender name at all — there's no "From" field, only
+    // "Transaction To: <receiver>" and a transaction number — confirmed from
+    // a real screenshot the extraction AI correctly couldn't find a name on.
+    // A transaction number is just as strong a matching signal (it's a
+    // unique bank reference), so either one is accepted instead of requiring
+    // senderName unconditionally.
+    if (!trimmedSenderName && !trimmedTransactionId) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Sender name or a transaction number is required.' }) };
     }
     const chosenPack = resolvePack(chosenPlan);
     if (!chosenPack) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Please choose a CT pack before paying.' }) };
     }
-    const trimmedTransactionId = transactionId ? String(transactionId).trim().toLowerCase() : null;
 
     const verifiedCol = db.collection('payments');
 

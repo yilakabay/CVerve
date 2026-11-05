@@ -91,14 +91,14 @@ async function extractWithGemini(base64, mime) {
   const prompt = `This is a screenshot of a bank/mobile-money payment confirmation
 (Ethiopian bank or wallet — CBE, CBE Birr, or Telebirr).
 Extract exactly these three fields:
-- amount: the amount transferred, in ETB (Birr), as a plain number (no currency symbol, no commas).
-- senderName: the full name of the person who SENT the money (the payer / "From" name on the receipt — not the receiver).
-- transactionId: the transaction reference number, if shown (often labeled "Reference No", "Transaction Ref", "FT number"). Many receipts DO NOT show this — that is completely fine, use null in that case. Never guess one.
+- amount: the TOTAL amount deducted/transferred shown on the receipt, in ETB (Birr), as a plain POSITIVE number (no currency symbol, no commas, no minus sign — if the receipt shows it as negative, e.g. "-101.00" for a deduction, still return it as a positive number: 101).
+- senderName: the full name of the person who SENT the money (the payer / "From" name on the receipt — not the receiver). Many Telebirr "my transaction history" style receipts show only "Transaction To: <receiver>" and NEVER show the sender's own name at all, since it's the payer's own account — that is completely normal and fine, use null in that case rather than guessing or using the receiver's name.
+- transactionId: the transaction reference number, if shown (often labeled "Reference No", "Transaction Ref", "Transaction Number", "FT number"). Many receipts DO NOT show this — that is completely fine, use null in that case. Never guess one.
 
 Reply ONLY with valid JSON, no markdown, no explanation, in exactly this shape:
 {"amount": 250, "senderName": "Abebe Kebede", "transactionId": "FT1234567890"}
 
-If amount or senderName cannot be found, use null for that field.`;
+If amount cannot be found, use null for it. senderName and transactionId are each independently optional — use null for either one you cannot find, but try to find at least one of the two.`;
 
   const started = Date.now();
   let lastErr = null;
@@ -205,16 +205,27 @@ exports.handler = async (event, context) => {
       return { statusCode: 500, body: JSON.stringify({ error: 'Could not read the screenshot. Please upload a clear, uncropped screenshot of your payment confirmation.' }) };
     }
 
-    const amount         = extracted && extracted.amount != null ? Number(extracted.amount) : null;
+    // Defense in depth: the prompt already asks for a positive number, but
+    // strip any stray minus sign / non-numeric characters here too, in case
+    // the model still echoes the receipt's own "-101.00"-style deduction
+    // display literally — Telebirr's confirmation screen shows the amount
+    // with a leading minus since it's a debit from the payer's wallet.
+    const rawAmount      = extracted && extracted.amount != null ? String(extracted.amount).replace(/[^\d.]/g, '') : '';
+    const amount         = rawAmount ? Math.abs(Number(rawAmount)) : null;
     const senderName      = extracted && extracted.senderName ? String(extracted.senderName).trim() : '';
     const transactionId   = extracted && extracted.transactionId ? String(extracted.transactionId).trim() : '';
 
-    if (!amount || !senderName) {
+    // senderName is required for CBE-style receipts, but Telebirr's own
+    // "my transaction history" screen never shows one at all (confirmed
+    // from a real receipt: only "Transaction To: <receiver>" + a
+    // transaction number, no "From" field) — so a transaction number is
+    // accepted as an equally valid alternative match key.
+    if (!amount || (!senderName && !transactionId)) {
       return {
         statusCode: 200,
         body: JSON.stringify({
           success: false,
-          error: 'Could not clearly read the amount and sender name from this screenshot. Please make sure both are visible and try again.'
+          error: 'Could not clearly read the amount, and either a sender name or a transaction number, from this screenshot. Please make sure these are visible and try again.'
         })
       };
     }

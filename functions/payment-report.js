@@ -132,7 +132,7 @@ exports.handler = async (event, context) => {
       }
 
       if (decision === 'verify') {
-        const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
+        const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount, pending.paymentMethod);
         if (!outcome.canVerify) {
           return { statusCode: 400, body: JSON.stringify({ error: `This amount does not cover the pack the user chose. Reject it instead.` }) };
         }

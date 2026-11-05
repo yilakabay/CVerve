@@ -48,15 +48,31 @@ function formatCT(n) {
   return Number(n || 0).toLocaleString('en-US') + ' CT';
 }
 
+// Telebirr's own confirmation screen shows the TOTAL amount deducted from
+// the payer's wallet, which includes Telebirr's transfer fee + VAT on top
+// of the amount actually sent — confirmed from a real receipt showing
+// -101.00 ETB deducted for what was meant as a 99 ETB (ind_250k) payment,
+// i.e. ~2 ETB of fee/VAT, and per the admin's own report this can run
+// higher on larger transfers. That overage is Telebirr's fee, not money
+// the user is owed back, so it should never be flagged as refund-eligible
+// "excess" the way a genuine overpayment on CBE would be. CBE/CBE Birr
+// bank transfers don't have this fee-inclusion behavior, so the tolerance
+// only applies to Telebirr.
+const TELEBIRR_FEE_TOLERANCE_ETB = 10;
+
 // Decides whether a payment amount can buy the pack the user chose, and how
 // much (if any) is left over. Mirrors the old plan logic: we never silently
 // give a different pack than the one chosen. Any excess is handled by the
-// existing Refund / Tip system.
-function computeVerifyOutcome(chosenPackId, amount) {
+// existing Refund / Tip system — except, for Telebirr, up to
+// TELEBIRR_FEE_TOLERANCE_ETB of overage, which is absorbed as the
+// provider's own fee/VAT rather than surfaced as refund-eligible.
+function computeVerifyOutcome(chosenPackId, amount, paymentMethod) {
   const pack = resolvePack(chosenPackId);
   if (!pack) return { canVerify: false, pack: null };
   if (amount < pack.price) return { canVerify: false, pack };
-  const excess = Math.round((amount - pack.price) * 100) / 100;
+  const rawExcess     = Math.round((amount - pack.price) * 100) / 100;
+  const feeTolerance  = (paymentMethod === 'telebirr') ? TELEBIRR_FEE_TOLERANCE_ETB : 0;
+  const excess        = Math.max(0, Math.round((rawExcess - feeTolerance) * 100) / 100);
   return { canVerify: true, pack, tierPrice: pack.price, tokens: pack.tokens, excess };
 }
 
@@ -73,6 +89,6 @@ async function creditTokens(usersCol, userId, tokens) {
 
 module.exports = {
   PACKS, LEGACY_ALIASES, resolvePack, MIN_PACK_PRICE,
-  STARTER_TOKENS, MIGRATION_PLAN_TOKENS,
+  STARTER_TOKENS, MIGRATION_PLAN_TOKENS, TELEBIRR_FEE_TOLERANCE_ETB,
   formatCT, computeVerifyOutcome, creditTokens
 };

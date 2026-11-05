@@ -1136,12 +1136,13 @@
         <p class="text-xs text-gray-500 mb-1">From: <strong>${s.sender || '–'}</strong></p>
         ${s.senderName ? `<p class="text-xs text-gray-700 font-semibold">${escapeHtml(s.senderName)}</p>` : ''}
         ${s.amount    ? `<p class="text-xs text-gray-600">Amount: <strong>${s.amount} ETB</strong></p>` : ''}
+        ${s.transactionId ? `<p class="text-[10px] text-gray-400 font-mono mt-0.5">Txn: ${escapeHtml(s.transactionId)}</p>` : ''}
         ${s.matchedUserId ? `<p class="text-xs text-gray-500">User: ${s.matchedUserId}</p>` : ''}
         <details class="mt-1">
           <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">View SMS text</summary>
           <p class="text-xs text-gray-500 mt-1 bg-white rounded p-2 border border-gray-200 break-words">${s.smsBody || '–'}</p>
         </details>
-        ${needsReview ? `<p class="text-xs text-amber-600 mt-2 font-medium">No confident single match yet — resolve from the Verify Payments page using this name and amount.</p>` : ''}
+        ${needsReview ? `<p class="text-xs text-amber-600 mt-2 font-medium">No confident single match yet — resolve from the Verify Payments page using this ${s.transactionId ? 'transaction number' : 'name'} and amount.</p>` : ''}
         ${s.status === 'unreadable' && s.debugInfo ? `
         <details class="mt-1">
           <summary class="text-xs text-red-400 cursor-pointer hover:text-red-600">Why unreadable? (debug)</summary>

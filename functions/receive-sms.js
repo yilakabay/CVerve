@@ -126,9 +126,11 @@ Extract the following from this SMS:
 - senderName: the full name of the person who SENT/transferred the money TO this account — never the account holder who is RECEIVING it. Read the sentence carefully to tell the two apart in whatever format this particular message uses:
   - On CBE messages the sender's name is usually shown in parentheses after "from account ...", e.g. in "...from account 1*******3216 (Kibur Yirga Teshager) to your account..." the senderName is "Kibur Yirga Teshager" — NOT the "Dear <name>" greeting at the start, which is the account holder receiving the money.
   - Telebirr and other providers may word it differently (e.g. a sentence naming who paid/transferred, with no parentheses, or the payer's name and phone number given directly rather than after "from account"). In every case, pick the person on the PAYING/SENDING side of the sentence, whatever the exact wording, not the account holder who received the funds.
+  - Telebirr's incoming-payment notification often does NOT name the sender at all — if there genuinely is no name anywhere in the message, use null rather than guessing or inventing one.
+- transactionId: the transaction reference number, if the message shows one (labels vary: "Transaction No", "Txn No", "Reference No", "FT number", etc.). Many messages don't show one — use null in that case, never guess.
 
 Reply ONLY with valid JSON, no explanation, no markdown, no extra text before or after.
-Format: {"amount": 500, "senderName": "Abebe Kebede"}
+Format: {"amount": 500, "senderName": "Abebe Kebede", "transactionId": "DK53QAWNT3"}
 Use null for any field you cannot find.
 
 SMS:
@@ -207,7 +209,7 @@ async function verifyPendingPayment(db, pending) {
     const pendingCol        = db.collection('pending_payments');
     const pendingRevenueCol = db.collection('pending_revenue');
 
-    const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
+    const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount, pending.paymentMethod);
     if (!outcome.canVerify) return { status: 'insufficient' };
 
     const pack = outcome.pack;
@@ -266,13 +268,59 @@ async function verifyPendingPayment(db, pending) {
     return { status: 'verified', userId: pending.userId, amount: pending.claimedAmount, plan: pack.id, tokens: pack.tokens, excess: outcome.excess };
 }
 
-// ── Auto verify — name + exact amount match only, for every payment method ──
-// Never rejects. If the matched pending payment's amount doesn't cover its
-// chosen plan, it's simply left pending (status stays 'pending' in
-// pending_payments) for an admin to resolve.
-async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
+// Shared by both the transaction-number and name+amount match paths below:
+// credits the matched pending payment and marks the SMS record resolved
+// accordingly. Never rejects — if the amount doesn't cover the chosen pack,
+// the SMS is flagged but the pending payment is left for an admin.
+async function resolveAutoVerifyMatch(db, pending, smsCol, smsDocId) {
+    const result = await verifyPendingPayment(db, pending);
+
+    if (result.status === 'insufficient') {
+        await smsCol.updateOne(
+            { _id: smsDocId },
+            { $set: { status: 'insufficient_for_chosen_plan', matchedUserId: pending.userId, resolvedAt: new Date() } }
+        );
+        return { status: 'insufficient_for_chosen_plan' };
+    }
+
+    await smsCol.updateOne(
+        { _id: smsDocId },
+        { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
+    );
+    return result;
+}
+
+// ── Auto verify — transaction number match first, then name + exact amount —
+// for every payment method. Never rejects. If the matched pending payment's
+// amount doesn't cover its chosen plan, it's simply left pending (status
+// stays 'pending' in pending_payments) for an admin to resolve.
+async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId, transactionId) {
     const pendingCol = db.collection('pending_payments');
     const smsCol     = db.collection('sms_detections');
+
+    // Transaction number first — confirmed 2026-11-05: Telebirr's own
+    // incoming-payment SMS carries no sender name at all, but its
+    // transaction number matches the one on the payer's own receipt. A
+    // transaction reference is a far stronger signal than name-similarity
+    // (it's a unique bank reference), so when both sides have one and it
+    // matches, that's authoritative on its own — no need for amount to line
+    // up exactly either, since the SMS's own stated amount and the payer's
+    // claimed amount can differ slightly (Telebirr's confirmation shows the
+    // fee-inclusive deducted total, not necessarily the same figure the
+    // SMS states — see TELEBIRR_FEE_TOLERANCE_ETB in lib/packs.js, which is
+    // what actually governs how much of that difference is absorbed).
+    if (transactionId) {
+        const txnCandidates = await pendingCol.find({
+            status:        'pending',
+            transactionId: transactionId
+        }).toArray();
+        if (txnCandidates.length === 1) {
+            return await resolveAutoVerifyMatch(db, txnCandidates[0], smsCol, smsDocId);
+        }
+        // length > 1 (shouldn't happen — transactionId is meant to be unique
+        // per the anti-resubmission guard in process-payment.js) or 0 falls
+        // through to the name+amount path below.
+    }
 
     const candidates = await pendingCol.find({
         status:        'pending',
@@ -293,25 +341,7 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
     // Auto-resolve whenever there's a best match — either a single candidate,
     // a clear score winner, or a tie broken by submission order above.
     if (scored.length >= 1) {
-        const pending = scored[0].c;
-        const result  = await verifyPendingPayment(db, pending);
-
-        if (result.status === 'insufficient') {
-            // Amount matched a pending payment by name, but doesn't cover the
-            // plan they chose — leave it pending, flag the SMS as matched-but-
-            // insufficient so admin has context in the SMS Detections tab.
-            await smsCol.updateOne(
-                { _id: smsDocId },
-                { $set: { status: 'insufficient_for_chosen_plan', matchedUserId: pending.userId, resolvedAt: new Date() } }
-            );
-            return { status: 'insufficient_for_chosen_plan' };
-        }
-
-        await smsCol.updateOne(
-            { _id: smsDocId },
-            { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
-        );
-        return result;
+        return await resolveAutoVerifyMatch(db, scored[0].c, smsCol, smsDocId);
     }
 
     // No candidate even passes the name-similarity threshold — leave visible
@@ -357,24 +387,7 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
 // one that's been waiting longest) rather than refusing to pick — same
 // policy a human admin would apply, and it now resolves duplicates in
 // first-in-first-out order instead of jamming the whole queue.
-async function tryMatchExistingSms(db, pending) {
-    const smsCol = db.collection('sms_detections');
-
-    const candidates = await smsCol.find({
-        status: { $in: ['waiting', 'ambiguous'] },
-        amount: pending.claimedAmount
-    }).toArray();
-
-    const scored = candidates
-        .map(s => ({ s, score: nameSimilarity(pending.claimedSenderName, s.senderName) }))
-        .filter(x => x.score >= NAME_MATCH_THRESHOLD)
-        .sort((a, b) => b.score - a.score || new Date(a.s.createdAt) - new Date(b.s.createdAt));
-
-    if (scored.length === 0) {
-        return { status: 'no_match' };
-    }
-
-    const sms = scored[0].s;
+async function resolveReverseMatch(db, pending, sms, smsCol) {
     const result = await verifyPendingPayment(db, pending);
 
     if (result.status === 'insufficient') {
@@ -390,6 +403,42 @@ async function tryMatchExistingSms(db, pending) {
         { $set: { status: result.status, matchedUserId: pending.userId, resolvedAt: new Date() } }
     );
     return result;
+}
+
+async function tryMatchExistingSms(db, pending) {
+    const smsCol = db.collection('sms_detections');
+
+    // Transaction number first — see the matching comment on tryAutoVerify's
+    // own transactionId branch. Authoritative on its own when both sides
+    // have one and it matches: no exact-amount requirement, since Telebirr's
+    // SMS amount and the payer's claimed amount can differ by the provider's
+    // fee (absorbed by TELEBIRR_FEE_TOLERANCE_ETB in lib/packs.js, not by
+    // requiring an exact match here).
+    if (pending.transactionId) {
+        const txnCandidates = await smsCol.find({
+            status:        { $in: ['waiting', 'ambiguous'] },
+            transactionId: pending.transactionId
+        }).toArray();
+        if (txnCandidates.length === 1) {
+            return await resolveReverseMatch(db, pending, txnCandidates[0], smsCol);
+        }
+    }
+
+    const candidates = await smsCol.find({
+        status: { $in: ['waiting', 'ambiguous'] },
+        amount: pending.claimedAmount
+    }).toArray();
+
+    const scored = candidates
+        .map(s => ({ s, score: nameSimilarity(pending.claimedSenderName, s.senderName) }))
+        .filter(x => x.score >= NAME_MATCH_THRESHOLD)
+        .sort((a, b) => b.score - a.score || new Date(a.s.createdAt) - new Date(b.s.createdAt));
+
+    if (scored.length === 0) {
+        return { status: 'no_match' };
+    }
+
+    return await resolveReverseMatch(db, pending, scored[0].s, smsCol);
 }
 
 module.exports.tryMatchExistingSms = tryMatchExistingSms;
@@ -468,30 +517,37 @@ exports.handler = async (event, context) => {
         const parsedAmount = rawAmount ? Number(rawAmount) : NaN;
         const normalizedAmount = Number.isFinite(parsedAmount) ? parsedAmount : null;
         const normalizedName   = extracted.senderName ? String(extracted.senderName).trim() : null;
+        // Telebirr's incoming-payment SMS to the admin's phone has been
+        // confirmed to carry NO sender name at all (unlike CBE's
+        // parenthetical name) but DOES carry a transaction number that
+        // matches the payer's own receipt — so a message is readable with
+        // EITHER a name OR a transaction number, not name alone.
+        const normalizedTxnId  = extracted.transactionId ? String(extracted.transactionId).trim().toLowerCase() : null;
 
         // Store SMS detection record
         const insertResult = await col.insertOne({
             smsBody,
-            sender:     sender || 'unknown',
-            receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
-            createdAt:  new Date(),
-            amount:     normalizedAmount,
-            senderName: normalizedName,
-            status:     (normalizedAmount && normalizedName) ? 'extracted' : 'unreadable',
+            sender:        sender || 'unknown',
+            receivedAt:    receivedAt ? new Date(receivedAt) : new Date(),
+            createdAt:     new Date(),
+            amount:        normalizedAmount,
+            senderName:    normalizedName,
+            transactionId: normalizedTxnId,
+            status:        (normalizedAmount && (normalizedName || normalizedTxnId)) ? 'extracted' : 'unreadable',
             debugInfo  // only meaningful (and only shown by the admin UI) when status is 'unreadable'
         });
 
-        if (!normalizedAmount || !normalizedName) {
+        if (!normalizedAmount || (!normalizedName && !normalizedTxnId)) {
             return {
                 statusCode: 200,
                 body: JSON.stringify({
                     status:  'unreadable',
-                    message: 'Could not extract amount and sender name from SMS'
+                    message: 'Could not extract amount and a sender name or transaction number from SMS'
                 })
             };
         }
 
-        const result = await tryAutoVerify(db, normalizedAmount, normalizedName, smsBody, insertResult.insertedId);
+        const result = await tryAutoVerify(db, normalizedAmount, normalizedName, smsBody, insertResult.insertedId, normalizedTxnId);
 
         return { statusCode: 200, body: JSON.stringify(result) };
 

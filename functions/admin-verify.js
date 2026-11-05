@@ -132,7 +132,7 @@ exports.handler = async (event, context) => {
         .limit(100)
         .toArray();
       const pending = pendingDocs.map(p => {
-        const outcome = computeVerifyOutcome(p.chosenPlan, p.claimedAmount);
+        const outcome = computeVerifyOutcome(p.chosenPlan, p.claimedAmount, p.paymentMethod);
         const pk = resolvePack(p.chosenPlan);
         return {
           pendingId:            p._id.toString(),
@@ -165,7 +165,7 @@ exports.handler = async (event, context) => {
       catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid pendingId' }) }; }
       if (!pending) return { statusCode: 404, body: JSON.stringify({ error: 'Pending payment not found. It may already have been resolved.' }) };
 
-      const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount);
+      const outcome = computeVerifyOutcome(pending.chosenPlan, pending.claimedAmount, pending.paymentMethod);
       if (!outcome.canVerify) {
         return { statusCode: 400, body: JSON.stringify({ error: `This amount does not cover the pack the user chose. Reject it instead.` }) };
       }
