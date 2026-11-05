@@ -270,11 +270,17 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
     const scored = candidates
         .map(c => ({ c, score: nameSimilarity(senderName, c.claimedSenderName) }))
         .filter(x => x.score >= NAME_MATCH_THRESHOLD)
-        .sort((a, b) => b.score - a.score);
+        // Highest score first; a tie (e.g. the SAME person paying the SAME
+        // amount twice in a row — a real, confirmed case) breaks to whichever
+        // pending payment has been waiting longest, so a genuine repeat
+        // payment still resolves in submission order instead of blocking
+        // every match after it forever (see the long comment on
+        // tryMatchExistingSms below for how this was found).
+        .sort((a, b) => b.score - a.score || new Date(a.c.submittedAt) - new Date(b.c.submittedAt));
 
-    // Only auto-resolve when there's a single clear best match — avoid
-    // guessing between two similarly-named pending payments for the same amount.
-    if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+    // Auto-resolve whenever there's a best match — either a single candidate,
+    // a clear score winner, or a tie broken by submission order above.
+    if (scored.length >= 1) {
         const pending = scored[0].c;
         const result  = await verifyPendingPayment(db, pending);
 
@@ -296,13 +302,13 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
         return result;
     }
 
-    // No confident single match — leave visible for admin review (name +
-    // amount are already stored on the SMS record for that).
+    // No candidate even passes the name-similarity threshold — leave visible
+    // for admin review (name + amount are already stored on the SMS record).
     await smsCol.updateOne(
         { _id: smsDocId },
-        { $set: { status: scored.length > 1 ? 'ambiguous' : 'waiting' } }
+        { $set: { status: 'waiting' } }
     );
-    return { status: scored.length > 1 ? 'ambiguous' : 'waiting' };
+    return { status: 'waiting' };
 }
 
 // ── Reverse match: a pending payment was just submitted — check whether a
@@ -323,6 +329,22 @@ async function tryAutoVerify(db, amount, senderName, smsBody, smsDocId) {
 // gap from the other direction: call right after a pending payment is
 // inserted, so a same-amount/same-name SMS that arrived earlier gets picked
 // up immediately instead of only an admin noticing and resolving it by hand.
+//
+// SECOND ROOT CAUSE (found 2026-11-05, same case): even with the above fix
+// deployed, a repeat case still stuck in Pending. Turned out this payment
+// WAS correctly matched against — but the match was a 2-way tie: the user's
+// earlier unresolved SMS (19:44:44, same name, same amount, never manually
+// verified by the admin as suggested) and the new SMS (20:19:10) both had
+// IDENTICAL name+amount scores against this new payment. The old strict
+// "only resolve if there's a single clear winner" rule treats a tie as "no
+// confident match" and refuses to guess — which is the right instinct for
+// two DIFFERENT people, but wrong for the same person legitimately paying
+// the same amount more than once: every payment after the first duplicate
+// would stay stuck forever, each one tying against the still-unresolved
+// previous one. Fixed by breaking ties to the OLDEST unresolved SMS (the
+// one that's been waiting longest) rather than refusing to pick — same
+// policy a human admin would apply, and it now resolves duplicates in
+// first-in-first-out order instead of jamming the whole queue.
 async function tryMatchExistingSms(db, pending) {
     const smsCol = db.collection('sms_detections');
 
@@ -334,11 +356,9 @@ async function tryMatchExistingSms(db, pending) {
     const scored = candidates
         .map(s => ({ s, score: nameSimilarity(pending.claimedSenderName, s.senderName) }))
         .filter(x => x.score >= NAME_MATCH_THRESHOLD)
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => b.score - a.score || new Date(a.s.createdAt) - new Date(b.s.createdAt));
 
-    // Same single-clear-winner rule as tryAutoVerify — never guess between
-    // two similarly-named unmatched SMS for the same amount.
-    if (!(scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score))) {
+    if (scored.length === 0) {
         return { status: 'no_match' };
     }
 
