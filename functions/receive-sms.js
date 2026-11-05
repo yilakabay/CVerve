@@ -49,10 +49,20 @@ const uri = process.env.MONGODB_URI;
 const mongo = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // ── Allowed bank senders ──────────────────────────────────────────────────────
+// Telebirr's actual SMS sender ID on the admin's phone is the short code
+// "127" — NOT the text "Telebirr" (confirmed 2026-11-05). The 'telebirr'
+// string entry below only ever matched if the sender field literally
+// contained that word, which it doesn't for the real messages; every
+// Telebirr SMS was silently hitting the isBankSender() check below, getting
+// { status: 'ignored', reason: 'Not a bank sender' }, and never even being
+// stored in sms_detections — so Telebirr payments had no debug trail at all
+// to see, unlike CBE's confirmed "unreadable" one. Adding '127' fixes that
+// at the source; 'telebirr', '7978', '9999' are left in case some devices/
+// carriers do show a text or different short code instead.
 const ALLOWED_SENDERS = [
     'cbe', '8397', 'cbeethi',
     'cbebirr', 'cbe birr', '7809',
-    'telebirr', '7978', '9999'
+    'telebirr', '7978', '9999', '127'
 ];
 
 function isBankSender(sender) {
@@ -109,11 +119,13 @@ const NAME_MATCH_THRESHOLD = 0.5; // at least half the shorter name's tokens mus
 // so this also retries the WHOLE extraction once if parsing fails, same
 // shape as the pass-loop pattern used elsewhere in this app).
 async function extractSmsFields(smsText) {
-    const prompt = `You are a payment SMS parser for Ethiopian banks/wallets (CBE, CBE Birr, Telebirr).
+    const prompt = `You are a payment SMS parser for Ethiopian banks/wallets (CBE, CBE Birr, Telebirr). Different providers word their messages differently — do not assume every message is formatted like CBE's.
 
 Extract the following from this SMS:
 - amount: the money transferred in ETB (Birr), as a plain number only — no currency symbol, no commas, no words.
-- senderName: the full name of the person who SENT/transferred the money TO this account (not the account holder receiving it). On CBE messages this is usually the name shown in parentheses after "from account ...", e.g. in "...from account 1*******3216 (Kibur Yirga Teshager) to your account..." the senderName is "Kibur Yirga Teshager", NOT the "Dear <name>" greeting at the start (that is the account holder receiving the money, not the sender).
+- senderName: the full name of the person who SENT/transferred the money TO this account — never the account holder who is RECEIVING it. Read the sentence carefully to tell the two apart in whatever format this particular message uses:
+  - On CBE messages the sender's name is usually shown in parentheses after "from account ...", e.g. in "...from account 1*******3216 (Kibur Yirga Teshager) to your account..." the senderName is "Kibur Yirga Teshager" — NOT the "Dear <name>" greeting at the start, which is the account holder receiving the money.
+  - Telebirr and other providers may word it differently (e.g. a sentence naming who paid/transferred, with no parentheses, or the payer's name and phone number given directly rather than after "from account"). In every case, pick the person on the PAYING/SENDING side of the sentence, whatever the exact wording, not the account holder who received the funds.
 
 Reply ONLY with valid JSON, no explanation, no markdown, no extra text before or after.
 Format: {"amount": 500, "senderName": "Abebe Kebede"}
