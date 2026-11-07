@@ -447,6 +447,13 @@ async function runBilledChat({ userId, sessionToken, feature, messages, maxToken
   if (lastErr) throw lastErr;
 
   if (free) {
+    // Free for the user ≠ free for this app — it still cost real B.AI
+    // tokens (CV-upload-to-storage reading, Application Letter uploads,
+    // etc., via extract-text.js's `free: true`). Log it the same way the
+    // other never-billed features are, so it shows up under "Operational
+    // (unbilled)" in admin-stats instead of vanishing. Best-effort —
+    // logOperationalUsage never throws.
+    await logOperationalUsage(db, { feature, model: modelUsed, usage: result.usage });
     return { text: result.text, parsed, tokensUsed: 0, tokenBalance: Math.max(0, Number(user.tokens) || 0), finishReason: result.finishReason };
   }
 
