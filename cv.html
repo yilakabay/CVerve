@@ -364,13 +364,12 @@
   </div>
 
 <script>
-  // ── DEV ACCESS GATE ──────────────────────────────────────────────────────
-  // While this feature is being built, only this one account can open it.
-  // This is a convenience gate for everyone else (clean "coming soon"
-  // screen) — the REAL enforcement is server-side in cv-chat.js, which
-  // independently checks the same phone number and refuses to respond to
-  // anyone else even if they somehow reach this page.
-  const CV_DEV_ALLOWED_USER_ID = '0985576139';
+  // ── ACCESS ───────────────────────────────────────────────────────────────
+  // CV Builder is now open to every signed-in user (2026-11-07). It used to
+  // be gated to a single dev account (CV_DEV_ALLOWED_USER_ID) while the
+  // feature was being built; that gate has been removed here and on the
+  // server (cv-chat.js, extract-file.js) now that the feature is finished
+  // and the user confirmed the rest of the app is working correctly.
   const currentUserId = localStorage.getItem('cv_userId');
   const currentSessionToken = localStorage.getItem('cv_sessionToken');
 
@@ -388,8 +387,6 @@
 
   if (!currentUserId || !currentSessionToken) {
     cvForceLogout();
-  } else if (currentUserId !== CV_DEV_ALLOWED_USER_ID) {
-    document.getElementById('lockScreen').classList.remove('hidden');
   } else {
     document.getElementById('cvApp').classList.remove('hidden');
     // Balance saved from the last turn may already be 0 (e.g. they left mid-
@@ -2948,7 +2945,7 @@
   }
 
   // ── Kick off ──────────────────────────────────────────────────────────
-  if (currentUserId === CV_DEV_ALLOWED_USER_ID) {
+  if (currentUserId && currentSessionToken) {
     // Work out the final greeting text (time of day + name, once known)
     // BEFORE the greeting home is ever shown, so the person never sees a
     // placeholder value that then changes a moment later.

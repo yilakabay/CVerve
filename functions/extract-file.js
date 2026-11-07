@@ -66,9 +66,6 @@ const {
   FEATURE_MODELS
 } = require('./lib/ai-billing');
 
-// Same dev gate as cv-chat.js — only this account may use the CV feature for now.
-const CV_DEV_ALLOWED_USER_ID = '0985576139';
-
 // ── Time budget (milliseconds) ──────────────────────────────────────────
 // This used to be sized for Netlify's documented 60s synchronous-function
 // ceiling (TOTAL_BUDGET_MS=50000, FIRST_ATTEMPT_MS=35000) — but that's the
@@ -237,11 +234,6 @@ exports.handler = async (event, context) => {
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
   const { userId, sessionToken, base64, mediaType } = body;
-
-  // Real enforcement of the dev gate — see cv-chat.js.
-  if (userId !== CV_DEV_ALLOWED_USER_ID) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
-  }
 
   // Log in, then check the balance BEFORE spending anything on a Gemini call.
   let db, user, balance;

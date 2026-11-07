@@ -3637,10 +3637,10 @@
         }
 
         window.switchTab = (tabName, silent) => {
-            // CV tab now redirects to its own dedicated page (cv.html) instead of
-            // showing an in-app placeholder. cv.html itself gates access while
-            // the feature is in development (see CV_DEV_ALLOWED_USER_ID there
-            // and in cv-chat.js) — everyone else sees a "coming soon" screen.
+            // CV tab redirects to its own dedicated page (cv.html). The old
+            // dev-only access gate (CV_DEV_ALLOWED_USER_ID) has been removed
+            // from cv.html and the server (cv-chat.js, extract-file.js) as of
+            // 2026-11-07 — CV Builder is now open to every signed-in user.
             if (tabName === 'cv') {
                 window.location.href = 'cv.html';
                 return;

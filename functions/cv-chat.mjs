@@ -374,14 +374,6 @@ function timeLeft(startedAt) {
   return HANDLER_DEADLINE_MS - (Date.now() - startedAt);
 }
 
-// ── DEV ACCESS GATE ──────────────────────────────────────────────────────
-// While the CV feature is being built and tested, only this one account may
-// use it, no matter how the request reaches this function. cv.html also has
-// a client-side gate for a clean "coming soon" screen, but THIS check is
-// the one that actually matters — client-side checks can always be
-// bypassed, so the server must independently refuse everyone else here.
-const CV_DEV_ALLOWED_USER_ID = '0985576139';
-
 // ── Keeping long conversations usable ────────────────────────────────────
 // `messages` is the full OpenAI-format history and it's sent back and forth
 // on every single turn (see conversationMessages in cv.html) — nothing ever
@@ -1101,11 +1093,6 @@ async function runTurn(event, emitPhase, handlerStarted) {
   let body;
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
-
-  // Real enforcement — see the CV_DEV_ALLOWED_USER_ID comment above.
-  if (body.userId !== CV_DEV_ALLOWED_USER_ID) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'CV Builder is not available yet.' }) };
-  }
 
   // ── Small side-channel: translate static UI chrome, not the CV/chat ──────
   // See handleTranslateUI() above. Handled and returned before any of the
