@@ -19,10 +19,14 @@
 // `runBilledChat`, which enforces a per-user balance gate that doesn't apply
 // here).
 
-const { callAI, parseJsonLoose, MODEL_IDS } = require('./lib/ai-billing');
+const { callAI, parseJsonLoose, MODEL_IDS, logOperationalUsage } = require('./lib/ai-billing');
+const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
 const https  = require('https');
 const http   = require('http');
+
+const uri    = process.env.MONGODB_URI;
+const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
 
 // A posting's "apply online" URL often arrives without a scheme, e.g.
 // "www.ethiojobs.net" (some only ever give the bare domain, not a
@@ -213,7 +217,7 @@ exports.handler = async (event, context) => {
     // own deadline left for it to have a real chance of finishing. See the
     // HANDLER_DEADLINE_MS comment above for why this is no longer "2 fresh
     // 24000ms attempts" the way it used to be.
-    let structured, lastError;
+    let structured, lastError, usedUsage, usedModel;
     for (let pass = 1; pass <= 2; pass++) {
       const remaining = timeLeft();
       if (pass > 1 && remaining < MIN_TIME_FOR_RETRY_MS) {
@@ -252,6 +256,8 @@ exports.handler = async (event, context) => {
         }
         structured = parsed;
         lastError = null;
+        usedUsage = result.usage;
+        usedModel = MODEL_IDS.GEMINI_FLASH;
         break;
       } catch (err) {
         lastError = err;
@@ -260,6 +266,21 @@ exports.handler = async (event, context) => {
       }
     }
     if (lastError) throw lastError;
+
+    // Admin tool, never billed to any user (see note at top of file) — log
+    // the real B.AI cost for the admin's own operational AI usage stats.
+    // Best-effort: a Mongo hiccup here must never fail a successful
+    // refinement the admin is waiting on.
+    try {
+      await client.connect();
+      logOperationalUsage(client.db('cverve'), {
+        feature: 'JOB_REFINEMENT',
+        model: usedModel,
+        usage: usedUsage
+      });
+    } catch (e) {
+      console.error('refine-job-posting: operational usage logging failed (non-fatal):', e.message);
+    }
 
     // Safety defaults, plus a cheap sanitize pass: a page that hides its
     // email behind spam/scraper protection (e.g. Cloudflare's "Email

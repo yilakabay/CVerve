@@ -40,7 +40,7 @@
 // silently caught in the handler — so EVERY incoming SMS, no matter how
 // clean, was stamped 'unreadable' and nothing ever auto-verified. Fixed by
 // calling the real callAI() with the DeepSeek Flash model directly.
-const { callAI, parseJsonLoose, MODEL_IDS } = require('./lib/ai-billing');
+const { callAI, parseJsonLoose, MODEL_IDS, logOperationalUsage } = require('./lib/ai-billing');
 const { computeVerifyOutcome, creditTokens } = require('./lib/packs');
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -193,7 +193,7 @@ ${smsText}`;
             });
             lastRawText = result.text;
             const parsed = parseJsonLoose(result.text);
-            return { parsed, rawText: result.text, finishReason: result.finishReason };
+            return { parsed, rawText: result.text, finishReason: result.finishReason, usage: result.usage, model: modelsToTry[attempt - 1] };
         } catch (err) {
             lastErr = err;
             console.error(`extractSmsFields: attempt ${attempt} (model ${modelsToTry[attempt - 1]}) failed:`, err.message);
@@ -521,9 +521,13 @@ exports.handler = async (event, context) => {
         let extracted = { amount: null, senderName: null };
         let debugInfo = null;
         try {
-            const { parsed, rawText, finishReason } = await extractSmsFields(smsBody);
+            const { parsed, rawText, finishReason, usage, model } = await extractSmsFields(smsBody);
             extracted = parsed || {};
             debugInfo = { rawText: (rawText || '').slice(0, 500), finishReason: finishReason || null };
+            // No user is logged in on this webhook request — nobody is ever
+            // billed CT for reading an SMS — so log the real B.AI cost here
+            // for the admin's operational AI usage stats instead.
+            logOperationalUsage(db, { feature: 'SMS_EXTRACTION', model, usage });
         } catch (err) {
             console.error('SMS extraction failed:', err.message);
             debugInfo = {

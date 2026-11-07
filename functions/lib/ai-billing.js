@@ -317,6 +317,43 @@ async function callAI({ model, messages, maxTokens, temperature, json, tools, to
   throw lastErr;
 }
 
+// ── Log AI cost that is NEVER charged to any user ──────────────────────────
+// A handful of features call the B.AI gateway directly via callAI() instead
+// of runBilledChat(), specifically because there is no user to bill:
+//   - refine-job-posting.js — an admin tool, run while the admin is building
+//     a job posting, long before any user sees it.
+//   - receive-sms.js's extractSmsFields() — runs on every inbound SMS
+//     webhook from the forwarder app, with no logged-in user in the request
+//     at all.
+//   - extract-payment-screenshot.js — deliberately free for users (reading
+//     their own payment confirmation screenshot shouldn't cost them CT).
+// Every one of those still costs this app real B.AI tokens — token_usage
+// only ever records CT actually deducted from a user, so none of this spend
+// was visible anywhere before. This collection exists purely so the admin
+// can see the operational AI cost of running the platform (for cost/benefit
+// analysis against CT revenue) — it has no effect on any balance or billing
+// decision. Best-effort/non-fatal, same as deductTokens' token_usage write.
+async function logOperationalUsage(db, { feature, model, usage }) {
+  try {
+    const promptTokens     = Number(usage && usage.prompt_tokens)     || 0;
+    const completionTokens = Number(usage && usage.completion_tokens) || 0;
+    const totalFromUsage   = Number(usage && usage.total_tokens);
+    const tokens = Number.isFinite(totalFromUsage)
+      ? Math.max(0, Math.floor(totalFromUsage))
+      : Math.max(0, Math.floor(promptTokens + completionTokens));
+    await db.collection('ai_operational_usage').insertOne({
+      feature:  feature || 'unknown',
+      model,
+      promptTokens,
+      completionTokens,
+      tokens,       // total B.AI tokens this call cost, in the same units as CT
+      createdAt: new Date()
+    });
+  } catch (e) {
+    console.error('ai_operational_usage log failed (non-fatal):', e.message);
+  }
+}
+
 // ── Deduct CT (atomic, never below zero, already floored) and log it ──────
 async function deductTokens(db, userId, amount, meta) {
   const charge = Math.max(0, Math.floor(amount));
@@ -514,7 +551,7 @@ module.exports = {
   AIError, errorResponse,
   getDb, authenticate,
   assertCanStart, assertCanDeliver,
-  callAI, deductTokens, costFromUsage,
+  callAI, deductTokens, costFromUsage, logOperationalUsage,
   runBilledChat, parseJsonLoose,
   MODEL_IDS, MODEL_RATES, FEATURE_MODELS
 };

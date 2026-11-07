@@ -351,6 +351,28 @@
           </div>
         </div>
 
+        <div class="bg-white rounded-xl border border-gray-200 p-3 mt-3">
+          <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">AI Token Usage <span class="normal-case font-medium text-gray-400">(same period as Revenue, for cost/benefit)</span></p>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Charged to users</p>
+              <p id="stat-aiUserChargedCT" class="text-xl font-bold text-indigo-600 mt-0.5">–</p>
+              <p class="text-[10px] text-gray-400">CT — paid for by users</p>
+              <div id="stat-aiUserChargedByFeature" class="mt-1.5 space-y-0.5 text-[11px] text-gray-500"></div>
+            </div>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wide text-gray-400">Operational (unbilled)</p>
+              <p id="stat-aiOperationalTokens" class="text-xl font-bold text-rose-600 mt-0.5">–</p>
+              <p class="text-[10px] text-gray-400">tokens — never charged to anyone</p>
+              <div id="stat-aiOperationalByFeature" class="mt-1.5 space-y-0.5 text-[11px] text-gray-500"></div>
+            </div>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-100">
+            Operational = admin job-posting refinement, reading inbound payment SMS, and reading users' payment screenshots (free by design) — real B.AI cost with no CT behind it.
+          </p>
+        </div>
+
         <p class="text-[11px] text-gray-400 mt-3">
           Active/Inactive is based on usage tracked from the day this feature
           was deployed — it will read low until 30 days of activity have
@@ -704,9 +726,50 @@
       }
 
       notesWrap.classList.toggle('hidden', !hasExcluded && !hasRejected && !hasUnclassified);
+
+      renderAiUsage(data.aiUsage);
     } catch {
       showToast('Failed to load statistics.', 'error');
     }
+  }
+
+  // ── AI Token Usage (cost/benefit) ────────────────────────────────────────
+  const AI_FEATURE_LABELS = {
+    LETTER_GENERATION:              'App Letter',
+    SMART_FINDER:                   'Smart Finder',
+    FIT_CHECK:                      'Fit Check',
+    CV_BUILDER:                     'CV Builder chat',
+    CV_EXTRACTION:                  'CV upload reading',
+    GENERIC_EXTRACTION:             'Document reading',
+    LETTER_EXTRACTION:              'Letter upload reading',
+    JOB_REFINEMENT:                 'Job posting refinement (admin)',
+    SMS_EXTRACTION:                 'Inbound payment SMS reading',
+    PAYMENT_SCREENSHOT_EXTRACTION:  'Payment screenshot reading (free)'
+  };
+  function aiFeatureLabel(code) {
+    return AI_FEATURE_LABELS[code] || code || 'Unknown';
+  }
+
+  function renderAiUsage(aiUsage) {
+    const chargedTotalEl = document.getElementById('stat-aiUserChargedCT');
+    const chargedListEl  = document.getElementById('stat-aiUserChargedByFeature');
+    const opTotalEl       = document.getElementById('stat-aiOperationalTokens');
+    const opListEl         = document.getElementById('stat-aiOperationalByFeature');
+    if (!chargedTotalEl || !aiUsage) return;
+
+    const uc = aiUsage.userCharged || { totalCT: 0, byFeature: [] };
+    const op = aiUsage.operational || { totalTokens: 0, byFeature: [] };
+
+    chargedTotalEl.textContent = (uc.totalCT || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' CT';
+    opTotalEl.textContent      = (op.totalTokens || 0).toLocaleString() + ' tok';
+
+    chargedListEl.innerHTML = uc.byFeature.length
+      ? uc.byFeature.map(r => `<p>${escapeHtml(aiFeatureLabel(r.feature))}: <strong class="text-gray-700">${r.ct.toLocaleString(undefined, { maximumFractionDigits: 2 })} CT</strong> <span class="text-gray-400">(${r.calls})</span></p>`).join('')
+      : '<p class="text-gray-300 italic">None in this period</p>';
+
+    opListEl.innerHTML = op.byFeature.length
+      ? op.byFeature.map(r => `<p>${escapeHtml(aiFeatureLabel(r.feature))}: <strong class="text-gray-700">${r.tokens.toLocaleString()} tok</strong> <span class="text-gray-400">(${r.calls})</span></p>`).join('')
+      : '<p class="text-gray-300 italic">None in this period</p>';
   }
 
   // ── Manual revenue subtraction ──────────────────────────────────────────

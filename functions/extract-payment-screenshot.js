@@ -62,7 +62,7 @@
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
-const { callAI, MODEL_IDS } = require('./lib/ai-billing');
+const { callAI, MODEL_IDS, logOperationalUsage } = require('./lib/ai-billing');
 
 const uri    = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
@@ -125,7 +125,14 @@ If amount cannot be found, use null for it. senderName and transactionId are eac
       });
 
       const text = (result.text || '').trim().replace(/```json/gi, '').replace(/```/g, '').trim();
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+      // Attach usage (non-enumerable-ish via a plain prop is fine — caller
+      // destructures it explicitly) so the handler can log the real,
+      // never-billed-to-anyone cost of this call for the admin's operational
+      // AI usage stats, without changing this function's return shape for
+      // existing callers that only read the parsed fields.
+      Object.defineProperty(parsed, '__usage', { value: result.usage, enumerable: false });
+      return parsed;
 
     } catch (e) {
       lastErr = new Error('B.AI gateway request failed: ' + e.message);
@@ -204,6 +211,15 @@ exports.handler = async (event, context) => {
       // this specific image) — accurate to describe as a screenshot-reading issue.
       return { statusCode: 500, body: JSON.stringify({ error: 'Could not read the screenshot. Please upload a clear, uncropped screenshot of your payment confirmation.' }) };
     }
+
+    // Record the real (never-billed-to-this-user) B.AI cost of this read for
+    // the admin's operational AI usage stats. Fire-and-forget-safe —
+    // logOperationalUsage never throws.
+    logOperationalUsage(db, {
+      feature: 'PAYMENT_SCREENSHOT_EXTRACTION',
+      model: MODEL_IDS.GEMINI_FLASH,
+      usage: extracted && extracted.__usage
+    });
 
     // Defense in depth: the prompt already asks for a positive number, but
     // strip any stray minus sign / non-numeric characters here too, in case

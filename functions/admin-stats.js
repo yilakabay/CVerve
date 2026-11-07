@@ -11,7 +11,12 @@
 //       period, gross, tipsAndUpgrades, manualAdjustments, net,
 //       refundsOnPendingExcess, refundsOnRejected, refundsUnclassified
 //     },
-//     pendingRevenue
+//     pendingRevenue,
+//     aiUsage: {
+//       period,
+//       userCharged:  { totalCT, byFeature: [ { feature, calls, ct } ] },
+//       operational:  { totalTokens, byFeature: [ { feature, calls, tokens } ] }
+//     }
 //   }
 //
 // ── Definitions (per product spec) ──────────────────────────────────────
@@ -64,6 +69,23 @@
 // ── pendingRevenue ────────────────────────────────────────────────────────
 // A live running total — NOT period-scoped, same as Active/Inactive Users
 // — of every pending_revenue doc still in status 'pending'.
+//
+// ── aiUsage ───────────────────────────────────────────────────────────────
+// For cost/benefit analysis: how much B.AI token cost this app is actually
+// spending, split into the two very different buckets that exist:
+//   - userCharged — CT actually deducted from a user's balance for an AI
+//     feature (letter writing, Smart Finder, Fit Check, CV Builder, CV
+//     upload reading, etc.), from the `token_usage` collection that
+//     deductTokens() already writes to on every charge. This is the side
+//     that's "paid for" by the user.
+//   - operational — B.AI cost this app incurs but is NEVER billed to any
+//     user, from the `ai_operational_usage` collection (see
+//     lib/ai-billing.js's logOperationalUsage): admin job-posting
+//     refinement, reading every inbound payment SMS, and reading users' own
+//     payment-confirmation screenshots (deliberately free). This is pure
+//     operating cost with no CT revenue behind it.
+// Both are scoped to the same period/reset window as Revenue above, so they
+// line up for a side-by-side comparison.
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
@@ -230,6 +252,38 @@ exports.handler = async (event, context) => {
     ]).toArray();
     const pendingRevenue = (pendingAgg[0] && pendingAgg[0].total) || 0;
 
+    // ── AI usage (cost/benefit) ─────────────────────────────────────────────
+    // Same `since` window as Revenue above (period selector + reset floor),
+    // so the two sections line up for comparison.
+    const tokenUsageCol          = db.collection('token_usage');
+    const aiOperationalUsageCol  = db.collection('ai_operational_usage');
+
+    const userChargedAgg = await tokenUsageCol.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      { $group: { _id: '$feature', calls: { $sum: 1 }, ct: { $sum: '$charged' } } },
+      { $sort: { ct: -1 } }
+    ]).toArray();
+    const userChargedByFeature = userChargedAgg.map(r => ({
+      feature: r._id || 'unknown',
+      calls:   r.calls,
+      ct:      Math.round((r.ct || 0) * 100) / 100
+    }));
+    const userChargedTotalCT = Math.round(
+      userChargedByFeature.reduce((sum, r) => sum + r.ct, 0) * 100
+    ) / 100;
+
+    const operationalAgg = await aiOperationalUsageCol.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      { $group: { _id: '$feature', calls: { $sum: 1 }, tokens: { $sum: '$tokens' } } },
+      { $sort: { tokens: -1 } }
+    ]).toArray();
+    const operationalByFeature = operationalAgg.map(r => ({
+      feature: r._id || 'unknown',
+      calls:   r.calls,
+      tokens:  r.tokens || 0
+    }));
+    const operationalTotalTokens = operationalByFeature.reduce((sum, r) => sum + r.tokens, 0);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -248,7 +302,12 @@ exports.handler = async (event, context) => {
           refundsOnRejected,       // informational only — zero revenue effect
           refundsUnclassified      // informational only — zero revenue effect
         },
-        pendingRevenue
+        pendingRevenue,
+        aiUsage: {
+          period,
+          userCharged: { totalCT: userChargedTotalCT, byFeature: userChargedByFeature },
+          operational: { totalTokens: operationalTotalTokens, byFeature: operationalByFeature }
+        }
       })
     };
 
