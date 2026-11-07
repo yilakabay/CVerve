@@ -1713,6 +1713,16 @@
                     var qp = new URLSearchParams();
                     qp.set('tgUserId', data.tgUserId);
                     if (data.phoneNumber) qp.set('userId', data.phoneNumber);
+                    // Carry a "came from a channel job post" reference through
+                    // onboarding explicitly, as a plain query param, rather than
+                    // relying on Telegram's start_param surviving an in-app
+                    // location.replace() navigation to onboarding.html and then
+                    // on to app.html again — that isn't guaranteed, and losing it
+                    // would mean a brand-new user who tapped a job from the
+                    // "CVcase Jobs" channel lands on the generic feed after
+                    // signing up instead of back on the job they came for.
+                    var startParam = tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+                    if (startParam && startParam.startsWith('job_')) qp.set('job', startParam);
                     window.location.replace('/onboarding.html?' + qp.toString());
                     return 'onboard'; // caller must stop immediately — we're navigating away
                 }
@@ -1826,7 +1836,14 @@
         async function handleTelegramJobDeepLink() {
             try {
                 const tg = window.Telegram && window.Telegram.WebApp;
-                const startParam = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+                // Prefer Telegram's own start_param (the normal case — this is
+                // the very first load after tapping a channel post). Fall back
+                // to the explicit ?job= query param that app.html itself set
+                // before sending a brand-new user through onboarding.html,
+                // since start_param isn't guaranteed to still be present after
+                // that detour (see tryTelegramSilentLogin's 'onboard' branch).
+                const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param)
+                    || new URLSearchParams(window.location.search).get('job');
                 if (!startParam || !startParam.startsWith('job_')) return;
 
                 const rest = startParam.slice(4); // "<jobId>_<positionIndex>"

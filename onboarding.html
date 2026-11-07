@@ -328,6 +328,13 @@ function finishOnboarding() {
   var tg = window.Telegram && window.Telegram.WebApp;
   var tgUserId = params.get('tgUserId');
 
+  // If app.html sent us here because a brand-new user tapped a job from the
+  // "CVcase Jobs" channel, carry that reference on to app.html so they land
+  // on the job's detail screen after signup instead of the generic feed —
+  // see app.html's handleTelegramJobDeepLink(), which reads this same param.
+  var jobParam = params.get('job');
+  var appUrl = jobParam ? ('/app.html?job=' + encodeURIComponent(jobParam)) : '/app.html';
+
   // Telegram users have no account yet at this point — telegram-auth.js only
   // ever reported status:'onboard' for them until now. createIfMissing:true
   // creates it here, using the verified Telegram identity itself as proof.
@@ -345,13 +352,13 @@ function finishOnboarding() {
           localStorage.setItem('cv_sessionToken', result.data.sessionToken);
           localStorage.setItem('cv_userBalance', result.data.balance || 0);
         }
-        window.location.href = '/app.html';
+        window.location.href = appUrl;
       })
       .catch(function() {
         // Even if this call failed, still let them into the app — app.html's
         // own silent-login will retry telegram-auth (without createIfMissing)
         // and, worst case, send them back here rather than getting stuck.
-        window.location.href = '/app.html';
+        window.location.href = appUrl;
       });
     return;
   }
@@ -359,7 +366,7 @@ function finishOnboarding() {
   // Web (phone+OTP) users already have an account and session from
   // verify-otp.js before ever reaching onboarding — nothing to create here.
   setTimeout(function() {
-    window.location.href = '/app.html';
+    window.location.href = appUrl;
   }, 400);
 }
 
