@@ -1861,13 +1861,23 @@
                 if (!res.ok || !data.success || !data.job) return;
 
                 const job = data.job;
+                if (!job.positions || !job.positions[posIdx]) return;
+
+                // Still worth having in the cache for when the modal is closed
+                // and the Find Job feed is sitting behind it — but this is no
+                // longer what the modal itself depends on (see openJobDetail's
+                // preloadedJob param), since the normal feed's own page-1
+                // fetch — already kicked off in parallel by window.onload's
+                // switchTab(savedTab) — can still race this insert.
                 if (!allJobsCache.some(j => j._id === job._id)) allJobsCache.unshift(job);
 
                 switchTab('findjob');
                 // Let the Find Job tab finish rendering before opening the modal
                 // on top of it, same reasoning as other post-tab-switch actions
-                // elsewhere in this file.
-                setTimeout(() => openJobDetail(job._id, posIdx), 150);
+                // elsewhere in this file. Pass the job object directly so this
+                // doesn't depend on it still being findable in allJobsCache/
+                // fullJobsCache by the time the timeout fires.
+                setTimeout(() => openJobDetail(job._id, posIdx, job), 150);
             } catch (e) {
                 console.error('Telegram job deep link failed:', e);
             }
@@ -2725,8 +2735,20 @@
 
         let currentJobDetail = null; // { company, title, ... } for the "Generate Application Letter" hand-off
 
-        function openJobDetail(jobId, posIdx) {
-            const job = findJobById(jobId);
+        // preloadedJob lets a caller that already has the job document in hand
+        // (e.g. handleTelegramJobDeepLink, which fetches it directly by id)
+        // bypass findJobById entirely. That matters because on a cold app
+        // load, window.onload's own switchTab(savedTab) already kicks off the
+        // normal "fetch page 1 of the job feed" request in parallel with the
+        // deep link's own single-job fetch — whichever resolves first can
+        // still be overwritten or not-yet-populated by the other by the time
+        // this runs, so looking the job up in allJobsCache/fullJobsCache here
+        // was a race that could silently fail (openJobDetail returning early,
+        // leaving whatever was already on screen — the normal feed, topped by
+        // the most recent job — looking like the deep link had "taken them to
+        // the wrong job").
+        function openJobDetail(jobId, posIdx, preloadedJob) {
+            const job = preloadedJob || findJobById(jobId);
             if (!job) return;
             const pos = job.positions[posIdx];
             if (!pos) return;
