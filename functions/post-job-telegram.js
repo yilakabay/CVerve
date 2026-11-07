@@ -208,12 +208,20 @@ exports.handler = async (event, context) => {
     lines.push('');
     lines.push('👇 Full details, how to apply, and build your CV & cover letter for this job in CVcase.');
 
-    const caption = lines.join('\n').slice(0, pos.shortDescription && job.logo ? 1024 : 4096); // sendPhoto caption cap is 1024
+    // Only the FIRST position of a job to ever get posted to the channel
+    // carries the company logo photo — if this job already has any prior
+    // telegramPosts (any position), every subsequent post is text-only.
+    // Otherwise the same logo repeats across every position of a multi-role
+    // posting, which looks repetitive/spammy in the channel feed.
+    const hasPriorPost  = Array.isArray(job.telegramPosts) && job.telegramPosts.length > 0;
+    const willSendPhoto = !hasPriorPost && job.logo && /^data:image\/(png|jpe?g|webp);base64,/.test(job.logo);
+
+    const caption = lines.join('\n').slice(0, willSendPhoto ? 1024 : 4096); // sendPhoto caption cap is 1024
 
     const replyMarkup = { inline_keyboard: [[{ text: '📄 View Details & Apply', url: deepLink }]] };
 
     let tgResult;
-    if (job.logo && /^data:image\/(png|jpe?g|webp);base64,/.test(job.logo)) {
+    if (willSendPhoto) {
       const logoBuffer = Buffer.from(job.logo.split(',')[1], 'base64');
       tgResult = await sendPhotoToChannel(botToken, channelId, logoBuffer, caption, replyMarkup);
     } else {
