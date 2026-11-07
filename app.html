@@ -1856,6 +1856,25 @@
                 // that detour (see tryTelegramSilentLogin's 'onboard' branch).
                 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param)
                     || new URLSearchParams(window.location.search).get('job');
+
+                // TEMPORARY (2026-11-08): the previous diagnostics never fired
+                // at all on a real channel tap, meaning startParam itself was
+                // already empty by the time we got here — so show what
+                // Telegram actually handed us, once per load, even on a
+                // normal open, instead of assuming. Remove once this is
+                // sorted out.
+                try {
+                    if (!sessionStorage.getItem('_dlRawShown')) {
+                        sessionStorage.setItem('_dlRawShown', '1');
+                        showMessage('error',
+                            '[debug] tg=' + (!!tg) +
+                            ' initData.len=' + (tg && tg.initData ? tg.initData.length : 'n/a') +
+                            ' start_param="' + (tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : 'n/a') + '"' +
+                            ' qs="' + window.location.search + '"'
+                        );
+                    }
+                } catch (_) {}
+
                 if (!startParam) return; // normal app open — nothing to do
                 if (!startParam.startsWith('job_')) {
                     _deepLinkDiag('start_param present but not a job link: "' + startParam + '"');
