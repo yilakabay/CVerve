@@ -195,18 +195,34 @@ exports.handler = async (event, context) => {
     const deepLink = `https://t.me/${exports.__cachedBotUsername}?startapp=${buildStartParam(jobId, positionIndex)}`;
 
     // ── Compose the teaser (short — full detail lives in the app) ───────────
+    // Layout matches the admin's own hand-edited template (company name as
+    // an underlined bold header, each field its own bold-labeled line with
+    // blank-line spacing) so every auto-posted position — "Position 1",
+    // "Position 2", etc. — already looks like that without any manual
+    // re-editing per post.
     const lines = [];
-    lines.push(`<b>${escapeHtml(pos.title)}</b>`);
-    lines.push(`🏢 ${escapeHtml(job.company)}`);
-    const bits = [];
-    if (pos.qualification && pos.qualification !== 'Not specified') bits.push(`🎓 ${escapeHtml(pos.qualification)}`);
-    if (pos.experience)                                             bits.push(`💼 ${escapeHtml(pos.experience)}`);
-    if (pos.salary && pos.salary !== 'Not specified')                bits.push(`💰 ${escapeHtml(pos.salary)}`);
-    if (bits.length) lines.push(bits.join('  ·  '));
-    if (pos.expireDate && pos.expireDate !== 'Not specified') lines.push(`⏰ Apply by ${escapeHtml(pos.expireDate)}`);
+    lines.push(`<u><b>${escapeHtml(job.company)}</b></u>`);
+    lines.push('');
+    lines.push(`🔹 <b>Position ${positionIndex + 1}: ${escapeHtml(pos.title)}</b>`);
+    if (pos.qualification && pos.qualification !== 'Not specified') {
+      lines.push('');
+      lines.push(`🎓 <b>Education:</b> ${escapeHtml(pos.qualification)}`);
+    }
+    if (pos.experience) {
+      lines.push('');
+      lines.push(`💼 <b>Experience:</b> ${escapeHtml(pos.experience)}`);
+    }
+    if (pos.salary && pos.salary !== 'Not specified') {
+      lines.push('');
+      lines.push(`💰 <b>Salary:</b> ${escapeHtml(pos.salary)}`);
+    }
+    if (pos.expireDate && pos.expireDate !== 'Not specified') {
+      lines.push('');
+      lines.push(`⏰ <b>Deadline:</b> ${escapeHtml(pos.expireDate)}`);
+    }
     if (pos.shortDescription) { lines.push(''); lines.push(escapeHtml(pos.shortDescription)); }
     lines.push('');
-    lines.push('👇 Full details, how to apply, and build your CV & cover letter for this job in CVcase.');
+    lines.push('📩 Full details, how to apply, and build your CV & cover letter for this job in CVcase.');
 
     // Only the FIRST position of a job to ever get posted to the channel
     // carries the company logo photo — if this job already has any prior
