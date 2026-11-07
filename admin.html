@@ -1732,23 +1732,62 @@
         listEl.innerHTML = '<p class="text-xs text-gray-400 italic">No jobs posted yet.</p>';
         return;
       }
-      listEl.innerHTML = data.jobs.map(j => `
-        <div class="border border-gray-100 rounded-lg p-2.5 flex items-center justify-between gap-2 bg-white">
-          <div class="flex items-center gap-2.5 min-w-0">
-            ${j.logo
-              ? `<img src="${j.logo}" alt="" class="w-9 h-9 rounded-lg object-cover flex-shrink-0 border border-gray-100">`
-              : `<div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0"><svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M4 8h.01M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg></div>`
-            }
-            <div class="min-w-0">
-              <p class="text-xs font-bold text-gray-700 truncate">${escapeHtml(j.company)}</p>
-              <p class="text-[0.7rem] text-gray-400">${j.positions.length} position${j.positions.length !== 1 ? 's' : ''} · ${new Date(j.createdAt).toLocaleDateString()}</p>
+      listEl.innerHTML = data.jobs.map(j => {
+        const postedIdx = new Set((j.telegramPosts || []).map(tp => tp.positionIndex));
+        const latestPostAt = (j.telegramPosts || []).reduce((max, tp) => {
+          const t = new Date(tp.postedAt).getTime();
+          return t > max ? t : max;
+        }, 0);
+        return `
+        <div class="border border-gray-100 rounded-lg p-2.5 bg-white">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5 min-w-0">
+              ${j.logo
+                ? `<img src="${j.logo}" alt="" class="w-9 h-9 rounded-lg object-cover flex-shrink-0 border border-gray-100">`
+                : `<div class="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0"><svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M4 8h.01M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg></div>`
+              }
+              <div class="min-w-0">
+                <p class="text-xs font-bold text-gray-700 truncate">${escapeHtml(j.company)}</p>
+                <p class="text-[0.7rem] text-gray-400">${j.positions.length} position${j.positions.length !== 1 ? 's' : ''} · ${new Date(j.createdAt).toLocaleDateString()}</p>
+              </div>
             </div>
+            <button onclick="deleteJobPost('${j._id}')" class="text-red-400 hover:text-red-600 text-xs font-semibold flex-shrink-0">Delete</button>
           </div>
-          <button onclick="deleteJobPost('${j._id}')" class="text-red-400 hover:text-red-600 text-xs font-semibold flex-shrink-0">Delete</button>
+          <div class="mt-2 pt-2 border-t border-gray-50 space-y-1">
+            ${j.positions.map((p, idx) => `
+              <div class="flex items-center justify-between gap-2 text-[0.7rem]">
+                <span class="text-gray-500 truncate">${escapeHtml(p.title)}</span>
+                ${postedIdx.has(idx)
+                  ? `<span class="text-emerald-600 font-semibold flex-shrink-0">✓ Posted${latestPostAt ? ' ' + new Date(latestPostAt).toLocaleDateString() : ''}</span>`
+                  : `<button onclick="postJobToTelegram('${j._id}', ${idx}, this)" class="text-sky-600 hover:text-sky-800 font-semibold flex-shrink-0">📣 Post to Telegram</button>`
+                }
+              </div>
+            `).join('')}
+          </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } catch (err) {
       listEl.innerHTML = `<p class="text-xs text-red-500">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  // Posts one position of an already-saved job to the "CVcase Jobs" Telegram
+  // channel (functions/post-job-telegram.js) — deliberately per-position and
+  // manual (not auto-fired on 'create'), so the admin controls exactly when
+  // and which positions go out, and can stagger a multi-position posting
+  // across the day instead of flooding the channel at once.
+  async function postJobToTelegram(jobId, positionIndex, btn) {
+    const originalText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Posting…';
+    try {
+      const { ok, data } = await api('post-job-telegram', { token: adminToken, jobId, positionIndex });
+      if (!ok) throw new Error(data.error || 'Failed to post to Telegram.');
+      showToast('Posted to CVcase Jobs!', 'success');
+      loadPostedJobs(); // re-render so this position now shows "✓ Posted"
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false; btn.textContent = originalText;
     }
   }
 
