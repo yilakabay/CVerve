@@ -4567,11 +4567,25 @@
             const m = document.getElementById('telegramNotLinkedModal');
             if (m) m.classList.add('hidden');
         }
-        // "Open CVcase Bot" — opens the bot chat via Telegram's own API when
-        // available (keeps the user inside Telegram), falling back to a
-        // plain link outside Telegram.
-        function openCvcaseBotFromModal() {
+        // "Open CVcase Bot" — before opening the chat, proactively asks the
+        // bot to (re)send the "Share my phone number" message+keyboard to
+        // the user directly (see prompt-telegram-share.js for why this is
+        // necessary: just opening the chat doesn't make that button appear
+        // on its own for a returning chat). Then opens the chat via
+        // Telegram's own API when available (keeps the user inside
+        // Telegram), falling back to a plain link outside Telegram.
+        async function openCvcaseBotFromModal() {
             closeTelegramNotLinkedModal();
+            try {
+                const tg = window.Telegram && window.Telegram.WebApp;
+                const initData = tg && tg.initData;
+                if (initData) {
+                    await fetch('/.netlify/functions/prompt-telegram-share', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ initData })
+                    }).catch(() => {});
+                }
+            } catch (_) { /* best-effort — still open the chat either way */ }
             try {
                 if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.openTelegramLink === 'function') {
                     window.Telegram.WebApp.openTelegramLink('https://t.me/cvcase_bot');
