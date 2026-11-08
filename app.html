@@ -1854,18 +1854,6 @@
         // already being in allJobsCache/fullJobsCache, since someone tapping
         // a channel post straight into a cold app has neither buffer
         // populated yet.
-        // TEMPORARY DIAGNOSTIC (2026-11-08): the deep link has silently failed
-        // to open the right job for a real channel tap even after the cache-
-        // race fix below, with no visible error to tell us which step broke.
-        // This surfaces exactly that — one short toast at whichever step
-        // fails — so the next real tap from the channel tells us precisely
-        // where it's going wrong instead of us guessing again. Safe to leave
-        // in: it only ever fires when start_param was actually present (i.e.
-        // this really was a channel-post open), never on a normal app open.
-        function _deepLinkDiag(msg, type) {
-            try { console.error('[job deep link]', msg); showMessage(type || 'error', '[debug] ' + msg); } catch (_) {}
-        }
-
         async function handleTelegramJobDeepLink() {
             try {
                 const tg = window.Telegram && window.Telegram.WebApp;
@@ -1877,62 +1865,24 @@
                 // that detour (see tryTelegramSilentLogin's 'onboard' branch).
                 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param)
                     || new URLSearchParams(window.location.search).get('job');
-
-                // TEMPORARY (2026-11-08): the previous diagnostics never fired
-                // at all on a real channel tap, meaning startParam itself was
-                // already empty by the time we got here — so show what
-                // Telegram actually handed us, once per load, even on a
-                // normal open, instead of assuming. Remove once this is
-                // sorted out.
-                try {
-                    if (!sessionStorage.getItem('_dlRawShown')) {
-                        sessionStorage.setItem('_dlRawShown', '1');
-                        showMessage('error',
-                            '[debug] tg=' + (!!tg) +
-                            ' initData.len=' + (tg && tg.initData ? tg.initData.length : 'n/a') +
-                            ' start_param="' + (tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : 'n/a') + '"' +
-                            ' qs="' + window.location.search + '"'
-                        );
-                    }
-                } catch (_) {}
-
-                if (!startParam) return; // normal app open — nothing to do
-                if (!startParam.startsWith('job_')) {
-                    _deepLinkDiag('start_param present but not a job link: "' + startParam + '"');
-                    return;
-                }
+                if (!startParam || !startParam.startsWith('job_')) return;
 
                 const rest = startParam.slice(4); // "<jobId>_<positionIndex>"
                 const sep  = rest.lastIndexOf('_'); // jobId (hex ObjectId) never contains '_'
-                if (sep === -1) { _deepLinkDiag('malformed start_param: "' + startParam + '"'); return; }
+                if (sep === -1) return;
                 const jobId  = rest.slice(0, sep);
                 const posIdx = parseInt(rest.slice(sep + 1), 10);
-                if (!jobId || !Number.isInteger(posIdx) || posIdx < 0) {
-                    _deepLinkDiag('could not parse jobId/posIdx from "' + startParam + '"');
-                    return;
-                }
+                if (!jobId || !Number.isInteger(posIdx) || posIdx < 0) return;
 
-                let res, data;
-                try {
-                    res  = await fetch('/.netlify/functions/manage-jobs', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'get', jobId })
-                    });
-                    data = await res.json();
-                } catch (fetchErr) {
-                    _deepLinkDiag('network error fetching job ' + jobId + ': ' + fetchErr.message);
-                    return;
-                }
-                if (!res.ok || !data.success || !data.job) {
-                    _deepLinkDiag('job fetch failed for ' + jobId + ': ' + (data && data.error ? data.error : ('HTTP ' + res.status)));
-                    return;
-                }
+                const res = await fetch('/.netlify/functions/manage-jobs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get', jobId })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success || !data.job) return;
 
                 const job = data.job;
-                if (!job.positions || !job.positions[posIdx]) {
-                    _deepLinkDiag('position ' + posIdx + ' not found on job ' + jobId + ' (job has ' + (job.positions ? job.positions.length : 0) + ' position(s))');
-                    return;
-                }
+                if (!job.positions || !job.positions[posIdx]) return;
 
                 // Still worth having in the cache for when the modal is closed
                 // and the Find Job feed is sitting behind it — but this is no
@@ -1948,10 +1898,9 @@
                 // elsewhere in this file. Pass the job object directly so this
                 // doesn't depend on it still being findable in allJobsCache/
                 // fullJobsCache by the time the timeout fires.
-                _deepLinkDiag('OK — reached openJobDetail for ' + job._id + ' pos ' + posIdx + ' (' + job.positions[posIdx].title + ')', 'success');
                 setTimeout(() => openJobDetail(job._id, posIdx, job), 150);
             } catch (e) {
-                _deepLinkDiag('uncaught exception: ' + (e && e.message ? e.message : e));
+                console.error('Telegram job deep link failed:', e);
             }
         }
 
