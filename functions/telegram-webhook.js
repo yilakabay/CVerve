@@ -160,8 +160,25 @@ exports.handler = async (event, context) => {
       // tgUserId directly now — no password/phone-account round trip needed).
       const existingUser = await usersCol.findOne({ tgUserId });
       if (existingUser) {
-        await sendAppMessage(botToken, chatId, tgUserId, tgCol,
-          `✅ You already have a CVcase account linked to this Telegram.\n\nTap *Open CVcase App* below to get started — you're logged in automatically, no password needed.`
+        // Having a CVcase account does NOT mean this chat has ever shared its
+        // real phone number with the bot — an account can be created straight
+        // from the Mini App (onboarding.html) without ever going through the
+        // request_contact flow here, in which case `telegram_chats` has no
+        // chatId for this tgUserId and the bot has no chat to deliver files
+        // to. Only treat the user as fully linked when that record exists;
+        // otherwise keep showing the share-phone keyboard instead of hiding
+        // it behind the "already linked" message.
+        const linkRecord = await tgCol.findOne({ tgUserId });
+        if (linkRecord && linkRecord.chatId) {
+          await sendAppMessage(botToken, chatId, tgUserId, tgCol,
+            `✅ You already have a CVcase account linked to this Telegram.\n\nTap *Open CVcase App* below to get started — you're logged in automatically, no password needed.`
+          );
+          return { statusCode: 200, body: 'OK' };
+        }
+
+        await sendMessage(botToken, chatId,
+          `👋 *Welcome back!*\n\nYou already have a CVcase account, but we still need your phone number here so files (your downloaded CV and letters) can be delivered to this chat.\n\nTap the button below to share it — takes one tap.`,
+          shareOnlyKeyboard
         );
         return { statusCode: 200, body: 'OK' };
       }
@@ -198,6 +215,50 @@ exports.handler = async (event, context) => {
           );
           return { statusCode: 200, body: 'OK' };
         }
+      }
+
+      // ── Does THIS Telegram account already have a CVcase account under a
+      // placeholder phone number (created straight from the Mini App via
+      // onboarding.html, which stamps `tg_<tgUserId>` as the phoneNumber
+      // when the user has never shared real contact with the bot)? If so,
+      // migrate that account onto its real phone number right now, instead
+      // of falling into the "brand new user" path below — otherwise the
+      // account keeps the placeholder identifier forever, and file delivery
+      // (which looks up telegram_chats by the account's phoneNumber) never
+      // starts working even after this contact share.
+      const accountForThisTg = await usersCol.findOne({ tgUserId });
+      if (accountForThisTg && accountForThisTg.phoneNumber !== phoneNumber) {
+        const phoneUsedByOther = await usersCol.findOne({ phoneNumber, tgUserId: { $ne: tgUserId } });
+        if (phoneUsedByOther) {
+          await sendMessage(botToken, chatId,
+            `⛔ This phone number is already used by a different CVcase account. If this is your number, please contact support.`,
+            shareOnlyKeyboard
+          );
+          return { statusCode: 200, body: 'OK' };
+        }
+
+        const oldPhone = accountForThisTg.phoneNumber;
+        await usersCol.updateOne({ tgUserId }, { $set: { phoneNumber } });
+        await tgCol.findOneAndUpdate(
+          { tgUserId },
+          { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
+          { upsert: true }
+        );
+        await tgCol.findOneAndUpdate(
+          { phoneNumber },
+          { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
+          { upsert: true }
+        );
+        // Clean up the stale placeholder-keyed telegram_chats record, if any,
+        // so a future lookup by the old identifier can't resurrect it.
+        if (oldPhone && oldPhone !== phoneNumber) {
+          await tgCol.deleteOne({ phoneNumber: oldPhone, tgUserId });
+        }
+
+        await sendAppMessage(botToken, chatId, tgUserId, tgCol,
+          `✅ *Phone number linked!*\n\nYour CVcase account is now fully set up — files can be delivered right here in this chat.\n\nTap *Open CVcase App* below to continue.`
+        );
+        return { statusCode: 200, body: 'OK' };
       }
 
       // ── CHECK: Does this phone already have a CVcase account? ────────────
@@ -287,8 +348,16 @@ exports.handler = async (event, context) => {
 
     // ── Any other message ─────────────────────────────────────────────────────
     const existingUserForOther = await usersCol.findOne({ tgUserId });
-    if (existingUserForOther) {
+    const linkRecordForOther = existingUserForOther ? await tgCol.findOne({ tgUserId }) : null;
+    if (existingUserForOther && linkRecordForOther && linkRecordForOther.chatId) {
       await sendAppMessage(botToken, chatId, tgUserId, tgCol, `Tap *Open CVcase App* below to use the app.`);
+    } else if (existingUserForOther) {
+      // Account exists but this chat has never shared a real phone number —
+      // same reasoning as the /start handler above.
+      await sendMessage(botToken, chatId,
+        `We still need your phone number here so files can be delivered to this chat. Tap the button below to share it.`,
+        shareOnlyKeyboard
+      );
     } else {
       const existingForOther = await tgCol.findOne({ tgUserId });
       const isLinked = !!(existingForOther && existingForOther.phoneNumber);
