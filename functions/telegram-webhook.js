@@ -165,11 +165,17 @@ exports.handler = async (event, context) => {
         // from the Mini App (onboarding.html) without ever going through the
         // request_contact flow here, in which case `telegram_chats` has no
         // chatId for this tgUserId and the bot has no chat to deliver files
-        // to. Only treat the user as fully linked when that record exists;
+        // to. It's also not enough for SOME telegram_chats record to exist
+        // under this tgUserId with a chatId — file delivery
+        // (send-telegram-file.js) looks it up by the account's OWN
+        // phoneNumber, so a stale record from a previous/different phone
+        // number would pass a chatId-only check yet still fail at download
+        // time. Require the linked phoneNumber to actually match this
+        // account's current phoneNumber before calling it fully linked;
         // otherwise keep showing the share-phone keyboard instead of hiding
         // it behind the "already linked" message.
         const linkRecord = await tgCol.findOne({ tgUserId });
-        if (linkRecord && linkRecord.chatId) {
+        if (linkRecord && linkRecord.chatId && linkRecord.phoneNumber === existingUser.phoneNumber) {
           await sendAppMessage(botToken, chatId, tgUserId, tgCol,
             `✅ You already have a CVcase account linked to this Telegram.\n\nTap *Open CVcase App* below to get started — you're logged in automatically, no password needed.`
           );
@@ -205,17 +211,21 @@ exports.handler = async (event, context) => {
       const phoneNumber = normalizePhone(rawPhone);
       const tgFirstName = msg.from.first_name || '';
 
-      // ── FRAUD CHECK 1: Has this Telegram user ID already registered? ──────
-      const existingTgRecord = await tgCol.findOne({ tgUserId });
-      if (existingTgRecord && existingTgRecord.phoneNumber !== phoneNumber) {
-        const prevUser = await usersCol.findOne({ tgUserId });
-        if (prevUser) {
-          await sendAppMessage(botToken, chatId, tgUserId, tgCol,
-            `⛔ This Telegram account is already linked to a CVcase account (phone: \`${existingTgRecord.phoneNumber}\`).\n\nOne Telegram account = one CVcase account. Tap *Open CVcase App* below to use your existing account.`
-          );
-          return { statusCode: 200, body: 'OK' };
-        }
-      }
+      // NOTE: there used to be a "Fraud Check 1" here that refused to update
+      // telegram_chats at all whenever this tgUserId already had *any*
+      // record under a different phone number and a `users` account existed
+      // for this tgUserId — on the theory that one Telegram identity should
+      // only ever be tied to one phone. In practice that account is always
+      // the SAME account (looked up by the very same tgUserId), so it was
+      // blocking the one legitimate case that needed exactly this update:
+      // an account created via the Mini App gets a placeholder phone number
+      // (`tg_<tgUserId>`, see telegram-auth.js) until its owner shares a
+      // real one here — that check refused the share every time, which is
+      // why the button looked like it "did nothing" even once it appeared.
+      // The migration block below already guards the real fraud case (the
+      // new phone number belonging to a DIFFERENT CVcase account) via
+      // phoneUsedByOther, so this account-ownership case needs no separate
+      // check of its own.
 
       // ── Does THIS Telegram account already have a CVcase account under a
       // placeholder phone number (created straight from the Mini App via
@@ -349,7 +359,7 @@ exports.handler = async (event, context) => {
     // ── Any other message ─────────────────────────────────────────────────────
     const existingUserForOther = await usersCol.findOne({ tgUserId });
     const linkRecordForOther = existingUserForOther ? await tgCol.findOne({ tgUserId }) : null;
-    if (existingUserForOther && linkRecordForOther && linkRecordForOther.chatId) {
+    if (existingUserForOther && linkRecordForOther && linkRecordForOther.chatId && linkRecordForOther.phoneNumber === existingUserForOther.phoneNumber) {
       await sendAppMessage(botToken, chatId, tgUserId, tgCol, `Tap *Open CVcase App* below to use the app.`);
     } else if (existingUserForOther) {
       // Account exists but this chat has never shared a real phone number —
