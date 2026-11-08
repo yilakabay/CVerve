@@ -4555,6 +4555,32 @@
             } catch (_) { /* no-op — modal is already closed either way */ }
         }
 
+        // Shown instead of a toast when the server reports the user's
+        // Telegram account isn't linked yet (no phone number shared with the
+        // bot), so there's no chat to deliver the file to. Walks them
+        // through opening the bot and tapping "Share phone number".
+        function showTelegramNotLinkedModal() {
+            const m = document.getElementById('telegramNotLinkedModal');
+            if (m) m.classList.remove('hidden');
+        }
+        function closeTelegramNotLinkedModal() {
+            const m = document.getElementById('telegramNotLinkedModal');
+            if (m) m.classList.add('hidden');
+        }
+        // "Open CVcase Bot" — opens the bot chat via Telegram's own API when
+        // available (keeps the user inside Telegram), falling back to a
+        // plain link outside Telegram.
+        function openCvcaseBotFromModal() {
+            closeTelegramNotLinkedModal();
+            try {
+                if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.openTelegramLink === 'function') {
+                    window.Telegram.WebApp.openTelegramLink('https://t.me/cvcase_bot');
+                    return;
+                }
+            } catch (_) { /* fall through to plain link */ }
+            window.open('https://t.me/cvcase_bot', '_blank');
+        }
+
         // Sends generated PDF bytes (Uint8Array or ArrayBuffer) to the user's
         // Telegram chat with the bot, since that's the only way to deliver a
         // file when running inside Telegram's in-app browser. Shows the
@@ -4571,7 +4597,12 @@
                 const data = await res.json().catch(() => null);
                 hideLoadingOverlay();
                 if (!res.ok || !data || !data.success) {
-                    showMessage('error', (data && data.error) || 'Could not send to Telegram. Please try again.');
+                    const errMsg = (data && data.error) || '';
+                    if (/isn't linked yet|isn’t linked yet/i.test(errMsg)) {
+                        showTelegramNotLinkedModal();
+                    } else {
+                        showMessage('error', errMsg || 'Could not send to Telegram. Please try again.');
+                    }
                     return false;
                 }
                 showTelegramSentModal();
@@ -8987,6 +9018,20 @@ document.addEventListener('DOMContentLoaded', function() {
         <h3 class="text-lg font-bold text-gray-800 mb-2 dark:text-gray-100">Successfully sent to CVcase Bot</h3>
         <p class="text-sm text-gray-600 mb-5 dark:text-gray-300">You can close this window and download it from the chat.</p>
         <button onclick="goToChatFromTelegramModal()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">Go to chat</button>
+    </div>
+</div>
+
+<div id="telegramNotLinkedModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9997]">
+    <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center relative dark:bg-gray-900">
+        <button onclick="closeTelegramNotLinkedModal()" aria-label="Close" class="absolute top-3 right-3 text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors dark:hover:bg-gray-700 dark:text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+        <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-800 mb-2 dark:text-gray-100">Connect your Telegram first</h3>
+        <p class="text-sm text-gray-600 mb-5 dark:text-gray-300">To send files here, open the CVcase Bot chat and tap <b>Share phone number</b> once — this links your account so files can be delivered to you.</p>
+        <button onclick="openCvcaseBotFromModal()" class="w-full bg-indigo-500 text-white py-2 px-4 rounded-full font-semibold hover:bg-indigo-600 transition-colors">Open CVcase Bot</button>
     </div>
 </div>
 
