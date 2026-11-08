@@ -1741,6 +1741,19 @@
         }
 
         window.onload = async () => {
+            // Fired FIRST, before anything else in this function, and not
+            // awaited: every diagnostic added to handleTelegramJobDeepLink()
+            // so far — including one meant to toast on literally every app
+            // open — has shown zero effect on a real device even after
+            // clearing Telegram's cache, which rules out caching. The only
+            // remaining explanation is that some earlier line in this async
+            // function throws (uncaught) before execution ever reaches the
+            // original end-of-onload call, which silently kills everything
+            // queued after it with no visible error. Calling it here instead
+            // makes it fully independent of whatever else in onload might
+            // fail later (session restore, profile load, tab switch, etc.).
+            handleTelegramJobDeepLink();
+
             let savedUserId  = localStorage.getItem('cv_userId');
             let savedToken   = localStorage.getItem('cv_sessionToken');
             const savedBalance = localStorage.getItem('cv_userBalance');
@@ -1827,10 +1840,8 @@
             applyTelegramButtonLabels();
             setTimeout(applyTelegramButtonLabels, 600); // re-check in case the Telegram SDK finished initializing a moment after onload
 
-            // Deep link from a "CVcase Jobs" Telegram channel post (see
-            // functions/post-job-telegram.js) — opens straight to that job's
-            // Detail screen instead of dropping the user on the generic feed.
-            handleTelegramJobDeepLink();
+            // handleTelegramJobDeepLink() now runs as the very FIRST line of
+            // this function instead of here — see the comment up there.
         };
 
         // Reads Telegram's Mini App start_param (set when a user taps a job
