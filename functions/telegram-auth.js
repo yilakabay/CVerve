@@ -96,7 +96,17 @@ exports.handler = async (event, context) => {
     // Already registered → log them straight in, no OTP, no password.
     const user = await usersCol.findOne({ tgUserId });
     if (user) {
-      const sessionToken = generateSessionToken();
+      // Reuse the existing sessionToken instead of rotating it on every
+      // call. This endpoint isn't just "log in" — app.html now also calls
+      // it silently (refreshTelegramIdentityIfChanged) any time the Mini
+      // App regains focus, purely to pick up a phoneNumber change. Rotating
+      // the token on every one of those calls invalidated whatever token
+      // any other in-flight request was still using (a real request could
+      // land microseconds after a background refresh fired), which is what
+      // was producing stray "Your session needs a quick refresh" errors
+      // elsewhere in the app with no real session problem behind them. A
+      // token only needs to change when there wasn't one yet.
+      const sessionToken = user.sessionToken || generateSessionToken();
       await usersCol.updateOne({ tgUserId }, { $set: { sessionToken, lastLoginAt: new Date() } });
 
       const rawNotifs     = user.notifications || [];

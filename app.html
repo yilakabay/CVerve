@@ -8698,7 +8698,11 @@
         // next scheduled tick.
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && userId) {
-                refreshTelegramIdentityIfChanged();
+                // Only worth checking while still on the placeholder
+                // identity (tg_<id>) — once a real phone number is linked
+                // there's nothing left to pick up, so skip the extra round
+                // trip on every single tab focus.
+                if (userId.indexOf('tg_') === 0) refreshTelegramIdentityIfChanged();
                 backgroundSync();
             }
         });

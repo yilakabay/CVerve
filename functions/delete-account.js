@@ -11,22 +11,17 @@
 //   (verified payments are kept for accounting records)
 //
 // ── Anti-abuse: what this intentionally does NOT delete ─────────────────────
-// telegram_chats and usage_ledger are deliberately left alone. Deleting them
-// used to be how a scammer reset their free-plan usage: delete the account,
-// which wiped the Telegram↔phone link, freeing that Telegram identity to
-// link a fresh phone number and register a brand new account with a zeroed
-// usage counter. Now:
-//   - usage_ledger (keyed by tgUserId) is never touched here at all — it's
-//     the permanent lifetime-usage record create-user.js checks before
-//     handing out a "fresh" quota.
-//   - telegram_chats is kept too (so the tgUserId↔phoneNumber link survives),
-//     but scrubbed of the non-essential personal fields (first name,
-//     username, chat id) right below — only the identity linkage needed for
-//     fraud/abuse prevention remains. Those fields get refreshed
-//     automatically the next time this Telegram account messages the bot, so
-//     nothing is lost if they come back legitimately.
-// This is a deliberate, narrow exception to "permanently removes ALL data"
-// for fraud-prevention purposes — worth a line in your privacy policy/ToS.
+// usage_ledger is deliberately left alone — it's the permanent lifetime-
+// usage record create-user.js checks before handing out a "fresh" quota, and
+// it's keyed by tgUserId, not by phone number, so it keeps doing its job
+// (one Telegram identity can't reset its free quota by deleting the
+// account) with no need to also hang onto telegram_chats.
+//
+// telegram_chats IS fully deleted below (both the phoneNumber-keyed and the
+// tgUserId-keyed record) — a deleted account re-registering through the bot
+// or a channel post should come back as a genuinely clean slate tied only
+// to its Telegram ID, not have its old phone number silently reattached to
+// the new account the moment the Mini App opens.
 
 const { MongoClient } = require('mongodb');
 
@@ -84,18 +79,12 @@ exports.handler = async (event, context) => {
     // 2. Stored profile
     await db.collection('user_profiles').deleteOne({ userId: phoneNumber });
 
-    // 3. Telegram chat records — kept (see note at top), but scrubbed of
-    // non-essential personal fields. tgUserId and phoneNumber stay so the
-    // fraud/abuse-prevention checks in telegram-webhook.js and the usage
-    // ledger in create-user.js keep working correctly if this person
-    // registers again.
-    const scrub = {
-      $set:   { accountDeletedAt: new Date() },
-      $unset: { firstName: '', username: '', chatId: '' }
-    };
-    await db.collection('telegram_chats').updateMany({ phoneNumber }, scrub);
+    // 3. Telegram chat records — fully removed (see note at top). Re-opening
+    // the Mini App or messaging the bot afterwards starts completely fresh,
+    // tied only to the Telegram ID, with no leftover phone number.
+    await db.collection('telegram_chats').deleteMany({ phoneNumber });
     if (user.tgUserId) {
-      await db.collection('telegram_chats').updateMany({ tgUserId: user.tgUserId }, scrub);
+      await db.collection('telegram_chats').deleteMany({ tgUserId: user.tgUserId });
     }
 
     // 4. All OTP / token collections
