@@ -249,6 +249,19 @@ exports.handler = async (event, context) => {
 
         const oldPhone = accountForThisTg.phoneNumber;
         await usersCol.updateOne({ tgUserId }, { $set: { phoneNumber } });
+        // manage-profile.js stores the "Stored Information" (name, CV, etc.)
+        // keyed by userId === the account's phoneNumber at save time. Moving
+        // the account onto its real phone number without also moving its
+        // profile document left that profile stranded under the old
+        // placeholder key — reachable by nothing, since every lookup is now
+        // by the new real number. Re-key it here so onboarding info filled
+        // in before the phone was shared survives the migration intact.
+        if (oldPhone && oldPhone !== phoneNumber) {
+          await db.collection('user_profiles').updateOne(
+            { userId: oldPhone },
+            { $set: { userId: phoneNumber } }
+          );
+        }
         await tgCol.findOneAndUpdate(
           { tgUserId },
           { $set: { tgUserId, phoneNumber, chatId, firstName: tgFirstName, username: tgUsername, updatedAt: new Date() } },
