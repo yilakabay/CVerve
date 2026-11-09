@@ -129,7 +129,19 @@ exports.handler = async (event, context) => {
       return { statusCode: 401, body: JSON.stringify({ error: 'Session expired. Please log in again.' }) };
     }
 
-    const tgRecord = await tgCol.findOne({ phoneNumber: userId });
+    // Primary lookup is by phoneNumber (same identifier the client uses as
+    // `userId`), but that's a plain string match — any formatting drift
+    // between how a phone number ended up stored on the `users` account vs.
+    // on this `telegram_chats` record (e.g. normalizePhone() in
+    // telegram-webhook.js producing a different shape than whatever the web
+    // signup flow stored) would make this miss even for a genuinely linked
+    // user. tgUserId is a verified, format-free identifier that's written
+    // identically to both collections whenever telegram-webhook.js links an
+    // account, so fall back to it before concluding the user isn't linked.
+    let tgRecord = await tgCol.findOne({ phoneNumber: userId });
+    if ((!tgRecord || !tgRecord.chatId) && user.tgUserId) {
+      tgRecord = await tgCol.findOne({ tgUserId: user.tgUserId });
+    }
     if (!tgRecord || !tgRecord.chatId) {
       return {
         statusCode: 400,

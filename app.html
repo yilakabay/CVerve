@@ -1740,6 +1740,36 @@
             return false;
         }
 
+        // Re-checks Telegram identity for a user who's ALREADY logged in in
+        // this tab, and quietly updates the cached userId/sessionToken if
+        // the server-side account has changed — specifically, if the user
+        // just shared their phone number with the bot while the Mini App
+        // was in the background. window.onload only ever calls
+        // tryTelegramSilentLogin() when there's no cached session yet, so an
+        // already-logged-in tab would otherwise keep using its stale
+        // placeholder userId (tg_<tgUserId>) forever, even though the
+        // account's real phoneNumber was updated the moment they shared
+        // contact — making every subsequent "send to Telegram" keep failing
+        // with "isn't linked yet" despite the link actually having worked.
+        // Called from the visibilitychange listener below, so it runs the
+        // instant they switch back to the Mini App after the bot chat.
+        async function refreshTelegramIdentityIfChanged() {
+            try {
+                var tg = window.Telegram && window.Telegram.WebApp;
+                if (!tg || !tg.initData || !userId) return;
+                var res = await fetch('/.netlify/functions/telegram-auth', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+                var data = await res.json().catch(() => null);
+                if (res.ok && data && data.status === 'login' && data.phoneNumber && data.phoneNumber !== userId) {
+                    localStorage.setItem('cv_userId', data.phoneNumber);
+                    localStorage.setItem('cv_sessionToken', data.sessionToken);
+                    userId = data.phoneNumber;
+                }
+            } catch (e) { /* best-effort refresh — never interrupts the user for this */ }
+        }
+
         window.onload = async () => {
             // Fired FIRST, before anything else in this function, and not
             // awaited: every diagnostic added to handleTelegramJobDeepLink()
@@ -8667,7 +8697,10 @@
         // switches back after the admin verified something), not just on the
         // next scheduled tick.
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && userId) backgroundSync();
+            if (document.visibilityState === 'visible' && userId) {
+                refreshTelegramIdentityIfChanged();
+                backgroundSync();
+            }
         });
 
         // ── Restore session from localStorage ────────────────────────────────
