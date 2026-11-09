@@ -174,6 +174,19 @@ exports.handler = async (event, context) => {
     // to miss until two phoneless users collide. Real phone numbers (09.../
     // 07...) never start with "tg_", so this can never collide with one.
     const identifier = (tgLink && tgLink.phoneNumber) ? tgLink.phoneNumber : ('tg_' + tgUserId);
+
+    // Defense-in-depth against exactly the "deleted account still shows my
+    // old CV" report: a brand new account (no `users` doc existed for this
+    // tgUserId a moment ago) should never inherit an orphaned profile left
+    // under this same identifier by an earlier, deleted account — whatever
+    // the reason one might still be there. Scrub it before this identifier
+    // gets reused, so a fresh registration is guaranteed to start blank.
+    const orphanedProfile = await db.collection('user_profiles').findOne({ userId: identifier });
+    if (orphanedProfile) {
+      console.warn(`telegram-auth: deleting orphaned user_profiles for reused identifier ${identifier} (tgUserId=${tgUserId}) — this shouldn't normally happen`);
+      await db.collection('user_profiles').deleteOne({ userId: identifier });
+    }
+
     await usersCol.insertOne({
       phoneNumber:    identifier,
       tgUserId,

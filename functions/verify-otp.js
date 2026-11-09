@@ -105,6 +105,18 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // Defense-in-depth: a brand new account for this phone number (we just
+    // confirmed no `users` doc exists for it) should never inherit a stored
+    // profile an earlier, deleted account left behind under the same phone
+    // number — delete-account.js already removes this normally, this just
+    // guards against ending up blocked by a stale orphan regardless of why
+    // one might still be there.
+    const orphanedProfile = await db.collection('user_profiles').findOne({ userId: phoneNumber });
+    if (orphanedProfile) {
+      console.warn(`verify-otp: deleting orphaned user_profiles for reused phoneNumber ${phoneNumber} — this shouldn't normally happen`);
+      await db.collection('user_profiles').deleteOne({ userId: phoneNumber });
+    }
+
     await usersCol.insertOne({
       phoneNumber,
       tgUserId:       tgRecord?.tgUserId || null,
