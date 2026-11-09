@@ -1176,7 +1176,14 @@
 
         function openAccountDrawer() {
             try {
-                // Populate phone
+                // Populate phone — a user who hasn't shared their phone with
+                // the bot yet is still identified by their placeholder
+                // Telegram ID (tg_<id>, see telegram-auth.js), which isn't a
+                // phone number at all, so label it honestly instead of
+                // calling it "Phone Number".
+                var isTgPlaceholder = !!(userId && userId.indexOf('tg_') === 0);
+                var drawerPhoneLabelEl = document.getElementById('drawerPhoneLabel');
+                if (drawerPhoneLabelEl) drawerPhoneLabelEl.textContent = isTgPlaceholder ? 'Telegram ID' : 'Phone Number';
                 document.getElementById('drawerPhone').textContent = userId || '';
                 // Populate balance
                 try { renderBalanceDisplays(); } catch(e) { console.error('renderBalanceDisplays error:', e); }
@@ -1465,6 +1472,8 @@
                 // Set phone number directly since it lives in the cloned HTML
                 const phoneEl = dst.querySelector('#drawerPhone');
                 if (phoneEl) phoneEl.textContent = userId || '';
+                const phoneLabelEl = dst.querySelector('#drawerPhoneLabel');
+                if (phoneLabelEl) phoneLabelEl.textContent = (userId && userId.indexOf('tg_') === 0) ? 'Telegram ID' : 'Phone Number';
                 // Re-run populate so profile fields are updated
                 try { populateDrawerProfile(); } catch(_) {}
                 // Sync balance display
@@ -1822,11 +1831,6 @@
             if (ls) { ls.style.display = 'none'; ls.style.pointerEvents = 'none'; }
             if (ma) ma.classList.remove('hidden');
             if (tgAuthGate) tgAuthGate.style.display = 'none';
-
-            // Balance restored from localStorage may already be 0 (e.g. they left
-            // last session empty) — check right away rather than waiting for the
-            // first get-user poll, so the auto top-up popup isn't delayed.
-            try { maybeAutoPromptTopup(); } catch (_) {}
 
             // Deep link from cv.html's own "out of CT" popup (?openTopup=1) —
             // jump straight to the top-up modal instead of making them find it.
@@ -5332,7 +5336,13 @@
             userBalance = (typeof v === 'number' && !isNaN(v)) ? v : 0;
             try { localStorage.setItem('cv_userBalance', userBalance); } catch (_) {}
             try { renderBalanceDisplays(); } catch (_) {}
-            maybeAutoPromptTopup();
+            // NOTE: this used to also auto-pop a "You're out of CT" dialog the
+            // instant balance was learned to be 0 — including right after a
+            // brand-new user's very first login, before they'd tried doing
+            // anything. Removed per product direction: top-up should only be
+            // asked for when an action that actually needs CT is attempted
+            // (handled by promptTopUp() below, triggered by a real 402 from
+            // the server), not pushed on someone the moment they open the app.
         }
 
         /* ── Call this right after EVERY AI response (letter, fit check, smart finder).
@@ -5366,30 +5376,6 @@
                 showMessage('error', title + ' — ' + message);
                 setTimeout(() => openUpgradeModal(), 800);
             }
-        }
-
-        /* ── Auto top-up popup: fires on its own the moment the balance is known
-           to be 0 — no action/button tap required to trigger it. Shown at most
-           once per zero-balance "episode": once shown, it won't show again until
-           the balance goes back above 0 and drops to 0 again (so it doesn't
-           reappear on every tab switch or background sync tick while the user
-           is deliberately browsing with "Maybe later" dismissed). Skips showing
-           if the top-up modal or this same popup is already open. ── */
-        function maybeAutoPromptTopup() {
-            const overlay = document.getElementById('appConfirmOverlay');
-            const topupModalEl = document.getElementById('topupModal');
-            if ((userBalance || 0) > 0) {
-                try { sessionStorage.removeItem('cv_topupAutoShown'); } catch (_) {}
-                return;
-            }
-            if (!userId) return; // not logged in yet — nothing to prompt
-            if (overlay && !overlay.classList.contains('hidden')) return;       // a dialog is already up
-            if (topupModalEl && !topupModalEl.classList.contains('hidden')) return; // top-up modal already open
-            try {
-                if (sessionStorage.getItem('cv_topupAutoShown') === '1') return;
-                sessionStorage.setItem('cv_topupAutoShown', '1');
-            } catch (_) {}
-            showUpgradePrompt("You're out of CT", 'Top up to keep using AI features — you only pay for the tokens you actually use.');
         }
 
         function autoRevealLowBalance() {
@@ -8289,7 +8275,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600 dark:text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
             </div>
             <div>
-                <p class="text-xs text-indigo-400 dark:text-indigo-300 font-medium">Phone Number</p>
+                <p id="drawerPhoneLabel" class="text-xs text-indigo-400 dark:text-indigo-300 font-medium">Phone Number</p>
                 <p id="drawerPhone" class="text-sm font-bold text-indigo-700 dark:text-indigo-200"></p>
             </div>
         </div>
