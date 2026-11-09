@@ -191,8 +191,44 @@
 
 <script>
 const params  = new URLSearchParams(location.search);
-const userId  = params.get('userId') || localStorage.getItem('cv_userId') || '';
+let userId    = params.get('userId') || localStorage.getItem('cv_userId') || '';
 let currentStep = 0;
+
+// Telegram users land on this page with NO account yet — telegram-auth.js
+// only ever reports status:'onboard' for them until an account is created.
+// Previously that creation didn't happen until finishOnboarding() fired at
+// the very end of the flow ("Go to CVcase"), which meant every step along
+// the way called saveProfileField() with userId still empty — and
+// saveProfileField silently no-ops when there's no userId (see below), so
+// everything the person typed while filling in the form was discarded
+// before an account even existed to save it under. Create the account right
+// away instead, so the very first step's save has a real identity to save
+// against. accountReadyPromise is awaited by both saveProfileField() and
+// finishOnboarding() so neither runs ahead of it.
+let accountReadyPromise = (async function ensureTelegramAccount() {
+  if (userId) return; // already identified (web/OTP user, or a reload after creation)
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var tgUserId = params.get('tgUserId');
+  if (!tgUserId || !tg || !tg.initData) return; // not a Telegram onboarding session
+
+  try {
+    var res  = await fetch('/.netlify/functions/telegram-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData, createIfMissing: true })
+    });
+    var data = await res.json();
+    if (res.ok && data.status === 'login' && data.phoneNumber) {
+      userId = data.phoneNumber;
+      localStorage.setItem('cv_userId', data.phoneNumber);
+      localStorage.setItem('cv_sessionToken', data.sessionToken);
+      localStorage.setItem('cv_userBalance', data.balance || 0);
+    }
+  } catch (e) {
+    // Leave userId empty — saveProfileField() will no-op per field (same as
+    // before this fix) and finishOnboarding() below still has its own retry
+    // as a second chance to create the account before the person leaves.
+  }
+})();
 
 function updateProgress() {
   document.querySelectorAll('#progressBar i').forEach(function(el) {
@@ -259,6 +295,7 @@ function goBackStep() {
 }
 
 async function saveProfileField(profile) {
+  if (accountReadyPromise) await accountReadyPromise; // make sure Telegram account-creation (above) has had its chance first
   if (!userId) return true; // no user context — just move on client-side
   try {
     var res = await fetch('/.netlify/functions/manage-profile', {
@@ -321,12 +358,9 @@ async function saveStep(which) {
   }
 }
 
-function finishOnboarding() {
+async function finishOnboarding() {
   showOverlay('Setting up your account…');
   try { localStorage.setItem('cv_lastActivity', Date.now().toString()); } catch (_) {}
-
-  var tg = window.Telegram && window.Telegram.WebApp;
-  var tgUserId = params.get('tgUserId');
 
   // If app.html sent us here because a brand-new user tapped a job from the
   // "CVcase Jobs" channel, carry that reference on to app.html so they land
@@ -335,39 +369,38 @@ function finishOnboarding() {
   var jobParam = params.get('job');
   var appUrl = jobParam ? ('/app.html?job=' + encodeURIComponent(jobParam)) : '/app.html';
 
-  // Telegram users have no account yet at this point — telegram-auth.js only
-  // ever reported status:'onboard' for them until now. createIfMissing:true
-  // creates it here, using the verified Telegram identity itself as proof.
-  // Without this step, app.html's own Telegram silent-login check would find
-  // no account, get 'onboard' again, and bounce the user right back here.
-  if (tgUserId && tg && tg.initData) {
-    fetch('/.netlify/functions/telegram-auth', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: tg.initData, createIfMissing: true })
-    })
-      .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
-      .then(function(result) {
-        if (result.ok && result.data.status === 'login') {
-          localStorage.setItem('cv_userId', result.data.phoneNumber || '');
-          localStorage.setItem('cv_sessionToken', result.data.sessionToken);
-          localStorage.setItem('cv_userBalance', result.data.balance || 0);
-        }
-        window.location.href = appUrl;
-      })
-      .catch(function() {
-        // Even if this call failed, still let them into the app — app.html's
-        // own silent-login will retry telegram-auth (without createIfMissing)
-        // and, worst case, send them back here rather than getting stuck.
-        window.location.href = appUrl;
+  // The Telegram account (if any) was already created up front by
+  // ensureTelegramAccount() when the page first loaded, so every step's
+  // save call along the way had a real identity to save under from the
+  // start. Just make sure that had its chance to finish before moving on.
+  if (accountReadyPromise) await accountReadyPromise;
+
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var tgUserId = params.get('tgUserId');
+
+  if (tgUserId && tg && tg.initData && !userId) {
+    // ensureTelegramAccount() didn't manage to create the account (the
+    // request failed, or this page loaded before Telegram's WebApp data was
+    // ready) — fall back to creating it here, same as the original flow.
+    try {
+      var res  = await fetch('/.netlify/functions/telegram-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: tg.initData, createIfMissing: true })
       });
-    return;
+      var data = await res.json();
+      if (res.ok && data.status === 'login') {
+        localStorage.setItem('cv_userId', data.phoneNumber || '');
+        localStorage.setItem('cv_sessionToken', data.sessionToken);
+        localStorage.setItem('cv_userBalance', data.balance || 0);
+      }
+    } catch (e) {
+      // Even if this failed, still let them into the app — app.html's own
+      // silent-login will retry telegram-auth (without createIfMissing) and,
+      // worst case, send them back here rather than getting stuck.
+    }
   }
 
-  // Web (phone+OTP) users already have an account and session from
-  // verify-otp.js before ever reaching onboarding — nothing to create here.
-  setTimeout(function() {
-    window.location.href = appUrl;
-  }, 400);
+  window.location.href = appUrl;
 }
 
 // Prefill the "application phone" step with the registration phone (still editable)
