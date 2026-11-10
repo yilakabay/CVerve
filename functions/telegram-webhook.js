@@ -160,16 +160,6 @@ exports.handler = async (event, context) => {
   const text       = (msg.text || '').trim();
   const tgUsername = msg.from.username || null;
 
-  // Everything below is private-chat (DM) logic built around "this chat IS
-  // the user" — a group's chatId is the GROUP's id, not any individual
-  // member's, so none of it applies to a group message. (This bot
-  // previously also auto-answered questions in the CVcase Community group
-  // with AI; that feature was removed per product decision — group
-  // messages are now simply ignored.)
-  if (msg.chat && (msg.chat.type === 'group' || msg.chat.type === 'supergroup')) {
-    return { statusCode: 200, body: 'OK' };
-  }
-
   try {
     await client.connect();
     const db       = client.db('cverve');
