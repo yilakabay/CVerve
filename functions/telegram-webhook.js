@@ -215,8 +215,18 @@ HOW TO ANSWER:
   say so plainly and suggest they wait for a human admin, rather than guessing.
 - Never invent prices, features, or policies you're not certain of from the context above.`;
 
+// Telegram's special "send as the group" sender (shown in-app as the
+// "Send anonymously" toggle) is represented as a fixed, well-known account
+// called GroupAnonymousBot — and that account IS flagged is_bot:true, same
+// as a real bot. The blanket `msg.from.is_bot` check below used to treat
+// it exactly like any other bot and silently drop the message, which is
+// why a message sent anonymously in the group got no reply at all. Only
+// skip genuine other bots now; this one specific "bot" id is actually a
+// human group member posting anonymously and must still get an answer.
+const TELEGRAM_ANONYMOUS_ADMIN_ID = 1087968824;
+
 async function handleCommunityMessage(botToken, msg, db) {
-  if (msg.from && msg.from.is_bot) return;
+  if (msg.from && msg.from.is_bot && msg.from.id !== TELEGRAM_ANONYMOUS_ADMIN_ID) return;
   const text = (msg.text || '').trim();
   if (!text || text.startsWith('/')) return; // commands are handled elsewhere / ignored here
 
