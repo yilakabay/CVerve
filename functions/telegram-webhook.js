@@ -253,7 +253,12 @@ async function handleCommunityMessage(botToken, msg, db) {
         { role: 'system', content: COMMUNITY_SYSTEM_PROMPT },
         { role: 'user', content: text }
       ],
-      maxTokens: 400,
+      // 400 was too tight — Amharic (Ge'ez script) costs noticeably more
+      // tokens per character than English/Latin text, so an answer that
+      // would easily fit in 400 tokens of English got cut off mid-word
+      // when the same content came out in Amharic. 900 gives real headroom
+      // for either language while still bounding the worst case.
+      maxTokens: 900,
       temperature: 0.4,
       timeoutMs: 18000
     });
@@ -271,7 +276,14 @@ async function handleCommunityMessage(botToken, msg, db) {
   const answer = (result.text || '').trim() ||
     "Sorry, I couldn't come up with a good answer for that — an admin will help soon.";
 
-  await cacheCol.insertOne({ normalized, question: text, answer, hitCount: 0, createdAt: new Date() });
+  // Only cache a COMPLETE answer. finishReason === 'length' means the model
+  // got cut off mid-sentence by maxTokens (exactly what happened before the
+  // maxTokens bump above) — caching that half-answer would mean every
+  // future person asking the same question gets served the same truncated
+  // reply forever instead of a fresh, hopefully-complete one.
+  if (result.finishReason !== 'length') {
+    await cacheCol.insertOne({ normalized, question: text, answer, hitCount: 0, createdAt: new Date() });
+  }
 
   await httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     chat_id: chatId,
