@@ -44,7 +44,6 @@
 
 const { MongoClient } = require('mongodb');
 const https = require('https');
-const { callAI, logOperationalUsage, MODEL_IDS } = require('./lib/ai-billing');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTimeMS: 30000 });
@@ -141,158 +140,6 @@ async function sendAppMessage(botToken, chatId, tgUserId, tgCol, text) {
   await sendMessage(botToken, chatId, text, shareOnlyKeyboard);
 }
 
-// ── Community group AI support ──────────────────────────────────────────────
-// Answers plain-text questions posted in the public CVcase Community group
-// using Gemini (via the B.AI gateway, the cheapest model in this app's
-// lineup that still handles Amharic well — see MODEL_RATES above). Requires
-// this bot's Privacy Mode to be OFF in @BotFather, otherwise Telegram never
-// forwards ordinary group messages to the webhook at all, only commands and
-// @mentions.
-//
-// Cost control is two-layered: (1) the group itself has Telegram's native
-// Slow Mode enabled (5 minutes — a group-settings toggle, not bot code), so
-// there's a hard ceiling on how often ANYONE can post at all; (2) every
-// answer is cached by its normalized question text in community_qa_cache,
-// so if the same (or near-identically phrased) question comes up again, it
-// gets the stored answer back instantly with zero further B.AI cost. Every
-// *new* AI call's real token cost is logged via logOperationalUsage() under
-// feature 'COMMUNITY_BOT', which is how it shows up on the admin stats page
-// (admin-stats.js aggregates ai_operational_usage by `feature` already —
-// no changes needed there for this to appear).
-const COMMUNITY_GROUP_USERNAME = 'cvcase_community';
-
-function isCommunityGroup(chat) {
-  return !!(chat && chat.username && chat.username.toLowerCase() === COMMUNITY_GROUP_USERNAME);
-}
-
-// Deliberately simple EXACT-match normalization (lowercase, strip
-// punctuation, collapse whitespace) rather than any fuzzy/semantic
-// matching — cheap, predictable, and catches the overwhelmingly common
-// case of the exact same question being re-asked verbatim or with only
-// punctuation/casing differences, without the cost or complexity of a
-// vector-similarity lookup.
-function normalizeQuestion(text) {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Kept intentionally tight — this whole block is re-sent as input tokens on
-// every un-cached question, so padding it out directly inflates the B.AI
-// bill logged above.
-const COMMUNITY_SYSTEM_PROMPT = `You are the CVcase Community support assistant, answering questions in the
-public CVcase Community Telegram group (@${COMMUNITY_GROUP_USERNAME}).
-
-ABOUT CVcase:
-- CVcase is a Telegram-based app (Mini App) that generates CVs and application/cover letters, and
-  helps users find and apply to jobs. It also offers "Fit Check" (how well a user matches a job)
-  and "Smart Finder" (AI job search).
-- Users interact through: (1) @cvcase_bot — the Telegram bot that links a user's phone number,
-  delivers generated files, and sends job/payment notifications; (2) the Mini App itself, opened
-  from the bot's menu button ("🚀 Open App") — this is where users build their CV, generate
-  letters, browse jobs, and manage their account; (3) the "CVcase Jobs" channel, which posts new
-  job listings; (4) this Community group, for help and discussion between users.
-- Identity & accounts: a user is identified by their Telegram account — opening the Mini App logs
-  them in automatically, no password ever needed. Until a user shares their real phone number
-  with the bot (tap "📱 Share my phone number" in @cvcase_bot, always visible near the input bar),
-  their account uses a temporary placeholder ID and files can't be delivered to them on Telegram —
-  sharing the phone number fixes this permanently.
-- CT (CVcase Tokens) is the in-app currency that pays for AI actions (generating a letter, CV
-  polish, Fit Check, Smart Finder). New accounts start with 0 CT; a top-up flow inside the app
-  lets users add CT. Running low only prompts a top-up when the user tries an action that needs
-  it — it's never forced on a brand-new user right after signup.
-- Common issue: "download failed" or "please share your phone number first" means the user's
-  Telegram isn't linked yet — tell them to open @cvcase_bot and tap the share-phone button, or use
-  the "Share phone" button on their Account page in the app. Account deletion is permanent.
-
-HOW TO ANSWER:
-- Be concise, friendly, and practical — a sentence or two for simple questions, more only if truly needed.
-- Reply in the SAME language the user asked in (English or Amharic/አማርኛ) — match their language exactly.
-- If a question needs an account-specific lookup or sounds like a bug you can't resolve generically,
-  say so plainly and suggest they wait for a human admin, rather than guessing.
-- Never invent prices, features, or policies you're not certain of from the context above.`;
-
-// Telegram's special "send as the group" sender (shown in-app as the
-// "Send anonymously" toggle) is represented as a fixed, well-known account
-// called GroupAnonymousBot, flagged is_bot:true. Per explicit product
-// decision, the community bot should only ever answer real individual
-// members, never a message posted anonymously as the group — so this one
-// is deliberately NOT exempted from the is_bot skip below, even though
-// it's technically a human typing. Any other real bot in the group is
-// skipped for the same reason bots generally shouldn't be answered.
-async function handleCommunityMessage(botToken, msg, db) {
-  if (msg.from && msg.from.is_bot) return;
-  const text = (msg.text || '').trim();
-  if (!text || text.startsWith('/')) return; // commands are handled elsewhere / ignored here
-
-  const chatId      = msg.chat.id;
-  const cacheCol     = db.collection('community_qa_cache');
-  const normalized   = normalizeQuestion(text);
-  if (!normalized) return;
-
-  const cached = await cacheCol.findOne({ normalized });
-  if (cached) {
-    await cacheCol.updateOne({ normalized }, { $inc: { hitCount: 1 }, $set: { lastHitAt: new Date() } });
-    await httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      chat_id: chatId,
-      text: cached.answer,
-      reply_to_message_id: msg.message_id,
-      allow_sending_without_reply: true
-    });
-    return;
-  }
-
-  let result;
-  try {
-    result = await callAI({
-      model: MODEL_IDS.GEMINI_FLASH,
-      messages: [
-        { role: 'system', content: COMMUNITY_SYSTEM_PROMPT },
-        { role: 'user', content: text }
-      ],
-      // 400 was too tight — Amharic (Ge'ez script) costs noticeably more
-      // tokens per character than English/Latin text, so an answer that
-      // would easily fit in 400 tokens of English got cut off mid-word
-      // when the same content came out in Amharic. 900 gives real headroom
-      // for either language while still bounding the worst case.
-      maxTokens: 900,
-      temperature: 0.4,
-      timeoutMs: 18000
-    });
-  } catch (err) {
-    console.error('community bot AI call failed:', err.message);
-    return; // stay silent in the group rather than post an error message
-  }
-
-  // Log the real B.AI cost of this call as operational spend — never
-  // charged to any individual user's CT balance (nobody in a group chat is
-  // "the" user to bill), but visible on the admin stats page under the
-  // COMMUNITY_BOT feature.
-  await logOperationalUsage(db, { feature: 'COMMUNITY_BOT', model: MODEL_IDS.GEMINI_FLASH, usage: result.usage });
-
-  const answer = (result.text || '').trim() ||
-    "Sorry, I couldn't come up with a good answer for that — an admin will help soon.";
-
-  // Only cache a COMPLETE answer. finishReason === 'length' means the model
-  // got cut off mid-sentence by maxTokens (exactly what happened before the
-  // maxTokens bump above) — caching that half-answer would mean every
-  // future person asking the same question gets served the same truncated
-  // reply forever instead of a fresh, hopefully-complete one.
-  if (result.finishReason !== 'length') {
-    await cacheCol.insertOne({ normalized, question: text, answer, hitCount: 0, createdAt: new Date() });
-  }
-
-  await httpsPost(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    chat_id: chatId,
-    text: answer,
-    reply_to_message_id: msg.message_id,
-    allow_sending_without_reply: true
-  });
-}
-
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
@@ -313,21 +160,13 @@ exports.handler = async (event, context) => {
   const text       = (msg.text || '').trim();
   const tgUsername = msg.from.username || null;
 
-  // Group messages (the CVcase Community group) are a completely separate
-  // flow from everything below, which is all private-chat (DM) logic built
-  // around "this chat IS the user" — a group's chatId is the GROUP's id,
-  // not any individual member's, so none of that logic applies here. Branch
-  // off first and never fall through into the DM handling for a group chat.
+  // Everything below is private-chat (DM) logic built around "this chat IS
+  // the user" — a group's chatId is the GROUP's id, not any individual
+  // member's, so none of it applies to a group message. (This bot
+  // previously also auto-answered questions in the CVcase Community group
+  // with AI; that feature was removed per product decision — group
+  // messages are now simply ignored.)
   if (msg.chat && (msg.chat.type === 'group' || msg.chat.type === 'supergroup')) {
-    if (isCommunityGroup(msg.chat)) {
-      try {
-        await client.connect();
-        const db = client.db('cverve');
-        await handleCommunityMessage(botToken, msg, db);
-      } catch (err) {
-        console.error('community group handler error:', err);
-      }
-    }
     return { statusCode: 200, body: 'OK' };
   }
 
