@@ -109,21 +109,35 @@ const shareOnlyKeyboard = {
   is_persistent: true
 };
 
-const appOnlyKeyboard = {
-  inline_keyboard: [[{ text: '🚀 Open CVcase App', web_app: { url: CVcase_APP_URL } }]]
-};
+// NOTE: this used to be `appOnlyKeyboard`, an inline keyboard swapped in as
+// the message's reply_markup once a user was fully linked — which meant
+// sending it REPLACED whatever reply keyboard (the "Share my phone number"
+// button) was currently showing, since a message only carries one
+// reply_markup. That's exactly why the share button kept disappearing after
+// the first share: every later message silently dropped it. Per explicit
+// request, the share button must stay visible forever, even after the
+// account is fully linked — so every message's reply_markup is always
+// `shareOnlyKeyboard` now (see sendMessage's own default), never swapped
+// out for anything else, and "Open CVcase App" lives ONLY on the chat menu
+// button (set once below, next to the input bar) which is a separate
+// Telegram feature entirely and was already proven not to fight with the
+// reply keyboard.
 
 async function ensureAppMenuButton(botToken, chatId, tgUserId, tgCol) {
   const rec = await tgCol.findOne({ tgUserId });
   if (rec && rec.appMenuButtonSet) return;
-  await sendMessage(botToken, chatId, '✅ Phone number confirmed.', { remove_keyboard: true });
+  // Previously also sent a "✅ Phone number confirmed." message with
+  // remove_keyboard:true right here — removed, since that's precisely what
+  // made the share button vanish the moment a phone was linked. The menu
+  // button is independent of any chat message, so it can just be set
+  // silently.
   await setAppMenuButton(botToken, chatId);
   await tgCol.updateOne({ tgUserId }, { $set: { appMenuButtonSet: true } }, { upsert: true });
 }
 
 async function sendAppMessage(botToken, chatId, tgUserId, tgCol, text) {
   await ensureAppMenuButton(botToken, chatId, tgUserId, tgCol);
-  await sendMessage(botToken, chatId, text, appOnlyKeyboard);
+  await sendMessage(botToken, chatId, text, shareOnlyKeyboard);
 }
 
 exports.handler = async (event, context) => {
