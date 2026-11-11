@@ -537,6 +537,23 @@
             + Add another position
           </button>
 
+          <!-- Only relevant when a pasted-JSON batch is queued (jpPasteQueue) —
+               lets the admin fast-forward back to where they left off after a
+               session-expiry relogin forced them to paste the same batch
+               again, without re-posting companies already handled. -->
+          <div id="jpQueueSkipBar" class="hidden bg-amber-50 border border-amber-100 rounded-xl p-3 mt-4">
+            <button onclick="skipCurrentPastedJob()" class="w-full mb-2 py-2 rounded-full text-xs font-semibold border border-amber-300 text-amber-700 bg-white hover:bg-amber-100 transition-colors">
+              ⏭ Skip this company (don't post) — load next
+            </button>
+            <label class="text-[11px] font-semibold text-amber-700 mb-1 block">Already got this far? Skip ahead to a company name:</label>
+            <div class="flex gap-2">
+              <input type="text" id="jpSkipToCompanyInput" placeholder="Exact company name, e.g. Abay Bank S.C"
+                class="flex-1 px-3 py-1.5 rounded-lg border border-amber-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <button onclick="skipToCompany()" class="bg-amber-500 text-white text-xs font-bold px-3 rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0">Skip to it</button>
+            </div>
+            <p class="text-[0.7rem] text-amber-500 mt-1">Skips everything up to AND including the first match of that name (current company included). If the same company appears more than once in this batch, type it again to skip to the next occurrence.</p>
+          </div>
+
           <div class="flex gap-2 mt-5">
             <button onclick="backToSourceStep()" class="flex-1 py-2.5 rounded-full text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white">Back</button>
             <button onclick="submitJobPost()" id="jpPostBtn" class="flex-[2] py-2.5 rounded-full text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm">Post Job</button>
@@ -1311,6 +1328,13 @@
     return { company, positions };
   }
 
+  // True for the whole duration of a pasted-JSON batch — from the first
+  // loadPastedJson() call until the queue runs out (by posting or skipping
+  // through all of it) or the admin hits Back. Separate from jpPasteQueue
+  // (which only holds what's left AFTER the one currently in the review
+  // form) so the skip controls stay visible even on the batch's last entry.
+  let jpPasteMode = false;
+
   function updateJsonQueueStatus() {
     const el = document.getElementById('jpJsonQueueStatus');
     if (jpPasteQueue.length > 0) {
@@ -1319,6 +1343,7 @@
     } else {
       el.classList.add('hidden');
     }
+    document.getElementById('jpQueueSkipBar').classList.toggle('hidden', !jpPasteMode);
   }
 
   function loadPastedJson() {
@@ -1337,6 +1362,7 @@
     catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); return; }
 
     jpPasteQueue = normalized.slice(1);
+    jpPasteMode = true;
     const first = normalized[0];
     jpStructured = { company: first.company, positions: first.positions, sourceUrl: null };
     document.getElementById('jpPasteJson').value = '';
@@ -1344,6 +1370,70 @@
     updateJsonQueueStatus();
     document.getElementById('jp-source-step').classList.add('hidden');
     document.getElementById('jp-review-step').classList.remove('hidden');
+  }
+
+  // Loads the next item from jpPasteQueue into the review form (or ends the
+  // batch if it's empty), shared by the normal post-success flow, the
+  // "Skip this company" button, and "Skip to company name".
+  function advancePasteQueue() {
+    if (jpPasteQueue.length > 0) {
+      const next = jpPasteQueue.shift();
+      jpStructured = { company: next.company, positions: next.positions, sourceUrl: null };
+      renderPositionsEditor();
+      updateJsonQueueStatus();
+      document.getElementById('jp-review-step').classList.remove('hidden');
+    } else {
+      jpPasteMode = false;
+      updateJsonQueueStatus();
+      backToSourceStep();
+    }
+  }
+
+  // "⏭ Skip this company" — discards whatever's in the review form right
+  // now (never posted) and loads the next queued company. Mainly useful
+  // after a session-expiry relogin forces re-pasting the same batch: the
+  // admin can skip back past companies they already posted before the
+  // interruption instead of posting them a second time.
+  function skipCurrentPastedJob() {
+    if (!jpPasteMode) return;
+    advancePasteQueue();
+  }
+
+  // "Skip to company name" — fast-forwards past everything up to AND
+  // including the first match of the typed company name (checked against
+  // the company currently in the review form first, then the queue in
+  // order), landing on whatever comes right after it. Typing the same name
+  // again continues from there, so a company appearing more than once in
+  // the batch is skipped past one occurrence at a time.
+  function skipToCompany() {
+    if (!jpPasteMode) return;
+    const input = document.getElementById('jpSkipToCompanyInput');
+    const target = input.value.trim();
+    if (!target) { showToast('Type the company name to skip to.', 'error'); return; }
+
+    const remaining = [{ company: jpStructured.company, positions: jpStructured.positions }, ...jpPasteQueue];
+    const idx = remaining.findIndex(c => c.company.trim().toLowerCase() === target.toLowerCase());
+    if (idx === -1) {
+      showToast(`"${target}" isn't in the current or remaining queued companies.`, 'error');
+      return;
+    }
+
+    const after = remaining.slice(idx + 1);
+    input.value = '';
+    if (after.length === 0) {
+      jpPasteQueue = [];
+      jpPasteMode = false;
+      updateJsonQueueStatus();
+      backToSourceStep();
+      showToast(`Skipped past "${target}" — that was the last one in this batch.`, 'success');
+      return;
+    }
+    const next = after[0];
+    jpPasteQueue = after.slice(1);
+    jpStructured = { company: next.company, positions: next.positions, sourceUrl: null };
+    renderPositionsEditor();
+    updateJsonQueueStatus();
+    showToast(`Skipped past "${target}" — now showing ${next.company}.`, 'success');
   }
 
   async function handleJobFile(evt) {
@@ -1797,14 +1887,9 @@
       resetLogoPreviewUI();
       loadPostedJobs();
 
-      if (jpPasteQueue.length > 0) {
-        const next = jpPasteQueue.shift();
-        jpStructured = { company: next.company, positions: next.positions, sourceUrl: null };
-        renderPositionsEditor();
-        updateJsonQueueStatus();
-        document.getElementById('jp-review-step').classList.remove('hidden');
+      if (jpPasteMode) {
+        advancePasteQueue();
       } else {
-        updateJsonQueueStatus();
         backToSourceStep();
       }
     } catch (err) {
