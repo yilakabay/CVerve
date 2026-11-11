@@ -1938,6 +1938,15 @@
                 : `<button onclick="postJobToTelegram('${j._id}', this)" class="text-sky-600 hover:text-sky-800 font-semibold flex-shrink-0">📣 Post to Telegram (all ${j.positions.length} position${j.positions.length !== 1 ? 's' : ''})</button>`
               }
             </div>
+            ${!isPosted ? `
+            <div class="flex items-center justify-between gap-2 pt-1.5 mt-1 border-t border-gray-50">
+              ${j.scheduledTelegramPostAt
+                ? `<span class="text-[0.7rem] text-amber-600 font-semibold flex-shrink-0">⏰ Scheduled ${new Date(j.scheduledTelegramPostAt).toLocaleString()}</span>
+                   <button onclick="clearJobSchedule('${j._id}', this)" class="text-[0.7rem] text-red-400 hover:text-red-600 font-semibold flex-shrink-0">Cancel</button>`
+                : `<input type="datetime-local" id="jpSchedule-${j._id}" class="text-[0.7rem] px-1.5 py-1 rounded border border-gray-200 flex-1 min-w-0">
+                   <button onclick="scheduleJobPost('${j._id}', this)" class="text-[0.7rem] text-amber-600 hover:text-amber-800 font-semibold flex-shrink-0">⏰ Schedule</button>`
+              }
+            </div>` : ''}
           </div>
         </div>
       `;
@@ -1963,6 +1972,56 @@
     } catch (err) {
       showToast(err.message, 'error');
       btn.disabled = false; btn.textContent = originalText;
+    }
+  }
+
+  // Sets scheduledTelegramPostAt on the job (manage-jobs 'update') so
+  // scheduled-telegram-posts.js — a cron Scheduled Function that runs every
+  // 5 minutes — auto-posts it to the Telegram channel at that moment,
+  // without the admin needing to come back and click "Post to Telegram"
+  // themselves. Lets a batch of jobs be spread evenly through the day
+  // instead of all going out the moment they're reviewed. The admin can
+  // still post any scheduled job manually at any time — doing so clears the
+  // schedule itself (see post-job-telegram.js) so it isn't posted twice.
+  async function scheduleJobPost(jobId, btn) {
+    const input = document.getElementById('jpSchedule-' + jobId);
+    const value = input.value;
+    if (!value) { showToast('Pick a date and time first.', 'error'); return; }
+    const when = new Date(value);
+    if (isNaN(when.getTime())) { showToast('Invalid date/time.', 'error'); return; }
+    if (when.getTime() < Date.now() - 60000) {
+      if (!confirm('That time is in the past — post it right away instead of scheduling it?')) return;
+    }
+
+    const originalText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const { ok, data } = await api('manage-jobs', {
+        token: adminToken, action: 'update', jobId,
+        job: { scheduledTelegramPostAt: when.toISOString() }
+      });
+      if (!ok) throw new Error(data.error || 'Failed to schedule.');
+      showToast(`Scheduled for ${when.toLocaleString()}`, 'success');
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false; btn.textContent = originalText;
+    }
+  }
+
+  async function clearJobSchedule(jobId, btn) {
+    btn.disabled = true;
+    try {
+      const { ok, data } = await api('manage-jobs', {
+        token: adminToken, action: 'update', jobId,
+        job: { scheduledTelegramPostAt: null }
+      });
+      if (!ok) throw new Error(data.error || 'Failed to cancel schedule.');
+      showToast('Schedule cancelled.', 'success');
+      loadPostedJobs();
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
     }
   }
 

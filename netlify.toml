@@ -18,3 +18,12 @@
   # the CPU's SIMD support (tesseract-core-simd.wasm vs tesseract-core.wasm,
   # etc.) — including all of them means it always finds the one it needs.
   included_files = ["node_modules/tesseract.js-core/**"]
+
+# Scheduled Function — fires any job posting whose admin-set
+# scheduledTelegramPostAt has arrived (see functions/scheduled-telegram-posts.js
+# and admin.html's per-job "Schedule" field). Every 5 minutes is frequent
+# enough that a scheduled time is honored within a few minutes without
+# running so often it adds meaningful load; Telegram posting is not
+# time-critical to the second.
+[functions."scheduled-telegram-posts"]
+  schedule = "*/5 * * * *"

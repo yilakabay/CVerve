@@ -239,6 +239,7 @@ exports.handler = async (event, context) => {
       try { _id = new ObjectId(jobId); } catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid jobId' }) }; }
 
       const update = { updatedAt: new Date() };
+      const unset = {};
       if (job.company) update.company = job.company.toString().trim();
       if (Array.isArray(job.positions)) update.positions = job.positions.map(sanitizePosition);
       if (job.status) update.status = job.status;
@@ -251,8 +252,27 @@ exports.handler = async (event, context) => {
           return { statusCode: 400, body: JSON.stringify({ error: 'Invalid or oversized logo image.' }) };
         }
       }
+      // Admin sets this to a future date+time to have scheduled-telegram-posts.js
+      // (a cron Scheduled Function) auto-post this job to the Telegram channel
+      // at that moment instead of the admin clicking "Post to Telegram"
+      // themselves — lets postings be spread evenly through the day. Passing
+      // null clears a pending schedule (e.g. the admin changed their mind, or
+      // post-job-telegram.js itself clears it once the admin posts manually).
+      if (job.scheduledTelegramPostAt !== undefined) {
+        if (job.scheduledTelegramPostAt === null) {
+          unset.scheduledTelegramPostAt = '';
+        } else {
+          const when = new Date(job.scheduledTelegramPostAt);
+          if (isNaN(when.getTime())) {
+            return { statusCode: 400, body: JSON.stringify({ error: 'Invalid scheduledTelegramPostAt date/time.' }) };
+          }
+          update.scheduledTelegramPostAt = when;
+        }
+      }
 
-      await jobsCol.updateOne({ _id }, { $set: update });
+      const mongoUpdate = { $set: update };
+      if (Object.keys(unset).length > 0) mongoUpdate.$unset = unset;
+      await jobsCol.updateOne({ _id }, mongoUpdate);
       return { statusCode: 200, body: JSON.stringify({ success: true }) };
     }
 
