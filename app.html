@@ -1884,15 +1884,23 @@
         };
 
         // Reads Telegram's Mini App start_param (set when a user taps a job
-        // posted to the channel — a t.me/<bot>?startapp=job_<id>_<idx> link)
-        // and opens that exact job's Detail modal. Only ever set when the app
-        // is actually opened from such a link — undefined/empty for every
-        // normal open, so this is a no-op the overwhelming majority of the
-        // time. The job itself is fetched fresh via manage-jobs's public
-        // 'get' action (no admin token needed) rather than relying on it
-        // already being in allJobsCache/fullJobsCache, since someone tapping
-        // a channel post straight into a cold app has neither buffer
-        // populated yet.
+        // posted to the channel) and either opens one position's Detail modal
+        // or scrolls to that company's whole job card, depending on the link
+        // shape:
+        //   job_<id>_<idx>  — a single position's "View Details & Apply" link
+        //                      (used inline within each position's text in a
+        //                      channel post) → opens that position's modal.
+        //   job_<id>        — the one button at the bottom of a channel post
+        //                      ("View All Positions at <Company>") → scrolls
+        //                      to that company's card in the Find Job feed,
+        //                      showing every position at once, no modal.
+        // Only ever set when the app is actually opened from such a link —
+        // undefined/empty for every normal open, so this is a no-op the
+        // overwhelming majority of the time. The job itself is fetched fresh
+        // via manage-jobs's public 'get' action (no admin token needed)
+        // rather than relying on it already being in allJobsCache/
+        // fullJobsCache, since someone tapping a channel post straight into a
+        // cold app has neither buffer populated yet.
         async function handleTelegramJobDeepLink() {
             try {
                 const tg = window.Telegram && window.Telegram.WebApp;
@@ -1906,12 +1914,12 @@
                     || new URLSearchParams(window.location.search).get('job');
                 if (!startParam || !startParam.startsWith('job_')) return;
 
-                const rest = startParam.slice(4); // "<jobId>_<positionIndex>"
+                const rest = startParam.slice(4); // "<jobId>" or "<jobId>_<positionIndex>"
                 const sep  = rest.lastIndexOf('_'); // jobId (hex ObjectId) never contains '_'
-                if (sep === -1) return;
-                const jobId  = rest.slice(0, sep);
-                const posIdx = parseInt(rest.slice(sep + 1), 10);
-                if (!jobId || !Number.isInteger(posIdx) || posIdx < 0) return;
+                const jobId  = sep === -1 ? rest : rest.slice(0, sep);
+                const posIdx = sep === -1 ? null : parseInt(rest.slice(sep + 1), 10);
+                if (!jobId) return;
+                if (sep !== -1 && (!Number.isInteger(posIdx) || posIdx < 0)) return;
 
                 const res = await fetch('/.netlify/functions/manage-jobs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1921,7 +1929,7 @@
                 if (!res.ok || !data.success || !data.job) return;
 
                 const job = data.job;
-                if (!job.positions || !job.positions[posIdx]) return;
+                if (posIdx !== null && (!job.positions || !job.positions[posIdx])) return;
 
                 // Still worth having in the cache for when the modal is closed
                 // and the Find Job feed is sitting behind it — but this is no
@@ -1932,12 +1940,27 @@
                 if (!allJobsCache.some(j => j._id === job._id)) allJobsCache.unshift(job);
 
                 switchTab('findjob');
-                // Let the Find Job tab finish rendering before opening the modal
-                // on top of it, same reasoning as other post-tab-switch actions
-                // elsewhere in this file. Pass the job object directly so this
-                // doesn't depend on it still being findable in allJobsCache/
-                // fullJobsCache by the time the timeout fires.
-                setTimeout(() => openJobDetail(job._id, posIdx, job), 150);
+                if (posIdx !== null) {
+                    // Let the Find Job tab finish rendering before opening the modal
+                    // on top of it, same reasoning as other post-tab-switch actions
+                    // elsewhere in this file. Pass the job object directly so this
+                    // doesn't depend on it still being findable in allJobsCache/
+                    // fullJobsCache by the time the timeout fires.
+                    setTimeout(() => openJobDetail(job._id, posIdx, job), 150);
+                } else {
+                    // Whole-company link: make sure the just-inserted job is
+                    // actually rendered (switchFindJobSubtab's own fetch may
+                    // still be in flight), then scroll its card into view and
+                    // briefly highlight it so it's obvious which card this is.
+                    setTimeout(() => {
+                        renderAllJobs();
+                        const card = document.getElementById('jobCard-' + job._id);
+                        if (!card) return;
+                        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        card.classList.add('ring-2', 'ring-indigo-400');
+                        setTimeout(() => card.classList.remove('ring-2', 'ring-indigo-400'), 2500);
+                    }, 200);
+                }
             } catch (e) {
                 console.error('Telegram job deep link failed:', e);
             }
@@ -2281,7 +2304,7 @@
                 }).join('');
 
                 return `
-                    <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
+                    <div id="jobCard-${job._id}" class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
                         <div class="flex items-start gap-2.5 min-w-0 mb-1">
                             ${jobLogoHtml(job)}
                             <div class="min-w-0">

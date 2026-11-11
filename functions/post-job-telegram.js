@@ -1,15 +1,21 @@
 // functions/post-job-telegram.js
-// POST body: { token, jobId, positionIndex }
+// POST body: { token, jobId }
 //
-// Admin-only. Posts one position from a job already saved via manage-jobs.js
-// to the public "CVcase Jobs" Telegram channel — a short teaser (company,
-// title, a few highlights) with a button that deep-links straight back into
-// the CVcase Mini App to that exact job's Detail screen, where the full
-// description, Apply options, and "Build your CV/Letter" live. This is a
-// DELIBERATELY SEPARATE, MANUAL step from manage-jobs.js's 'create' — a
-// posting can have several positions and the admin may want to stagger them
-// across the day, hold one back, or fix a typo before it goes out, so
-// nothing is ever auto-posted to the channel just because it was saved.
+// Admin-only. Posts an ENTIRE job posting (company + every position on it)
+// from manage-jobs.js to the public "CVcase Jobs" Telegram channel as ONE
+// post (or, if the combined text is too long for a single Telegram message,
+// a short sequential run of messages) rather than one separate message per
+// position. Each position gets its own block of text ending in an inline
+// "View Details & Apply" hyperlink that deep-links straight to THAT
+// position's Detail screen in the CVcase Mini App. After every position has
+// been listed, one inline keyboard button at the very end — "View All
+// Positions at <Company>" — deep-links to the company's whole job card in
+// the Mini App's Find Job feed (every position, not just one), via a
+// startapp payload with no position index (see buildCompanyStartParam()).
+// This is a DELIBERATELY SEPARATE, MANUAL step from manage-jobs.js's
+// 'create' — the admin may want to fix a typo or hold a posting back before
+// it goes out, so nothing is ever auto-posted to the channel just because
+// it was saved.
 //
 // Requires two env vars that don't exist yet elsewhere in this app:
 //   TELEGRAM_CHANNEL_ID — the channel to post to, e.g. "@cvcase_jobs" (a
@@ -20,15 +26,19 @@
 // (TELEGRAM_BOT_TOKEN already exists — reused from send-telegram-file.js /
 // telegram-webhook.js / telegram-auth.js.)
 //
-// The deep link uses Telegram's "direct link" Mini App start parameter
-// (https://t.me/<bot_username>?startapp=job_<jobId>_<positionIndex>) rather
-// than a plain https://cverve.netlify.app URL, so tapping it from the
+// Deep links use Telegram's "direct link" Mini App start parameter rather
+// than a plain https://cverve.netlify.app URL, so tapping one from the
 // channel — which is 100% Telegram members — opens straight inside the Mini
-// App (no browser hop) at the right job. app.html reads that start_param on
-// load (see handleTelegramJobDeepLink()) and opens the Job Detail modal for
-// it automatically. <bot_username> isn't hardcoded anywhere in this app, so
-// it's looked up once via Telegram's getMe API and cached for the life of
-// this function instance.
+// App (no browser hop):
+//   https://t.me/<bot_username>?startapp=job_<jobId>_<positionIndex>  — one
+//     position's in-text link, opens that position's Detail modal.
+//   https://t.me/<bot_username>?startapp=job_<jobId>                 — the
+//     bottom button, opens the Find Job feed scrolled to that company's card
+//     (every position at once).
+// app.html's handleTelegramJobDeepLink() reads that start_param on load and
+// branches on whether a position index is present. <bot_username> isn't
+// hardcoded anywhere in this app, so it's looked up once via Telegram's
+// getMe API and cached for the life of this function instance.
 
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
@@ -134,9 +144,36 @@ function escapeHtml(s) {
 }
 
 // Telegram's startapp payload only allows [A-Za-z0-9_-], up to 64 chars.
-// A Mongo ObjectId is 24 hex chars, so "job_<id>_<idx>" fits comfortably.
-function buildStartParam(jobId, positionIndex) {
+// A Mongo ObjectId is 24 hex chars, so both shapes fit comfortably.
+function buildPositionStartParam(jobId, positionIndex) {
   return `job_${jobId}_${positionIndex}`;
+}
+function buildCompanyStartParam(jobId) {
+  return `job_${jobId}`;
+}
+
+// Telegram text messages cap at 4096 chars; a sendPhoto caption caps at
+// 1024. Positions are kept whole (never split mid-position) and packed
+// greedily into chunks under this budget, leaving headroom for the trailing
+// "— continued —" note and, on the LAST chunk, the still-to-come company
+// button doesn't affect text length (buttons aren't part of the text), so
+// only the running caption/text length itself needs watching here.
+function chunkPositionBlocks(blocks, limit) {
+  const chunks = [];
+  let current = [];
+  let currentLen = 0;
+  for (const block of blocks) {
+    const addedLen = block.length + 2; // + the blank line joining it to the next block
+    if (current.length > 0 && currentLen + addedLen > limit) {
+      chunks.push(current);
+      current = [];
+      currentLen = 0;
+    }
+    current.push(block);
+    currentLen += addedLen;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 exports.handler = async (event, context) => {
@@ -147,13 +184,13 @@ exports.handler = async (event, context) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { token, jobId, positionIndex } = body;
+  const { token, jobId } = body;
 
   if (!verifyAdminToken(token)) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
-  if (!jobId || !Number.isInteger(positionIndex) || positionIndex < 0) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'jobId and positionIndex are required.' }) };
+  if (!jobId) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'jobId is required.' }) };
   }
 
   const botToken   = process.env.TELEGRAM_BOT_TOKEN;
@@ -178,8 +215,9 @@ exports.handler = async (event, context) => {
 
     const job = await jobsCol.findOne({ _id });
     if (!job) return { statusCode: 404, body: JSON.stringify({ error: 'Job not found' }) };
-    const pos = job.positions && job.positions[positionIndex];
-    if (!pos) return { statusCode: 404, body: JSON.stringify({ error: 'Position not found on this job' }) };
+    if (!Array.isArray(job.positions) || job.positions.length === 0) {
+      return { statusCode: 404, body: JSON.stringify({ error: 'This job has no positions to post.' }) };
+    }
 
     // Bot username isn't hardcoded anywhere in this app — resolve it once
     // per cold start via getMe (cheap, cached on the function's module
@@ -192,75 +230,113 @@ exports.handler = async (event, context) => {
       }
       exports.__cachedBotUsername = me.result.username;
     }
-    const deepLink = `https://t.me/${exports.__cachedBotUsername}?startapp=${buildStartParam(jobId, positionIndex)}`;
+    const botUsername = exports.__cachedBotUsername;
+    const companyDeepLink = `https://t.me/${botUsername}?startapp=${buildCompanyStartParam(jobId)}`;
 
-    // ── Compose the teaser (short — full detail lives in the app) ───────────
-    // Layout matches the admin's own hand-edited template (company name as
-    // an underlined bold header, each field its own bold-labeled line with
-    // blank-line spacing) so every auto-posted position — "Position 1",
-    // "Position 2", etc. — already looks like that without any manual
-    // re-editing per post.
-    const lines = [];
-    lines.push(`<u><b>${escapeHtml(job.company)}</b></u>`);
-    lines.push('');
-    lines.push(`🔹 <b>Position ${positionIndex + 1}: ${escapeHtml(pos.title)}</b>`);
-    if (pos.qualification && pos.qualification !== 'Not specified') {
+    // ── Compose one text block per position ─────────────────────────────────
+    // Layout matches the admin's own hand-edited template (each field its own
+    // bold-labeled line, blank-line spacing), ending in an in-text hyperlink
+    // straight to that position's own Detail screen — this is "the link" at
+    // the end of each position, distinct from the one button at the very end
+    // of the whole post, which goes to the company's full job card instead.
+    const positionBlocks = job.positions.map((pos, idx) => {
+      const lines = [];
+      lines.push(`🔹 <b>Position ${idx + 1}: ${escapeHtml(pos.title)}</b>`);
+      if (pos.qualification && pos.qualification !== 'Not specified') {
+        lines.push('');
+        lines.push(`🎓 <b>Education:</b> ${escapeHtml(pos.qualification)}`);
+      }
+      if (pos.experience) {
+        lines.push('');
+        lines.push(`💼 <b>Experience:</b> ${escapeHtml(pos.experience)}`);
+      }
+      if (pos.salary && pos.salary !== 'Not specified') {
+        lines.push('');
+        lines.push(`💰 <b>Salary:</b> ${escapeHtml(pos.salary)}`);
+      }
+      if (pos.expireDate && pos.expireDate !== 'Not specified') {
+        lines.push('');
+        lines.push(`⏰ <b>Deadline:</b> ${escapeHtml(pos.expireDate)}`);
+      }
+      if (pos.shortDescription) { lines.push(''); lines.push(escapeHtml(pos.shortDescription)); }
       lines.push('');
-      lines.push(`🎓 <b>Education:</b> ${escapeHtml(pos.qualification)}`);
-    }
-    if (pos.experience) {
-      lines.push('');
-      lines.push(`💼 <b>Experience:</b> ${escapeHtml(pos.experience)}`);
-    }
-    if (pos.salary && pos.salary !== 'Not specified') {
-      lines.push('');
-      lines.push(`💰 <b>Salary:</b> ${escapeHtml(pos.salary)}`);
-    }
-    if (pos.expireDate && pos.expireDate !== 'Not specified') {
-      lines.push('');
-      lines.push(`⏰ <b>Deadline:</b> ${escapeHtml(pos.expireDate)}`);
-    }
-    if (pos.shortDescription) { lines.push(''); lines.push(escapeHtml(pos.shortDescription)); }
-    lines.push('');
-    lines.push('📩 Full details, how to apply, and build your CV & cover letter for this job in CVcase.');
+      const posDeepLink = `https://t.me/${botUsername}?startapp=${buildPositionStartParam(jobId, idx)}`;
+      lines.push(`<a href="${posDeepLink}">📄 View Details & Apply</a>`);
+      return lines.join('\n');
+    });
 
-    // Only the FIRST position of a job to ever get posted to the channel
-    // carries the company logo photo — if this job already has any prior
-    // telegramPosts (any position), every subsequent post is text-only.
-    // Otherwise the same logo repeats across every position of a multi-role
-    // posting, which looks repetitive/spammy in the channel feed.
-    const hasPriorPost  = Array.isArray(job.telegramPosts) && job.telegramPosts.length > 0;
-    const willSendPhoto = !hasPriorPost && job.logo && /^data:image\/(png|jpe?g|webp);base64,/.test(job.logo);
+    // A logo photo carries a 1024-char caption cap; plain text messages cap
+    // at 4096. Try to fit everything (header + all positions) into one
+    // photo-capped chunk first; if it doesn't fit, fall back to text-only
+    // chunking at the higher limit — multiple messages only when truly
+    // necessary for a long multi-position posting.
+    const header = `<u><b>${escapeHtml(job.company)}</b></u>`;
+    const hasLogo = job.logo && /^data:image\/(png|jpe?g|webp);base64,/.test(job.logo);
+    const CAPTION_LIMIT = 1024;
+    const TEXT_LIMIT = 4096;
 
-    const caption = lines.join('\n').slice(0, willSendPhoto ? 1024 : 4096); // sendPhoto caption cap is 1024
+    const wholeText = [header, '', ...positionBlocks].join('\n\n');
+    const fitsAsPhoto = hasLogo && wholeText.length <= CAPTION_LIMIT;
 
-    const replyMarkup = { inline_keyboard: [[{ text: '📄 View Details & Apply', url: deepLink }]] };
-
-    let tgResult;
-    if (willSendPhoto) {
-      const logoBuffer = Buffer.from(job.logo.split(',')[1], 'base64');
-      tgResult = await sendPhotoToChannel(botToken, channelId, logoBuffer, caption, replyMarkup);
+    let messages; // array of { text, asPhoto }
+    if (fitsAsPhoto) {
+      messages = [{ text: wholeText, asPhoto: true }];
     } else {
-      tgResult = await httpsPostJson(`/bot${botToken}/sendMessage`, {
-        chat_id: channelId, text: caption, parse_mode: 'HTML', reply_markup: replyMarkup
+      const chunks = chunkPositionBlocks(positionBlocks, TEXT_LIMIT - header.length - 40);
+      messages = chunks.map((blocks, i) => {
+        const parts = [header];
+        if (chunks.length > 1) parts[0] += ` (${i + 1}/${chunks.length})`;
+        parts.push('');
+        parts.push(blocks.join('\n\n'));
+        return { text: parts.join('\n\n'), asPhoto: i === 0 && hasLogo && (header.length + 2 + blocks.join('\n\n').length) <= CAPTION_LIMIT };
       });
     }
 
-    if (!tgResult.body || !tgResult.body.ok) {
-      console.error('post-job-telegram: Telegram API error', tgResult.statusCode, tgResult.body);
-      const desc = tgResult.body && tgResult.body.description;
-      return { statusCode: 502, body: JSON.stringify({ error: desc ? `Telegram rejected the post: ${desc}` : 'Telegram rejected the post. Check the bot is an admin of the channel with post permission.' }) };
+    const sentMessageIds = [];
+    for (let i = 0; i < messages.length; i++) {
+      const { text, asPhoto } = messages[i];
+      const isLast = i === messages.length - 1;
+      // The "view whole company card" button only makes sense once, on the
+      // final message of the run, so it doesn't repeat across chunks.
+      const replyMarkup = isLast
+        ? { inline_keyboard: [[{ text: `🏢 View All Positions at ${job.company}`, url: companyDeepLink }]] }
+        : undefined;
+
+      let tgResult;
+      if (asPhoto) {
+        const logoBuffer = Buffer.from(job.logo.split(',')[1], 'base64');
+        tgResult = await sendPhotoToChannel(botToken, channelId, logoBuffer, text, replyMarkup);
+      } else {
+        tgResult = await httpsPostJson(`/bot${botToken}/sendMessage`, {
+          chat_id: channelId, text, parse_mode: 'HTML',
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+        });
+      }
+
+      if (!tgResult.body || !tgResult.body.ok) {
+        console.error('post-job-telegram: Telegram API error', tgResult.statusCode, tgResult.body);
+        const desc = tgResult.body && tgResult.body.description;
+        // Record whatever already went out before the failure, so a retry
+        // doesn't have to re-send messages that already landed in the channel.
+        if (sentMessageIds.length > 0) {
+          await jobsCol.updateOne(
+            { _id },
+            { $push: { telegramPosts: { all: true, partial: true, messageIds: sentMessageIds, chatId: channelId, postedAt: new Date() } } }
+          );
+        }
+        return { statusCode: 502, body: JSON.stringify({ error: desc ? `Telegram rejected the post: ${desc}` : 'Telegram rejected the post. Check the bot is an admin of the channel with post permission.' }) };
+      }
+      sentMessageIds.push(tgResult.body.result.message_id);
     }
 
-    // Record the post on the job doc so admin.html can show "Posted ✓" and
-    // the admin can tell at a glance which positions have already gone out.
-    const messageId = tgResult.body.result.message_id;
+    // Record the post on the job doc so admin.html can show "Posted ✓" for
+    // the whole job (it's no longer tracked per position).
     await jobsCol.updateOne(
       { _id },
-      { $push: { telegramPosts: { positionIndex, messageId, chatId: channelId, postedAt: new Date() } } }
+      { $push: { telegramPosts: { all: true, messageIds: sentMessageIds, chatId: channelId, postedAt: new Date() } } }
     );
 
-    return { statusCode: 200, body: JSON.stringify({ success: true, messageId, deepLink }) };
+    return { statusCode: 200, body: JSON.stringify({ success: true, messageIds: sentMessageIds, companyDeepLink }) };
 
   } catch (error) {
     console.error('post-job-telegram error:', error);
