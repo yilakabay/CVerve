@@ -266,31 +266,32 @@ exports.handler = async (event, context) => {
     });
 
     // A logo photo carries a 1024-char caption cap; plain text messages cap
-    // at 4096. Try to fit everything (header + all positions) into one
-    // photo-capped chunk first; if it doesn't fit, fall back to text-only
-    // chunking at the higher limit — multiple messages only when truly
-    // necessary for a long multi-position posting.
+    // at 4096. Rather than trying to cram the logo into the same message as
+    // the position text (and silently dropping it whenever that combined
+    // text didn't fit under 1024 — the original bug here, e.g. GTF's two
+    // positions alone already ran past that cap), the logo — when present —
+    // always goes out as its OWN leading photo message with just the
+    // company name as its caption, so it never depends on how much position
+    // text follows. The position text then follows as one or more separate
+    // text messages, each well under the much higher 4096 cap, chunked by
+    // chunkPositionBlocks() so a position's block is never split across two
+    // messages — a position either fits whole in a chunk, or starts the next
+    // one.
     const header = `<u><b>${escapeHtml(job.company)}</b></u>`;
     const hasLogo = job.logo && /^data:image\/(png|jpe?g|webp);base64,/.test(job.logo);
-    const CAPTION_LIMIT = 1024;
     const TEXT_LIMIT = 4096;
 
-    const wholeText = [header, '', ...positionBlocks].join('\n\n');
-    const fitsAsPhoto = hasLogo && wholeText.length <= CAPTION_LIMIT;
-
-    let messages; // array of { text, asPhoto }
-    if (fitsAsPhoto) {
-      messages = [{ text: wholeText, asPhoto: true }];
-    } else {
-      const chunks = chunkPositionBlocks(positionBlocks, TEXT_LIMIT - header.length - 40);
-      messages = chunks.map((blocks, i) => {
-        const parts = [header];
-        if (chunks.length > 1) parts[0] += ` (${i + 1}/${chunks.length})`;
-        parts.push('');
-        parts.push(blocks.join('\n\n'));
-        return { text: parts.join('\n\n'), asPhoto: i === 0 && hasLogo && (header.length + 2 + blocks.join('\n\n').length) <= CAPTION_LIMIT };
-      });
-    }
+    const chunks = chunkPositionBlocks(positionBlocks, TEXT_LIMIT - header.length - 40);
+    const textMessages = chunks.map((blocks, i) => {
+      const parts = [header];
+      if (chunks.length > 1) parts[0] += ` (${i + 1}/${chunks.length})`;
+      parts.push('');
+      parts.push(blocks.join('\n\n'));
+      return { text: parts.join('\n\n'), asPhoto: false };
+    });
+    const messages = hasLogo
+      ? [{ text: header, asPhoto: true }, ...textMessages]
+      : textMessages;
 
     const sentMessageIds = [];
     for (let i = 0; i < messages.length; i++) {
