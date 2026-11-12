@@ -35,7 +35,7 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 // search the site). window.open()/location on a schemeless string like
 // "www.ethiojobs.net" is treated as a RELATIVE path by the browser, not an
 // external URL — so it was silently resolving to
-// https://cverve.netlify.app/www.ethiojobs.net (our own site, 404) instead
+// https://cvcase.netlify.app/www.ethiojobs.net (our own site, 404) instead
 // of https://www.ethiojobs.net. Always prefix with https:// when no scheme
 // is present so "Open Link" actually leaves our app and lands on the real
 // site.

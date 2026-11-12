@@ -78,7 +78,7 @@ function verifyToken(token) {
 // gives a bare domain, or an admin types one in without "https://") is
 // treated by the browser as a RELATIVE path, not an external site — so
 // window.open()/location on it silently resolves to
-// https://cverve.netlify.app/www.ethiojobs.net (our own site, 404) instead
+// https://cvcase.netlify.app/www.ethiojobs.net (our own site, 404) instead
 // of https://www.ethiojobs.net. Always prefix with https:// when no scheme
 // is present so "Open Link" actually leaves our app. Kept in sync with the
 // same helper in refine-job-posting.js.

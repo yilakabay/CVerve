@@ -50,7 +50,7 @@ const client = new MongoClient(uri, { maxPoolSize: 10, minPoolSize: 1, maxIdleTi
 
 // The app's live Mini App URL — tapping this button opens it directly inside
 // Telegram without leaving the chat.
-const CVcase_APP_URL = 'https://cverve.netlify.app/app';
+const CVcase_APP_URL = 'https://cvcase.netlify.app/app';
 
 function httpsPost(url, payload) {
   return new Promise((resolve, reject) => {
